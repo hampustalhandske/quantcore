@@ -104,15 +104,3 @@ def _garch_11_variance(
 
     return variance
 
-
-# A Numba-jitted variant is provided so the project's "reference + optimized
-# version" convention is applied consistently to the GARCH recursion as well.
-@np.vectorize
-def _garch_11_variance_numba_compatible(
-        returns: np.float64, prev_variance: np.float64
-    ) -> np.float64:
-    return returns * returns
-
-
-# The public function remains the NumPy reference; the Numba implementation is
-# kept alongside it to satisfy the project's performance convention.

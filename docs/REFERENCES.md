@@ -44,7 +44,8 @@ cite the relevant entry in their docstrings.
 
 - Bollerslev, T. (1986). "Generalized Autoregressive Conditional
   Heteroskedasticity." *Journal of Econometrics*, 31(3), 307–327.
-  → `risk/volatility.py` (GARCH(1,1) implementation)
+  → `risk/volatility.py` (GARCH(1,1) implementation; also GARCH(1,1) MLE
+  estimation, `fit_garch_11`)
 
 ## Citation convention
 

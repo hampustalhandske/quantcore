@@ -4,7 +4,23 @@ Optimized numerical backend for derivative pricing, stochastic differential
 equation simulation, and risk metrics. Designed to be pip-installed as a
 dependency by downstream projects.
 
-## Setup
+## Install from GitHub
+
+Install the package directly from the GitHub repository using pip:
+
+```bash
+pip install "git+https://github.com/hampustalhandske/quantcore.git"
+```
+
+Or with uv:
+
+```bash
+uv pip install "git+https://github.com/hampustalhandske/quantcore.git"
+```
+
+## Local setup
+
+For local development in this repository:
 
 ```bash
 uv sync --extra dev
@@ -29,10 +45,10 @@ tested against the reference for numerical agreement. See
 ## Status
 
 - [x] Black-Scholes closed-form pricing
-- [ ] Monte Carlo option pricer (with variance reduction)
-- [ ] Euler-Maruyama SDE solver
-- [ ] VaR / CVaR
-- [ ] GARCH volatility model
+- [x] Monte Carlo option pricer (with variance reduction)
+- [x] Euler-Maruyama SDE solver
+- [x] VaR / CVaR
+- [x] GARCH volatility model
 
 
 ## REFERENCES

@@ -50,6 +50,22 @@ select = [
 ]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# Kalman filter state-space notation (A, H, Q, R, P0) matches the standard
+# textbook convention (Kalman 1960) and the module's own formula docstring;
+# renaming to snake_case would obscure the correspondence to the math.
+"src/quantcore/filtering/kalman.py" = ["N803"]
+# Black-Litterman view matrix/vector notation (P, Q) matches the standard
+# textbook convention (Black & Litterman 1992) and the module's own formula
+# docstring; renaming to snake_case would obscure the correspondence to the math.
+"src/quantcore/portfolio/black_litterman.py" = ["N803"]
+# Test files exercising the same textbook matrix/vector notation as the
+# modules above (A, H, Q, R, P0 for Kalman; P, Q for Black-Litterman; X, T
+# for OLS) — same rationale as the source-file ignores above.
+"tests/unit/filtering/test_kalman.py" = ["N806"]
+"tests/unit/portfolio/test_black_litterman.py" = ["N806"]
+"tests/unit/statistics/test_regression.py" = ["N806"]
+
 [tool.ruff.format]
 quote-style = "double"
 

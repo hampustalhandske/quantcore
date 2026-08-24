@@ -41,14 +41,12 @@ def black_scholes_call(
     if time_to_maturity == 0.0:
         return max(spot - strike, 0.0)
 
-    d1 = (
-        np.log(spot / strike) + (rate + 0.5 * volatility**2) * time_to_maturity
-    ) / (volatility * np.sqrt(time_to_maturity))
+    d1 = (np.log(spot / strike) + (rate + 0.5 * volatility**2) * time_to_maturity) / (
+        volatility * np.sqrt(time_to_maturity)
+    )
     d2 = d1 - volatility * np.sqrt(time_to_maturity)
 
-    return float(
-        spot * norm.cdf(d1) - strike * np.exp(-rate * time_to_maturity) * norm.cdf(d2)
-    )
+    return float(spot * norm.cdf(d1) - strike * np.exp(-rate * time_to_maturity) * norm.cdf(d2))
 
 
 def black_scholes_put(

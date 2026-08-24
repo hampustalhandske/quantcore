@@ -33,10 +33,13 @@ numbers without re-deriving them.
 
 ## Conventions
 
-- **Every numerically heavy function needs two versions**: a plain NumPy
-  reference implementation and a Numba-accelerated one, with a test asserting
-  they agree within a numerical tolerance (`np.allclose`). Never ship an
-  optimized version without the reference to test it against.
+- **Use Numba where the computation is a tight numerical loop** — recursive
+  variance recursions, path simulation, Viterbi decoding, Kalman predict/update
+  cycles. Use plain NumPy/SciPy for closed-form expressions (Greeks, yield curve
+  formulas, OLS) and for objective functions passed to `scipy.optimize` (which
+  cannot call Numba JIT functions). One implementation per function — no parallel
+  NumPy reference copy unless a specific need (like an MLE penalty callable)
+  forces it.
 - Public functions must be fully typed (mypy strict mode is enforced outside
   `core/`).
 - No silent fallbacks: if a Numba-compiled path fails, raise — don't
@@ -46,7 +49,7 @@ numbers without re-deriving them.
   contract — don't rename or change signatures without checking downstream use.
 
 ## REFERENCES
-`REFERENCES.md` contains the source of truth for the mathematical model to use
+`docs/REFERENCES.md` contains the source of truth for the mathematical model to use
 for calculations. Both the source and its corresponding file. 
 
 ## Out of scope for this repo

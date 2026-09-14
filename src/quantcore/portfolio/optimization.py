@@ -85,6 +85,7 @@ def mean_variance_weights(
     expected_returns: npt.NDArray[np.float64],
     cov_matrix: npt.NDArray[np.float64],
     risk_aversion: float,
+    allow_short: bool = False,
 ) -> npt.NDArray[np.float64]:
     """Maximize w^T mu - 0.5*risk_aversion*w^T Sigma w s.t. sum(w) = 1, w >= 0.
 
@@ -92,22 +93,24 @@ def mean_variance_weights(
         expected_returns: Expected asset returns, shape (k,).
         cov_matrix: Covariance matrix of asset returns, shape (k, k).
         risk_aversion: Risk-aversion coefficient lambda >= 0.
+        allow_short: If False (default), also constrains w >= 0.
 
     Returns:
         Portfolio weights of shape (k,), summing to 1.
     """
     _validate_mean_variance_inputs(expected_returns, cov_matrix, risk_aversion)
-    return _mean_variance_weights(expected_returns, cov_matrix, risk_aversion)
+    return _mean_variance_weights(expected_returns, cov_matrix, risk_aversion, allow_short)
 
 
 def _mean_variance_weights(
     expected_returns: npt.NDArray[np.float64],
     cov_matrix: npt.NDArray[np.float64],
     risk_aversion: float,
+    allow_short: bool,
 ) -> npt.NDArray[np.float64]:
     k = cov_matrix.shape[0]
     x0 = np.full(k, 1.0 / k)
-    bounds = [(0.0, None)] * k
+    bounds = None if allow_short else [(0.0, None)] * k
     constraints = [LinearConstraint(np.ones(k), 1.0, 1.0)]
 
     def objective(w: npt.NDArray[np.float64]) -> float:

@@ -65,6 +65,28 @@ class TestMeanVarianceWeights:
         assert weights.sum() == pytest.approx(1.0, abs=1e-6)
         assert np.all(weights >= -1e-8)
 
+    def test_allow_short_can_produce_a_negative_weight(self) -> None:
+        # A strongly negative view on one asset, uncorrelated with the
+        # other, should be expressed as a short position when allowed to.
+        weights = mean_variance_weights(
+            expected_returns=np.array([0.05, -0.20]),
+            cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+            risk_aversion=1.0,
+            allow_short=True,
+        )
+        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+        assert weights[1] < 0.0
+
+    def test_allow_short_false_still_constrains_to_non_negative(self) -> None:
+        weights = mean_variance_weights(
+            expected_returns=np.array([0.05, -0.20]),
+            cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+            risk_aversion=1.0,
+            allow_short=False,
+        )
+        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+        assert np.all(weights >= -1e-8)
+
 
 class TestRiskParityWeights:
     def test_invalid_inputs(self) -> None:

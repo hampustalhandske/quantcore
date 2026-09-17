@@ -258,9 +258,17 @@ def component_var(
     cov_matrix: npt.NDArray[np.float64],
     confidence_level: float,
 ) -> npt.NDArray[np.float64]:
-    """Parametric Gaussian component VaR per asset; components sum to portfolio VaR."""
+    """Parametric Gaussian component VaR per asset; components sum to portfolio VaR.
+
+    Returns an all-zero vector, rather than dividing by zero, when
+    `portfolio_std` is at or below 1e-12 (e.g. an all-cash/all-zero-weight
+    book).
+    """
     _validate_component_var(weights, cov_matrix, confidence_level)
     return _component_var(weights, cov_matrix, confidence_level)
+
+
+_COMPONENT_VAR_STD_EPSILON = 1e-12
 
 
 def _component_var(
@@ -271,6 +279,8 @@ def _component_var(
     z_alpha = float(norm.ppf(confidence_level))
     portfolio_variance = float(weights @ cov_matrix @ weights)
     portfolio_std = np.sqrt(portfolio_variance)
+    if portfolio_std <= _COMPONENT_VAR_STD_EPSILON:
+        return np.zeros_like(weights)
     marginal = cov_matrix @ weights
     result: npt.NDArray[np.float64] = (weights * marginal) / portfolio_std * z_alpha
     return result

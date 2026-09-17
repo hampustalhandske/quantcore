@@ -8,6 +8,7 @@ import pytest
 from quantcore.time_series.var_model import (
     granger_causality_test,
     impulse_response,
+    select_var_lag_order,
     var_fit,
     var_forecast,
 )
@@ -42,6 +43,30 @@ class TestVarFit:
         assert coef_matrix.shape == (2, 3)
         assert sigma_u.shape == (2, 2)
         assert np.max(np.abs(coef_matrix[:, :2] - a1)) < 0.1
+
+
+class TestSelectVarLagOrder:
+    def test_invalid_criterion_raises(self) -> None:
+        data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 100, RNG_SEED)
+        with pytest.raises(ValueError):
+            select_var_lag_order(data, max_lags=3, criterion="hqic")
+
+    def test_does_not_crash_on_infeasible_small_lags(self) -> None:
+        # With very few observations most candidate lag orders are rejected
+        # by var_fit (not enough observations); select_var_lag_order must
+        # skip those rather than raise, as long as at least n_lags=1 fits.
+        data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 8, RNG_SEED)
+        n_lags = select_var_lag_order(data, max_lags=5, criterion="aic")
+        assert n_lags >= 1
+
+    def test_var1_series_selects_low_lag_order(self) -> None:
+        # Lag-order selection is noisy in finite samples; assert the
+        # recovered lag order is small (consistent with the true VAR(1)
+        # generating process) rather than pinning it to exactly 1.
+        a1 = np.array([[0.5, 0.0], [0.0, 0.3]])
+        data = _simulate_var1(a1, 400, RNG_SEED)
+        n_lags = select_var_lag_order(data, max_lags=5, criterion="bic")
+        assert 1 <= n_lags <= 2
 
 
 class TestVarForecast:

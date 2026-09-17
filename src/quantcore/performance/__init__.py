@@ -1,3 +1,7 @@
+from quantcore.performance.attribution import (
+    BrinsonFachlerAttribution,
+    brinson_fachler_attribution,
+)
 from quantcore.performance.metrics import (
     calmar_ratio,
     component_var,
@@ -11,6 +15,8 @@ from quantcore.performance.metrics import (
 )
 
 __all__ = [
+    "BrinsonFachlerAttribution",
+    "brinson_fachler_attribution",
     "calmar_ratio",
     "component_var",
     "hit_rate",

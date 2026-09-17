@@ -24,6 +24,8 @@ References:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numba
 import numpy as np
 import numpy.typing as npt
@@ -355,3 +357,126 @@ def _simulate_cir_paths(
     rng = np.random.default_rng(seed)
     z = rng.standard_normal(size=(n_paths, n_steps))
     return _simulate_cir_paths_kernel(r0, kappa, theta, sigma, dt, z)
+
+
+@dataclass(frozen=True)
+class CIRParams:
+    """Fitted CIR parameters, ready to pass straight into `simulate_cir_paths`.
+
+    Attributes:
+        kappa: Mean-reversion speed.
+        theta: Long-run mean.
+        sigma: Diffusion coefficient.
+    """
+
+    kappa: float
+    theta: float
+    sigma: float
+
+
+# A CIR fit needs at least this many observed transitions (rate_series.size -
+# 1) so the no-intercept, 2-regressor GLS regression below has strictly
+# positive residual degrees of freedom (n_obs - 2 >= 2) to estimate a
+# meaningful residual variance from, rather than an exact-fit degenerate one.
+_CIR_FIT_MIN_OBSERVATIONS = 5
+
+
+def _validate_cir_fit_inputs(rate_series: npt.NDArray[np.float64], dt: float) -> None:
+    if rate_series.size < _CIR_FIT_MIN_OBSERVATIONS:
+        raise ValueError(
+            f"rate_series must contain at least {_CIR_FIT_MIN_OBSERVATIONS} observations"
+        )
+    if dt <= 0.0:
+        raise ValueError("dt must be strictly positive")
+    if np.any(rate_series <= 0.0):
+        raise ValueError(
+            "rate_series must be strictly positive -- the GLS estimator divides "
+            "through by sqrt(r_t) to homoskedasticize the regression"
+        )
+
+
+def cir_fit(rate_series: npt.NDArray[np.float64], dt: float) -> CIRParams:
+    """Estimate CIR parameters (kappa, theta, sigma) from an observed rate series.
+
+    Uses the Chan-Karolyi-Longstaff-Sanders (CKLS 1992) style GLS moment
+    estimator, applied to the CIR Euler discretization
+
+        r_{t+dt} - r_t = kappa*theta*dt - kappa*r_t*dt + sigma*sqrt(r_t*dt)*Z_t
+
+    Dividing through by sqrt(r_t) homoskedasticizes the residual (its
+    variance becomes sigma^2*dt, no longer a function of r_t), giving the
+    no-intercept linear regression
+
+        (r_{t+dt} - r_t)/sqrt(r_t) = b1*[dt/sqrt(r_t)] + b2*[dt*sqrt(r_t)] + eps_t,
+        eps_t ~ N(0, sigma^2*dt)
+
+    with b1 = kappa*theta and b2 = -kappa, solved by ordinary least squares
+    (`numpy.linalg.lstsq`) on the two regressors. kappa and theta are
+    recovered from (b1, b2), and sigma from the residual variance of the fit.
+    This closed-form GLS/CKLS approach was chosen over Euler quasi-MLE
+    because it has no optimizer to fail to converge and its parameter
+    recovery can be validated exactly against a known-parameter synthetic
+    series (see test_stochastic.py).
+
+    Args:
+        rate_series: Observed rate path, evenly spaced by `dt`, strictly
+            positive (at least `_CIR_FIT_MIN_OBSERVATIONS` observations).
+        dt: Time step between consecutive observations in `rate_series`
+            (must be strictly positive).
+
+    Returns:
+        `CIRParams(kappa, theta, sigma)`, in the same parameter order as
+        `simulate_cir_paths`, so the output can be piped straight in.
+
+    Raises:
+        ValueError: If `rate_series` is too short, contains a non-positive
+            value, or `dt` is not strictly positive.
+        RuntimeError: If the fitted parameters fall outside the admissible
+            CIR parameter space (kappa <= 0, theta <= 0, or sigma <= 0) --
+            e.g. from an input series with no discernible mean reversion. No
+            silent fallback is returned in this case.
+
+    References:
+        Chan, K.C., Karolyi, G.A., Longstaff, F.A., and Sanders, A.B. (1992),
+        "An Empirical Comparison of Alternative Models of the Short-Term
+        Interest Rate" (CKLS GLS moment estimator). Cox, Ingersoll & Ross
+        (1985) for the underlying CIR model. See docs/REFERENCES.md.
+    """
+    _validate_cir_fit_inputs(rate_series, dt)
+    return _cir_fit(rate_series, dt)
+
+
+def _cir_fit(rate_series: npt.NDArray[np.float64], dt: float) -> CIRParams:
+    r = rate_series[:-1]
+    dr = np.diff(rate_series)
+    sqrt_r = np.sqrt(r)
+
+    y = dr / sqrt_r
+    x1 = dt / sqrt_r
+    x2 = dt * sqrt_r
+    design = np.column_stack((x1, x2))
+
+    coeffs, _, _, _ = np.linalg.lstsq(design, y, rcond=None)
+    b1, b2 = coeffs
+
+    n_obs = y.shape[0]
+    residuals = y - design @ coeffs
+    residual_variance = float(np.sum(residuals**2)) / (n_obs - 2)
+
+    kappa = -float(b2)
+    if kappa <= 0.0:
+        raise RuntimeError(
+            "cir_fit: estimated kappa <= 0 -- input series shows no discernible "
+            "mean reversion, so no admissible CIR fit exists for this data"
+        )
+    theta = float(b1) / kappa
+    if theta <= 0.0:
+        raise RuntimeError("cir_fit: estimated theta <= 0 -- not an admissible CIR long-run mean")
+    sigma_sq = residual_variance / dt
+    if sigma_sq <= 0.0:
+        raise RuntimeError(
+            "cir_fit: estimated sigma^2 <= 0 -- not an admissible CIR diffusion coefficient"
+        )
+    sigma = float(np.sqrt(sigma_sq))
+
+    return CIRParams(kappa=kappa, theta=theta, sigma=sigma)

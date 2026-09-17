@@ -9,6 +9,7 @@ from quantcore.statistics.regression import (
     factor_loadings,
     fama_macbeth_regression,
     newey_west_cov,
+    newey_west_optimal_lags,
     ols,
 )
 
@@ -71,6 +72,20 @@ class TestNeweyWestCov:
         eigenvalues = np.linalg.eigvalsh(cov)
         assert np.all(eigenvalues >= -1e-8)
         assert np.all(np.diag(cov) >= 0.0)
+
+
+class TestNeweyWestOptimalLags:
+    def test_invalid_empty_raises(self) -> None:
+        with pytest.raises(ValueError):
+            newey_west_optimal_lags(np.array([]))
+
+    @pytest.mark.parametrize(
+        ("n", "expected_lags"),
+        [(100, 4), (200, 4), (50, 3), (1000, 6), (1, 1)],
+    )
+    def test_matches_closed_form_plug_in_rule(self, n: int, expected_lags: int) -> None:
+        residuals = np.zeros(n)
+        assert newey_west_optimal_lags(residuals) == expected_lags
 
 
 class TestFactorLoadings:

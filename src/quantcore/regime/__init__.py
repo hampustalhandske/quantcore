@@ -1,3 +1,3 @@
-from quantcore.regime.hmm import hmm_decode, hmm_fit, hmm_predict_proba
+from quantcore.regime.hmm import hmm_decode, hmm_fit, hmm_predict_proba, select_hmm_n_states
 
-__all__ = ["hmm_decode", "hmm_fit", "hmm_predict_proba"]
+__all__ = ["hmm_decode", "hmm_fit", "hmm_predict_proba", "select_hmm_n_states"]

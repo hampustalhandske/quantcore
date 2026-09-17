@@ -109,6 +109,64 @@ def arima_fit(
     return _arima_fit(series, p, d, q)
 
 
+def select_arima_order(
+    series: npt.NDArray[np.float64],
+    max_p: int,
+    max_d: int,
+    max_q: int,
+    criterion: str = "aic",
+) -> tuple[int, int, int]:
+    """Grid-search ARIMA(p, d, q) orders and return the one minimizing an information criterion.
+
+    Args:
+        series: Raw (undifferenced) time series.
+        max_p: Largest AR order to try (inclusive), searched from 0.
+        max_d: Largest integration order to try (inclusive), searched from 0.
+        max_q: Largest MA order to try (inclusive), searched from 0.
+        criterion: "aic" or "bic".
+
+    Returns:
+        The (p, d, q) triple minimizing the chosen criterion among candidates
+        that `arima_fit` accepts. Candidates rejected by `arima_fit` (e.g.
+        p == q == 0, or a series too short for the order) are skipped.
+
+    Raises:
+        ValueError: If `criterion` is not "aic" or "bic", or if no candidate
+            order is feasible for the given series length.
+    """
+    if criterion not in ("aic", "bic"):
+        raise ValueError('criterion must be "aic" or "bic"')
+
+    best_order: tuple[int, int, int] | None = None
+    best_score = np.inf
+
+    for d in range(max_d + 1):
+        for p in range(max_p + 1):
+            for q in range(max_q + 1):
+                try:
+                    _, _, sigma2_hat = arima_fit(series, p, d, q)
+                except ValueError:
+                    continue
+
+                n_used = series.size - d - max(p, q)
+                log_l = -0.5 * n_used * (np.log(2.0 * np.pi) + np.log(sigma2_hat) + 1.0)
+                k = p + q + 1
+                score = (
+                    2.0 * k - 2.0 * log_l
+                    if criterion == "aic"
+                    else k * np.log(n_used) - 2.0 * log_l
+                )
+
+                if score < best_score:
+                    best_score = score
+                    best_order = (p, d, q)
+
+    if best_order is None:
+        raise ValueError("no feasible (p, d, q) order found for the given series and bounds")
+
+    return best_order
+
+
 def _difference(series: npt.NDArray[np.float64], d: int) -> npt.NDArray[np.float64]:
     diffed = series
     for _ in range(d):

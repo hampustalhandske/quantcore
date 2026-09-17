@@ -178,3 +178,11 @@ class TestComponentVar:
         components = component_var(weights, cov, confidence_level)
         assert components.shape == (2,)
         assert components.sum() == pytest.approx(portfolio_var, abs=1e-8)
+
+    def test_all_zero_weights_returns_zero_vector_without_warning(self) -> None:
+        weights = np.zeros(3)
+        cov = np.array([[0.04, 0.01, 0.0], [0.01, 0.09, 0.0], [0.0, 0.0, 0.02]])
+        with np.errstate(invalid="raise", divide="raise"):
+            components = component_var(weights, cov, 0.99)
+        assert components.shape == (3,)
+        assert np.array_equal(components, np.zeros(3))

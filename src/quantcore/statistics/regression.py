@@ -120,6 +120,31 @@ def _newey_west_cov(
     return result
 
 
+def newey_west_optimal_lags(residuals: npt.NDArray[np.float64]) -> int:
+    """Automatic bandwidth (lag) selection for Newey-West HAC covariance (Newey & West 1994).
+
+    Applies the closed-form plug-in rule of thumb L = floor(4*(n/100)^(2/9)),
+    rather than the more involved Andrews (1991) AR(1)-approximation
+    procedure.
+
+    Args:
+        residuals: Residual series the HAC covariance will be estimated from.
+
+    Returns:
+        Suggested number of Bartlett-kernel lags L (non-negative integer).
+
+    References:
+        Newey, W.K. and West, K.D. (1994). "Automatic Lag Selection in
+        Covariance Matrix Estimation." *Review of Economic Studies*, 61(4),
+        631-653. See docs/REFERENCES.md.
+    """
+    if residuals.size == 0:
+        raise ValueError("residuals must be non-empty")
+    n = residuals.size
+    lags = int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0)))
+    return max(lags, 0)
+
+
 def _validate_factor_loadings_inputs(
     returns: npt.NDArray[np.float64],
     factors: npt.NDArray[np.float64],

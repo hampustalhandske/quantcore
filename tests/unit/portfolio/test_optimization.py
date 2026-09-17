@@ -7,6 +7,7 @@ import pytest
 
 from quantcore.portfolio.optimization import (
     kelly_fraction,
+    l1_turnover_penalized_weights,
     mean_variance_weights,
     min_variance_weights,
     risk_parity_weights,
@@ -103,6 +104,142 @@ class TestRiskParityWeights:
         contributions = weights * marginal
         assert contributions.max() - contributions.min() == pytest.approx(0.0, abs=1e-4)
         assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+
+
+class TestL1TurnoverPenalizedWeights:
+    def test_invalid_inputs_mismatched_expected_returns_shape(self) -> None:
+        with pytest.raises(ValueError):
+            l1_turnover_penalized_weights(
+                expected_returns=np.array([0.05, 0.07, 0.03]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                previous_weights=np.array([0.5, 0.5]),
+                cost_bps=10.0,
+                risk_aversion=2.0,
+            )
+
+    def test_invalid_inputs_mismatched_previous_weights_shape(self) -> None:
+        with pytest.raises(ValueError):
+            l1_turnover_penalized_weights(
+                expected_returns=np.array([0.05, 0.07]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                previous_weights=np.array([0.5, 0.3, 0.2]),
+                cost_bps=10.0,
+                risk_aversion=2.0,
+            )
+
+    def test_invalid_inputs_previous_weights_not_summing_to_one(self) -> None:
+        with pytest.raises(ValueError):
+            l1_turnover_penalized_weights(
+                expected_returns=np.array([0.05, 0.07]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                previous_weights=np.array([0.5, 0.3]),
+                cost_bps=10.0,
+                risk_aversion=2.0,
+            )
+
+    def test_invalid_inputs_negative_cost_bps(self) -> None:
+        with pytest.raises(ValueError):
+            l1_turnover_penalized_weights(
+                expected_returns=np.array([0.05, 0.07]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                previous_weights=np.array([0.5, 0.5]),
+                cost_bps=-1.0,
+                risk_aversion=2.0,
+            )
+
+    def test_invalid_inputs_negative_risk_aversion(self) -> None:
+        with pytest.raises(ValueError):
+            l1_turnover_penalized_weights(
+                expected_returns=np.array([0.05, 0.07]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                previous_weights=np.array([0.5, 0.5]),
+                cost_bps=10.0,
+                risk_aversion=-1.0,
+            )
+
+    def test_zero_cost_recovers_mean_variance_weights(self) -> None:
+        # SLSQP is run on a different (buy/sell slack) parameterization than
+        # mean_variance_weights' direct-w parameterization, so the two solvers
+        # converge to slightly different points near the shared optimum;
+        # a loose-ish tolerance captures the equivalence without requiring
+        # bitwise-identical convergence paths.
+        expected_returns = np.array([0.05, 0.07, 0.03])
+        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
+        previous_weights = np.array([1 / 3, 1 / 3, 1 / 3])
+
+        mv_weights = mean_variance_weights(expected_returns, cov, risk_aversion=3.0)
+        penalized_weights = l1_turnover_penalized_weights(
+            expected_returns,
+            cov,
+            previous_weights,
+            cost_bps=0.0,
+            risk_aversion=3.0,
+        )
+        assert np.allclose(mv_weights, penalized_weights, atol=1e-3)
+
+    def test_increasing_cost_bps_weakly_reduces_turnover(self) -> None:
+        expected_returns = np.array([0.10, -0.02, 0.05])
+        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
+        previous_weights = np.array([0.2, 0.5, 0.3])
+
+        turnovers = []
+        for cost_bps in [0.0, 10.0, 100.0, 1000.0]:
+            weights = l1_turnover_penalized_weights(
+                expected_returns,
+                cov,
+                previous_weights,
+                cost_bps=cost_bps,
+                risk_aversion=2.0,
+            )
+            turnovers.append(np.abs(weights - previous_weights).sum())
+
+        assert all(turnovers[i] >= turnovers[i + 1] - 1e-6 for i in range(len(turnovers) - 1))
+
+    def test_weights_sum_to_one_and_non_negative(self) -> None:
+        expected_returns = np.array([0.05, 0.07, 0.03])
+        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
+        for previous_weights in [
+            np.array([1 / 3, 1 / 3, 1 / 3]),
+            np.array([0.6, 0.1, 0.3]),
+            np.array([0.0, 1.0, 0.0]),
+        ]:
+            for cost_bps in [0.0, 25.0, 250.0]:
+                weights = l1_turnover_penalized_weights(
+                    expected_returns,
+                    cov,
+                    previous_weights,
+                    cost_bps=cost_bps,
+                    risk_aversion=1.5,
+                )
+                assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+                assert np.all(weights >= -1e-8)
+
+    def test_allow_short_can_produce_a_negative_weight(self) -> None:
+        weights = l1_turnover_penalized_weights(
+            expected_returns=np.array([0.05, -0.20]),
+            cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+            previous_weights=np.array([0.5, 0.5]),
+            cost_bps=1.0,
+            risk_aversion=1.0,
+            allow_short=True,
+        )
+        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+        assert weights[1] < 0.0
+
+    def test_high_cost_starting_at_previous_weights_barely_moves(self) -> None:
+        expected_returns = np.array([0.20, -0.10, 0.05])
+        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
+        previous_weights = np.array([1 / 3, 1 / 3, 1 / 3])
+
+        weights = l1_turnover_penalized_weights(
+            expected_returns,
+            cov,
+            previous_weights,
+            cost_bps=1_000_000.0,
+            risk_aversion=1.0,
+        )
+        turnover = np.abs(weights - previous_weights).sum()
+        assert turnover == pytest.approx(0.0, abs=1e-4)
 
 
 class TestKellyFraction:

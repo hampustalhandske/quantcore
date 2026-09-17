@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from quantcore.regime.hmm import hmm_decode, hmm_fit, hmm_predict_proba
+from quantcore.regime.hmm import hmm_decode, hmm_fit, hmm_predict_proba, select_hmm_n_states
 
 SEED = 42
 
@@ -55,6 +55,32 @@ class TestHmmFit:
         assert means.shape == (2,)
         assert variances.shape == (2,)
         assert initial_probs.shape == (2,)
+
+
+class TestSelectHmmNStates:
+    def test_invalid_criterion_raises(self) -> None:
+        observations, _ = _two_state_synthetic_data()
+        with pytest.raises(ValueError):
+            select_hmm_n_states(observations, max_states=3, criterion="hqic")
+
+    def test_invalid_max_states_raises(self) -> None:
+        observations, _ = _two_state_synthetic_data()
+        with pytest.raises(ValueError):
+            select_hmm_n_states(observations, max_states=0)
+
+    def test_does_not_crash_when_max_states_exceeds_true_count(self) -> None:
+        observations, _ = _two_state_synthetic_data()
+        n_states = select_hmm_n_states(observations, max_states=4)
+        assert 1 <= n_states <= 4
+
+    def test_recovers_true_number_of_states_with_bic(self) -> None:
+        # State-count selection is noisy in finite samples (BIC can favor
+        # one extra state that captures a spurious sub-cluster), so we only
+        # assert the well-separated two-regime structure is not collapsed
+        # to a single state and not wildly overfit.
+        observations, _ = _two_state_synthetic_data()
+        n_states = select_hmm_n_states(observations, max_states=4, criterion="bic")
+        assert n_states == 2
 
 
 class TestHmmDecode:

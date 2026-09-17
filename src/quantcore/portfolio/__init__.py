@@ -6,6 +6,7 @@ from quantcore.portfolio.covariance import (
 )
 from quantcore.portfolio.optimization import (
     kelly_fraction,
+    l1_turnover_penalized_weights,
     mean_variance_weights,
     min_variance_weights,
     risk_parity_weights,
@@ -16,6 +17,7 @@ __all__ = [
     "ewma_covariance",
     "implied_equilibrium_returns",
     "kelly_fraction",
+    "l1_turnover_penalized_weights",
     "ledoit_wolf_shrinkage",
     "mean_variance_weights",
     "min_variance_weights",

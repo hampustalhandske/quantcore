@@ -61,6 +61,11 @@ cite the relevant entry in their docstrings.
   Structure of Interest Rates." *Econometrica*, 53(2), 385–407.
   → `core/stochastic.py` (CIR square-root diffusion)
 
+- Chan, K.C., Karolyi, G.A., Longstaff, F.A., and Sanders, A.B. (1992). "An
+  Empirical Comparison of Alternative Models of the Short-Term Interest
+  Rate." *Journal of Finance*, 47(3), 1209–1227.
+  → `core/stochastic.py` (CKLS-style GLS moment estimator, `cir_fit`)
+
 - Heston, S.L. (1993). "A Closed-Form Solution for Options with Stochastic
   Volatility with Applications to Bond and Currency Options." *Review of
   Financial Studies*, 6(2), 327–343.
@@ -179,6 +184,11 @@ cite the relevant entry in their docstrings.
   *Econometrica*, 55(3), 703–708.
   → `statistics/regression.py` (Newey-West HAC standard errors)
 
+- Newey, W.K. and West, K.D. (1994). "Automatic Lag Selection in Covariance
+  Matrix Estimation." *Review of Economic Studies*, 61(4), 631–653.
+  → `statistics/regression.py` (automatic bandwidth plug-in rule,
+  `newey_west_optimal_lags`)
+
 ## Portfolio optimization
 
 - Markowitz, H. (1952). "Portfolio Selection." *Journal of Finance*, 7(1),
@@ -193,6 +203,12 @@ cite the relevant entry in their docstrings.
   Equally Weighted Risk Contribution Portfolios." *Journal of Portfolio
   Management*, 36(4), 60–70.
   → `portfolio/optimization.py` (risk parity / equal risk contribution)
+
+- Lobo, M.S., Fazel, M., and Boyd, S. (2007). "Portfolio Optimization with
+  Linear and Fixed Transaction Costs." *Annals of Operations Research*,
+  152(1), 341–365.
+  → `portfolio/optimization.py` (L1 turnover-penalized mean-variance,
+  `l1_turnover_penalized_weights`)
 
 - Black, F. and Litterman, R. (1992). "Global Portfolio Optimization."
   *Financial Analysts Journal*, 48(5), 28–43.
@@ -225,6 +241,28 @@ cite the relevant entry in their docstrings.
 - Young, T.W. (1991). "Calmar Ratio: A Smoother Tool." *Futures Magazine*
   (January 1991).
   → `performance/metrics.py` (Calmar ratio)
+
+## Performance attribution
+
+- Brinson, G.P., Hood, L.R., and Beebower, G.L. (1986). "Determinants of
+  Portfolio Performance." *Financial Analysts Journal*, 42(4), 39–44.
+  → `performance/attribution.py` (allocation/selection/interaction
+  decomposition of active return)
+
+- Brinson, G.P. and Fachler, N. (1985). "Measuring Non-U.S. Equity Portfolio
+  Performance." *Journal of Portfolio Management*, 11(3), 73–76.
+  → `performance/attribution.py` (Brinson-Fachler refinement: allocation
+  effect measured against benchmark total return, `brinson_fachler_attribution`)
+
+## Market impact and execution
+
+- Almgren, R. and Chriss, N. (2000). "Optimal Execution of Portfolio
+  Transactions." *Journal of Risk*, 3, 5–40.
+  → `execution/market_impact.py` (square-root market impact law)
+
+- Gatheral, J. (2010). "No-Dynamic-Arbitrage and Market Impact."
+  *Quantitative Finance*, 10(7), 749–759.
+  → `execution/market_impact.py` (square-root functional form)
 
 ## Citation convention
 

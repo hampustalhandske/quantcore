@@ -120,6 +120,107 @@ def _mean_variance_weights(
     return np.asarray(result.x, dtype=np.float64)
 
 
+def _validate_l1_turnover_penalized_inputs(
+    expected_returns: npt.NDArray[np.float64],
+    cov_matrix: npt.NDArray[np.float64],
+    previous_weights: npt.NDArray[np.float64],
+    cost_bps: float,
+    risk_aversion: float,
+) -> None:
+    _validate_cov_matrix(cov_matrix)
+    if expected_returns.ndim != 1 or expected_returns.shape[0] != cov_matrix.shape[0]:
+        raise ValueError("expected_returns must be a 1D array matching cov_matrix's dimension")
+    if previous_weights.ndim != 1 or previous_weights.shape[0] != cov_matrix.shape[0]:
+        raise ValueError("previous_weights must be a 1D array matching cov_matrix's dimension")
+    if abs(previous_weights.sum() - 1.0) > 1e-6:
+        raise ValueError("previous_weights must sum to 1")
+    if cost_bps < 0.0:
+        raise ValueError("cost_bps must be non-negative")
+    if risk_aversion < 0.0:
+        raise ValueError("risk_aversion must be non-negative")
+
+
+def l1_turnover_penalized_weights(
+    expected_returns: npt.NDArray[np.float64],
+    cov_matrix: npt.NDArray[np.float64],
+    previous_weights: npt.NDArray[np.float64],
+    cost_bps: float,
+    risk_aversion: float,
+    allow_short: bool = False,
+) -> npt.NDArray[np.float64]:
+    """Mean-variance weights penalized for turnover away from previous_weights.
+
+    Maximizes w^T mu - 0.5*risk_aversion*w^T Sigma w - (cost_bps/10000)*||w -
+    previous_weights||_1, s.t. sum(w) = 1, w >= 0 (unless allow_short). As
+    cost_bps -> 0 this reduces to mean_variance_weights.
+
+    Args:
+        expected_returns: Expected asset returns, shape (k,).
+        cov_matrix: Covariance matrix of asset returns, shape (k, k).
+        previous_weights: Current portfolio weights before rebalancing, shape
+            (k,), must sum to 1.
+        cost_bps: Proportional transaction cost in basis points per unit of
+            L1 turnover (must be non-negative).
+        risk_aversion: Risk-aversion coefficient lambda >= 0.
+        allow_short: If False (default), also constrains w >= 0.
+
+    Returns:
+        Portfolio weights of shape (k,), summing to 1.
+    """
+    _validate_l1_turnover_penalized_inputs(
+        expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion
+    )
+    return _l1_turnover_penalized_weights(
+        expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion, allow_short
+    )
+
+
+def _l1_turnover_penalized_weights(
+    expected_returns: npt.NDArray[np.float64],
+    cov_matrix: npt.NDArray[np.float64],
+    previous_weights: npt.NDArray[np.float64],
+    cost_bps: float,
+    risk_aversion: float,
+    allow_short: bool,
+) -> npt.NDArray[np.float64]:
+    k = cov_matrix.shape[0]
+    # ||w - previous_weights||_1 is non-differentiable at w_i == previous_weights_i,
+    # which breaks SLSQP's finite-difference gradient near the (likely optimal, for
+    # cost_bps > 0) no-trade point. Splitting the deviation into non-negative
+    # buy/sell slacks (w = previous_weights + buy - sell) makes both the objective
+    # and constraints smooth and linear in the slacks, since an optimal solution
+    # never has buy_i > 0 and sell_i > 0 simultaneously (that would waste cost for
+    # no change in w_i).
+    x0 = np.zeros(2 * k)
+    bounds = [(0.0, None)] * (2 * k)
+
+    def _weights_from_slacks(x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        buy = x[:k]
+        sell = x[k:]
+        return previous_weights + buy - sell
+
+    budget_row = np.concatenate([np.ones(k), -np.ones(k)])
+    budget_target = 1.0 - previous_weights.sum()
+    constraints = [LinearConstraint(budget_row, budget_target, budget_target)]
+    if not allow_short:
+        non_negativity_matrix = np.concatenate([np.eye(k), -np.eye(k)], axis=1)
+        constraints.append(LinearConstraint(non_negativity_matrix, -previous_weights, np.inf))
+
+    cost_rate = cost_bps / 10000.0
+
+    def objective(x: npt.NDArray[np.float64]) -> float:
+        w = _weights_from_slacks(x)
+        turnover = x.sum()
+        return float(
+            -(w @ expected_returns)
+            + 0.5 * risk_aversion * (w @ cov_matrix @ w)
+            + cost_rate * turnover
+        )
+
+    result = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=constraints)
+    return np.asarray(_weights_from_slacks(result.x), dtype=np.float64)
+
+
 def _validate_risk_parity_inputs(cov_matrix: npt.NDArray[np.float64]) -> None:
     _validate_cov_matrix(cov_matrix)
 

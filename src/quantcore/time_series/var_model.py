@@ -85,6 +85,60 @@ def _var_fit(
     return coef_matrix, sigma_u
 
 
+def select_var_lag_order(
+    system: npt.NDArray[np.float64],
+    max_lags: int,
+    criterion: str = "aic",
+) -> int:
+    """Grid-search VAR lag order and return the one minimizing an information criterion.
+
+    Args:
+        system: Observations, shape (T, k).
+        max_lags: Largest lag order to try (inclusive), searched from 1.
+        criterion: "aic" or "bic".
+
+    Returns:
+        The n_lags minimizing the chosen criterion among candidates that
+        `var_fit` accepts. Candidates rejected by `var_fit` (not enough
+        observations for the requested lag order) are skipped.
+
+    Raises:
+        ValueError: If `criterion` is not "aic" or "bic", or if no candidate
+            lag order is feasible for the given system length.
+    """
+    if criterion not in ("aic", "bic"):
+        raise ValueError('criterion must be "aic" or "bic"')
+
+    n_obs, k = system.shape
+    best_n_lags: int | None = None
+    best_score = np.inf
+
+    for n_lags in range(1, max_lags + 1):
+        try:
+            coef_matrix, sigma_u = var_fit(system, n_lags)
+        except ValueError:
+            continue
+
+        n_eff = n_obs - n_lags
+        _, log_det = np.linalg.slogdet(sigma_u)
+        log_l = -0.5 * n_eff * (k * np.log(2.0 * np.pi) + log_det + k)
+        k_params = coef_matrix.size
+        score = (
+            2.0 * k_params - 2.0 * log_l
+            if criterion == "aic"
+            else k_params * np.log(n_eff) - 2.0 * log_l
+        )
+
+        if score < best_score:
+            best_score = score
+            best_n_lags = n_lags
+
+    if best_n_lags is None:
+        raise ValueError("no feasible n_lags found for the given system and bounds")
+
+    return best_n_lags
+
+
 def _validate_var_forecast_inputs(
     data: npt.NDArray[np.float64],
     coef_matrix: npt.NDArray[np.float64],

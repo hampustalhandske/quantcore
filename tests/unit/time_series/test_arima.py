@@ -5,7 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from quantcore.time_series.arima import arima_fit, arima_forecast, ljung_box_test
+from quantcore.time_series.arima import (
+    arima_fit,
+    arima_forecast,
+    ljung_box_test,
+    select_arima_order,
+)
 
 RNG_SEED = 7
 
@@ -74,6 +79,34 @@ class TestArimaFit:
         assert ma_coefs.shape == (0,)
         assert ar_coefs[0] == pytest.approx(0.6, abs=0.15)
         assert sigma2 > 0.0
+
+
+class TestSelectArimaOrder:
+    def test_invalid_criterion_raises(self) -> None:
+        series = _simulate_ar1(phi=0.6, n=100, seed=RNG_SEED)
+        with pytest.raises(ValueError):
+            select_arima_order(series, max_p=2, max_d=1, max_q=2, criterion="hqic")
+
+    def test_does_not_crash_on_infeasible_small_orders(self) -> None:
+        # A short series makes most (p, d, q) candidates infeasible for
+        # arima_fit; select_arima_order must silently skip them rather than
+        # propagate the ValueError, as long as at least one candidate fits.
+        series = _simulate_ar1(phi=0.5, n=6, seed=RNG_SEED)
+        p, d, q = select_arima_order(series, max_p=3, max_d=2, max_q=3, criterion="aic")
+        assert p >= 0 and d >= 0 and q >= 0
+
+    def test_ar1_series_selects_low_order_with_no_differencing(self) -> None:
+        # Order selection via CSS-based AIC/BIC is noisy on a single finite
+        # sample: the criterion can occasionally prefer p=2 over the true
+        # p=1 (an extra near-zero AR coefficient barely changes sigma2_hat
+        # but the criterion's data-dependent penalty can still favor it), so
+        # we assert the recovered order is small and undifferenced rather
+        # than pinning the exact true order.
+        series = _simulate_ar1(phi=0.7, n=400, seed=RNG_SEED)
+        p, d, q = select_arima_order(series, max_p=3, max_d=1, max_q=2, criterion="bic")
+        assert p >= 1
+        assert d == 0
+        assert q <= 1
 
 
 class TestArimaForecast:

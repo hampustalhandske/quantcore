@@ -243,3 +243,34 @@ def test_fit_garch_11_deterministic_given_fixed_input() -> None:
     result_2 = fit_garch_11(epsilon)
 
     assert np.allclose(result_1, result_2, rtol=1e-6, atol=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Numerical conditioning regression: omega lives on a ~1e-4 to 1e-6 scale
+# while alpha/beta live on an O(0.01-1) scale. Handing SLSQP this raw,
+# badly-mismatched parameter vector is a known cause of poor convergence,
+# including degenerate corner solutions -- an omega far from its true
+# optimum with alpha and beta both near zero. When alpha = beta = 0 exactly,
+# the model reduces to a constant-variance Gaussian, whose MLE-optimal omega
+# is EXACTLY mean(epsilon**2) in closed form, so this is directly checkable
+# without needing to run the optimizer ahead of time to calibrate a
+# tolerance.
+# ---------------------------------------------------------------------------
+
+
+def test_fit_garch_11_recovers_sample_variance_on_near_constant_variance_data() -> None:
+    # iid Gaussian noise, i.e. alpha_true = beta_true = 0: the generating
+    # process has no ARCH/GARCH structure at all, so a correctly-converged
+    # fit should land close to the constant-variance corner rather than
+    # drifting to some other omega under the mistaken impression it found a
+    # better fit elsewhere.
+    rng = np.random.default_rng(0)
+    true_var = 4e-4
+    epsilon = rng.normal(0.0, np.sqrt(true_var), size=2000)
+    expected_omega = float(np.mean(epsilon**2))
+
+    omega_hat, alpha_hat, beta_hat = fit_garch_11(epsilon)
+
+    assert omega_hat == pytest.approx(expected_omega, rel=0.2)
+    assert alpha_hat < 0.05
+    assert beta_hat < 0.05

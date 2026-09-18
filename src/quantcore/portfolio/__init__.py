@@ -10,6 +10,7 @@ from quantcore.portfolio.optimization import (
     mean_variance_weights,
     min_variance_weights,
     risk_parity_weights,
+    unconstrained_mean_variance_weights,
 )
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "min_variance_weights",
     "risk_parity_weights",
     "sample_covariance",
+    "unconstrained_mean_variance_weights",
 ]

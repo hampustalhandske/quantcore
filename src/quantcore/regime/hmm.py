@@ -233,6 +233,21 @@ def _hmm_fit(
             break
         prev_log_likelihood = log_likelihood
 
+    # Baum-Welch has no notion of state order: which integer index ends up
+    # "calm" vs. "crisis" is an arbitrary artifact of EM's local optimum, and
+    # can flip between calls on similar data even though initialization
+    # starts from ascending-mean quantile buckets. Relabel by ascending
+    # variance (not mean) post-convergence so state K-1 is always the
+    # highest-volatility regime, matching the downstream crisis/bear
+    # identification convention and making indices stable across fits.
+    # transition_matrix[i, j] = P(s_t=j | s_{t-1}=i), so both the row and
+    # column axes index states and must be permuted identically.
+    order = np.argsort(variances)
+    means = means[order]
+    variances = variances[order]
+    initial_probs = initial_probs[order]
+    transition_matrix = transition_matrix[np.ix_(order, order)]
+
     return transition_matrix, means, variances, initial_probs
 
 

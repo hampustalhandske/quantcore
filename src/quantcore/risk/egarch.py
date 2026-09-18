@@ -156,6 +156,7 @@ _EGARCH_INFEASIBLE_PENALTY = 1e10
 def _egarch_negative_log_likelihood(
     params: npt.NDArray[np.float64],
     epsilon: npt.NDArray[np.float64],
+    omega_scale: float,
 ) -> float:
     # Same rationale as `volatility._negative_log_likelihood`'s
     # `_INFEASIBLE_PENALTY` comment: SLSQP routinely probes points outside
@@ -163,7 +164,17 @@ def _egarch_negative_log_likelihood(
     # seed log-variance omega / (1 - beta) blow up or flip sign), so every
     # infeasible or non-finite evaluation returns a large finite penalty
     # instead of NaN, which SLSQP cannot recover from.
-    omega, alpha, gamma, beta = params
+    #
+    # `params[0]` is omega_scaled = omega / omega_scale, not omega itself.
+    # Unlike `fit_garch_11`'s omega, EGARCH's omega is already a log-variance
+    # intercept -- roughly log_sample_var * (1 - beta), an O(1-10) quantity
+    # rather than the O(1e-4 to 1e-6) variance-scale omega of GARCH/GJR-GARCH
+    # -- but it can still run several times larger than alpha/gamma (O(0.01-
+    # 0.2)), which is enough to measurably hurt SLSQP's identity-initialized
+    # quasi-Newton Hessian. `omega_scale = max(|log_sample_var|, 1.0)`
+    # brings it in line with the other three parameters.
+    omega_scaled, alpha, gamma, beta = params
+    omega = omega_scaled * omega_scale
     if not (-1.0 + _EGARCH_STATIONARITY_MARGIN < beta < 1.0 - _EGARCH_STATIONARITY_MARGIN):
         return _EGARCH_INFEASIBLE_PENALTY
     # Unlike GARCH/GJR-GARCH, EGARCH places no bound on omega or alpha, so
@@ -258,8 +269,20 @@ def egarch_fit(returns: npt.NDArray[np.float64]) -> EGARCHParams:
     simpler model themselves if it is `False`, rather than have a
     partially-usable fit hidden behind an exception.
 
+    EGARCH(1,1) has four free parameters and no closed-form corner solution
+    to fall back on, so short windows are noticeably harder to fit reliably
+    than GARCH(1,1)/GJR-GARCH(1,1). Empirically, both 60- and 120-observation
+    windows (a trading quarter/half-year) show a non-convergence rate around
+    5-8%; this drops close to 0% only once the window reaches several
+    hundred observations. Always check `converged` regardless of window
+    length -- there is no length at which convergence is guaranteed, only
+    increasingly likely.
+
     Args:
-        returns: Raw (not mean-adjusted) return series.
+        returns: Raw (not mean-adjusted) return series. Reliable convergence
+            generally needs several hundred observations; shorter windows
+            (e.g. 60-120) still converge most of the time but fail
+            noticeably more often -- always check `converged`.
 
     Returns:
         `EGARCHParams` with the fitted (omega, alpha, gamma, beta), the
@@ -286,6 +309,7 @@ def _fit_egarch_11(returns: npt.NDArray[np.float64]) -> EGARCHParams:
     epsilon = returns - mu_hat
     sample_var = max(float(np.var(epsilon)), 1e-10)
     log_sample_var = float(np.log(sample_var))
+    omega_scale = max(abs(log_sample_var), 1.0)
 
     bounds = [
         (None, None),
@@ -298,14 +322,15 @@ def _fit_egarch_11(returns: npt.NDArray[np.float64]) -> EGARCHParams:
     best_feasible = False
     for alpha0, gamma0, beta0 in _EGARCH_STARTING_POINTS:
         omega0 = log_sample_var * (1.0 - beta0)
-        x0 = np.array([omega0, alpha0, gamma0, beta0], dtype=np.float64)
+        x0 = np.array([omega0 / omega_scale, alpha0, gamma0, beta0], dtype=np.float64)
 
         result = minimize(
             _egarch_negative_log_likelihood,
             x0,
-            args=(epsilon,),
+            args=(epsilon, omega_scale),
             method="SLSQP",
             bounds=bounds,
+            options={"maxiter": 500},
         )
         if not np.isfinite(result.fun):
             continue
@@ -329,7 +354,8 @@ def _fit_egarch_11(returns: npt.NDArray[np.float64]) -> EGARCHParams:
             "usable (finite-objective) result from any starting point"
         )
 
-    omega_hat, alpha_hat, gamma_hat, beta_hat = (float(v) for v in best_result.x)
+    omega_hat = float(best_result.x[0]) * omega_scale
+    alpha_hat, gamma_hat, beta_hat = (float(v) for v in best_result.x[1:])
     converged = bool(best_result.success) and best_feasible
 
     return EGARCHParams(
@@ -458,12 +484,18 @@ _GJR_GARCH_BETA_BOUNDS = (
 def _gjr_garch_negative_log_likelihood(
     params: npt.NDArray[np.float64],
     epsilon: npt.NDArray[np.float64],
+    sample_var: float,
 ) -> float:
     # Same rationale as `volatility._negative_log_likelihood`'s
     # `_INFEASIBLE_PENALTY` comment: infeasible or non-finite evaluations
     # return a large finite penalty instead of NaN, which SLSQP cannot
     # recover from.
-    omega, alpha, gamma, beta = params
+    #
+    # `params[0]` is omega_scaled = omega / sample_var, not omega itself --
+    # see `volatility._negative_log_likelihood` for why the raw omega/alpha
+    # scale mismatch is a conditioning hazard for SLSQP.
+    omega_scaled, alpha, gamma, beta = params
+    omega = omega_scaled * sample_var
     if (
         omega <= 0.0
         or alpha < 0.0
@@ -576,7 +608,7 @@ def _fit_gjr_garch_11(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
     sample_var = max(float(np.var(epsilon)), _GJR_GARCH_MIN_OMEGA)
 
     bounds = [
-        (_GJR_GARCH_MIN_OMEGA, None),
+        (_GJR_GARCH_MIN_OMEGA / sample_var, None),
         (0.0, None),
         (None, None),
         _GJR_GARCH_BETA_BOUNDS,
@@ -601,12 +633,12 @@ def _fit_gjr_garch_11(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
     for alpha0, gamma0, beta0 in _GJR_GARCH_STARTING_POINTS:
         omega0 = sample_var * (1.0 - alpha0 - gamma0 / 2.0 - beta0)
         omega0 = max(omega0, _GJR_GARCH_MIN_OMEGA)
-        x0 = np.array([omega0, alpha0, gamma0, beta0], dtype=np.float64)
+        x0 = np.array([omega0 / sample_var, alpha0, gamma0, beta0], dtype=np.float64)
 
         result = minimize(
             _gjr_garch_negative_log_likelihood,
             x0,
-            args=(epsilon,),
+            args=(epsilon, sample_var),
             method="SLSQP",
             bounds=bounds,
             constraints=[nonnegativity_constraint, stationarity_constraint],
@@ -614,9 +646,8 @@ def _fit_gjr_garch_11(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
         if not np.isfinite(result.fun):
             continue
 
-        omega_candidate, alpha_candidate, gamma_candidate, beta_candidate = (
-            float(v) for v in result.x
-        )
+        omega_candidate = float(result.x[0]) * sample_var
+        alpha_candidate, gamma_candidate, beta_candidate = (float(v) for v in result.x[1:])
         feasible = (
             omega_candidate > 0.0
             and alpha_candidate >= 0.0
@@ -638,7 +669,8 @@ def _fit_gjr_garch_11(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
             "usable (finite-objective) result from any starting point"
         )
 
-    omega_hat, alpha_hat, gamma_hat, beta_hat = (float(v) for v in best_result.x)
+    omega_hat = float(best_result.x[0]) * sample_var
+    alpha_hat, gamma_hat, beta_hat = (float(v) for v in best_result.x[1:])
     converged = bool(best_result.success) and best_feasible
 
     return GJRGARCHParams(

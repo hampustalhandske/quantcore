@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
 from quantcore.time_series.arima import (
+    _css_objective,
+    _css_residuals_numba_kernel,
+    _difference,
     arima_fit,
     arima_forecast,
+    arima_residuals,
     ljung_box_test,
     select_arima_order,
 )
@@ -107,6 +113,105 @@ class TestSelectArimaOrder:
         assert p >= 1
         assert d == 0
         assert q <= 1
+
+
+class TestArimaResiduals:
+    def test_invalid_empty_series(self) -> None:
+        with pytest.raises(ValueError):
+            arima_residuals(np.array([]), np.array([0.5]), np.array([]), d=0)
+
+    def test_invalid_d_out_of_range(self) -> None:
+        series = np.arange(50, dtype=np.float64)
+        with pytest.raises(ValueError):
+            arima_residuals(series, np.array([0.5]), np.array([]), d=3)
+
+    def test_invalid_ar_coefs_not_1d(self) -> None:
+        series = np.arange(50, dtype=np.float64)
+        with pytest.raises(ValueError):
+            arima_residuals(series, np.array([[0.5]]), np.array([]), d=0)
+
+    def test_invalid_ma_coefs_not_1d(self) -> None:
+        series = np.arange(50, dtype=np.float64)
+        with pytest.raises(ValueError):
+            arima_residuals(series, np.array([0.5]), np.array([[0.1]]), d=0)
+
+    def test_invalid_series_too_short(self) -> None:
+        series = np.arange(2, dtype=np.float64)
+        with pytest.raises(ValueError):
+            arima_residuals(series, np.array([0.5, 0.2, 0.1]), np.array([]), d=0)
+
+    def test_bit_identical_to_arima_fit_internal_residuals(self) -> None:
+        # arima_residuals must reproduce _arima_fit's internal residual
+        # computation exactly, since both route through the same CSS kernel
+        # call with the winning parameters.
+        series = _simulate_ar1(phi=0.6, n=300, seed=RNG_SEED)
+        p, d, q = 2, 0, 1
+
+        ar_coefs, ma_coefs, _ = arima_fit(series, p=p, d=d, q=q)
+
+        y = _difference(series, d)
+        params = np.concatenate([ar_coefs, ma_coefs])
+        internal_sum_sq = _css_objective(params, y, p, q)
+        internal_residuals = _css_residuals_numba_kernel(params[:p], params[p : p + q], y)
+
+        residuals = arima_residuals(series, ar_coefs, ma_coefs, d)
+
+        assert np.array_equal(residuals, internal_residuals)
+        assert float(np.sum(residuals**2)) == internal_sum_sq
+
+    def test_residuals_feed_ljung_box_no_rejection_on_well_specified_fit(self) -> None:
+        series = _simulate_ar1(phi=0.6, n=500, seed=RNG_SEED)
+        ar_coefs, ma_coefs, _ = arima_fit(series, p=1, d=0, q=0)
+        residuals = arima_residuals(series, ar_coefs, ma_coefs, d=0)
+        _, p_value = ljung_box_test(residuals, n_lags=10)
+        assert p_value > 0.05
+
+    def test_output_length_matches_css_slicing_convention(self) -> None:
+        series = _simulate_ar1(phi=0.5, n=200, seed=RNG_SEED)
+        p, d, q = 2, 1, 1
+        ar_coefs, ma_coefs, _ = arima_fit(series, p=p, d=d, q=q)
+        residuals = arima_residuals(series, ar_coefs, ma_coefs, d)
+        differenced = _difference(series, d)
+        assert residuals.shape == (differenced.size - max(p, q),)
+
+
+class TestCssRefactorRegression:
+    def test_ar1_fit_matches_expected_coefficient_after_numba_refactor(self) -> None:
+        series = _simulate_ar1(phi=0.6, n=300, seed=RNG_SEED)
+        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p=1, d=0, q=0)
+        assert ar_coefs[0] == pytest.approx(0.6, abs=0.15)
+        assert ma_coefs.shape == (0,)
+        assert sigma2 > 0.0
+
+    def test_arma_fit_is_self_consistent_across_repeated_calls(self) -> None:
+        series = _simulate_ar1(phi=0.4, n=250, seed=RNG_SEED + 1)
+        first = arima_fit(series, p=1, d=0, q=1)
+        second = arima_fit(series, p=1, d=0, q=1)
+        np.testing.assert_array_equal(first[0], second[0])
+        np.testing.assert_array_equal(first[1], second[1])
+        assert first[2] == second[2]
+
+    def test_short_series_grid_still_recovers_a_feasible_order(self) -> None:
+        series = _simulate_ar1(phi=0.5, n=60, seed=RNG_SEED)
+        p, d, q = select_arima_order(series, max_p=2, max_d=1, max_q=2, criterion="aic")
+        assert p >= 0 and d >= 0 and q >= 0
+
+
+class TestSelectArimaOrderBenchmark:
+    def test_select_arima_order_completes_within_a_generous_ceiling(self) -> None:
+        # Informational timing guard, not a tight assertion: warms up the
+        # Numba JIT kernel first (a fresh process pays that compile cost
+        # once) so the measured call only reflects steady-state performance,
+        # matching how a long-lived daily refit process would behave after
+        # its first asset.
+        series = _simulate_ar1(phi=0.6, n=500, seed=RNG_SEED)
+        select_arima_order(series[:20], max_p=1, max_d=0, max_q=1, criterion="aic")
+
+        start = time.perf_counter()
+        select_arima_order(series, max_p=2, max_d=1, max_q=2, criterion="aic")
+        elapsed = time.perf_counter() - start
+
+        assert elapsed < 5.0
 
 
 class TestArimaForecast:

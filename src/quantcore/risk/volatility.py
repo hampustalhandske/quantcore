@@ -148,6 +148,7 @@ _INFEASIBLE_PENALTY = 1e10
 def _negative_log_likelihood(
     params: npt.NDArray[np.float64],
     epsilon: npt.NDArray[np.float64],
+    sample_var: float,
 ) -> float:
     # SLSQP's line search and finite-difference Jacobian routinely probe
     # points outside the feasible region (e.g. alpha + beta >= 1, which
@@ -156,7 +157,18 @@ def _negative_log_likelihood(
     # which SLSQP cannot recover from and aborts on -- so every infeasible
     # or non-finite evaluation returns a large finite penalty instead,
     # keeping the objective well-defined everywhere the optimizer might look.
-    omega, alpha, beta = params
+    #
+    # `params[0]` is omega_scaled = omega / sample_var, not omega itself --
+    # SLSQP's quasi-Newton Hessian approximation starts at identity and its
+    # finite-difference gradient step is not adapted per-parameter, so
+    # handing it omega on its natural ~1e-4-1e-6 scale alongside alpha/beta
+    # on an O(0.01-1) scale causes severe ill-conditioning (degenerate
+    # corner solutions, false convergence). Rescaling by sample_var puts
+    # omega_scaled at O(1) too, matching alpha/beta; the recursion and
+    # likelihood still need the true omega, so it's unscaled right here,
+    # at the one point where the objective touches the actual model.
+    omega_scaled, alpha, beta = params
+    omega = omega_scaled * sample_var
     if omega <= 0.0 or alpha < 0.0 or beta < 0.0 or alpha + beta >= 1.0:
         return _INFEASIBLE_PENALTY
     variance = _garch_11_variance_numpy(epsilon, omega, alpha, beta)
@@ -224,6 +236,7 @@ _STARTING_POINTS = (
     (0.10, 0.80),
     (0.20, 0.60),
     (0.05, 0.50),
+    (0.01, 0.01),
 )
 
 
@@ -233,7 +246,7 @@ def _fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float
     sample_var = max(float(np.var(epsilon)), _MIN_OMEGA)
 
     bounds = [
-        (_MIN_OMEGA, None),
+        (_MIN_OMEGA / sample_var, None),
         (0.0, None),
         (0.0, None),
     ]
@@ -250,19 +263,20 @@ def _fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float
     for alpha0, beta0 in _STARTING_POINTS:
         omega0 = sample_var * (1.0 - alpha0 - beta0)
         omega0 = max(omega0, _MIN_OMEGA)
-        x0 = np.array([omega0, alpha0, beta0], dtype=np.float64)
+        x0 = np.array([omega0 / sample_var, alpha0, beta0], dtype=np.float64)
 
         result = minimize(
             _negative_log_likelihood,
             x0,
-            args=(epsilon,),
+            args=(epsilon, sample_var),
             method="SLSQP",
             bounds=bounds,
             constraints=[stationarity_constraint],
         )
         if not result.success:
             continue
-        omega, alpha, beta = result.x
+        omega = result.x[0] * sample_var
+        alpha, beta = float(result.x[1]), float(result.x[2])
         if omega <= 0.0 or alpha < 0.0 or beta < 0.0 or alpha + beta >= 1.0:
             continue
         if best_result is None or result.fun < best_result.fun:
@@ -274,7 +288,8 @@ def _fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float
             "converge to a feasible solution from any starting point"
         )
 
-    omega_raw, alpha_raw, beta_raw = best_result.x
+    omega_raw = best_result.x[0] * sample_var
+    alpha_raw, beta_raw = best_result.x[1], best_result.x[2]
 
     # Guard against boundary-adjacent floating point fuzz only (the
     # optimality check above already confirms the raw result is feasible and

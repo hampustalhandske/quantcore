@@ -139,6 +139,13 @@ cite the relevant entry in their docstrings.
   Equities Market." *Quantitative Finance*, 10(7), 761–782.
   → `statistics/cointegration.py` (OU half-life and z-score for spread trading)
 
+- MacKinnon, J.G. (1994). "Approximate Asymptotic Distribution Functions for
+  Unit-Root and Cointegration Tests." *Journal of Business & Economic
+  Statistics*, 12(2), 167–176.
+  → `statistics/cointegration.py` (ADF p-values via the tabulated asymptotic
+  Dickey-Fuller "constant, no trend" quantiles, replacing the Student-t
+  approximation; `engle_granger_test` inherits this via `adf_test`)
+
 ## Time series
 
 - Dickey, D.A. and Fuller, W.A. (1979). "Distribution of the Estimators for

@@ -7,11 +7,11 @@ Engle-Granger (1987) two-step:
 
 ADF test statistic (Dickey & Fuller 1979):
     Delta(y_t) = alpha + rho*y_{t-1} + sum_{j=1}^p gamma_j*Delta(y_{t-j}) + e_t
-    t-stat for rho=0 is the ADF statistic. p-values here are approximated via
-    a Student-t reference distribution on the regression's residual degrees
-    of freedom (NOT the true Dickey-Fuller distribution, which has no closed
-    form) — adequate for a directional accept/reject signal, not for
-    publication-grade inference.
+    t-stat for rho=0 is the ADF statistic ("constant, no trend" specification,
+    case "c" in the Dickey-Fuller/MacKinnon literature). p-values are obtained
+    by interpolating against MacKinnon's (1994) tabulated asymptotic
+    Dickey-Fuller quantiles for case "c", not a Student-t reference
+    distribution — see `_adf_test` for details and tail-clamping behavior.
 
 Johansen trace test (Johansen 1988): reduced-rank regression of Delta(Y_t) and
 Y_{t-1} on lagged differences, then eigen-decomposition of
@@ -36,6 +36,9 @@ References:
     Equities Market." Quantitative Finance.
     Dickey, D.A. and Fuller, W.A. (1979). "Distribution of the Estimators for
     Autoregressive Time Series with a Unit Root." JASA.
+    MacKinnon, J.G. (1994). "Approximate Asymptotic Distribution Functions for
+    Unit-Root and Cointegration Tests." Journal of Business & Economic
+    Statistics, 12(2), 167-176.
     See docs/REFERENCES.md.
 """
 
@@ -43,11 +46,50 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-from scipy import stats
 
 # ---------------------------------------------------------------------------
 # ADF unit-root test
 # ---------------------------------------------------------------------------
+
+# Asymptotic (T -> infinity) quantiles of the Dickey-Fuller "c" (constant, no
+# trend) distribution, MacKinnon (1994) / reproduced in MacKinnon (2010) and
+# in standard references (e.g. Hamilton (1994), Table B.6, "rho" case with
+# constant only). tau is the test statistic, p its right-tail-inclusive
+# cumulative probability under the null of a unit root; both columns are
+# monotonically increasing together, so interpolation is well-defined.
+_MACKINNON_C_TAU: npt.NDArray[np.float64] = np.array(
+    [-3.43, -3.12, -2.86, -2.57, -0.44, -0.07, 0.23, 0.60]
+)
+_MACKINNON_C_P: npt.NDArray[np.float64] = np.array(
+    [0.01, 0.025, 0.05, 0.10, 0.90, 0.95, 0.975, 0.99]
+)
+
+
+def _mackinnon_c_pvalue(t_stat: float) -> float:
+    """Approximate ADF p-value for the "c" (constant, no trend) case.
+
+    Linearly interpolates against tabulated MacKinnon (1994) asymptotic
+    Dickey-Fuller quantiles. Statistics beyond the tabulated range are
+    linearly extrapolated using the slope of the nearest table segment —
+    the true DF density has thin, well-behaved tails there, so a local
+    linear extrapolation stays close to the true surface far better than
+    flat-lining at the nearest tabulated probability would. The result is
+    then clamped to [0.0001, 0.9999]: MacKinnon's response-surface/table
+    approach is only fit over the tabulated statistic range, so arbitrarily
+    extreme statistics saturate at the nearest tail probability rather than
+    reporting an unbounded (and unvalidated) p-value.
+    """
+    tau = _MACKINNON_C_TAU
+    p = _MACKINNON_C_P
+    if t_stat <= tau[0]:
+        slope = (p[1] - p[0]) / (tau[1] - tau[0])
+        p_value = p[0] + slope * (t_stat - tau[0])
+    elif t_stat >= tau[-1]:
+        slope = (p[-1] - p[-2]) / (tau[-1] - tau[-2])
+        p_value = p[-1] + slope * (t_stat - tau[-1])
+    else:
+        p_value = float(np.interp(t_stat, tau, p))
+    return float(np.clip(p_value, 0.0001, 0.9999))
 
 
 def _validate_adf_inputs(series: npt.NDArray[np.float64], max_lags: int) -> None:
@@ -70,8 +112,10 @@ def adf_test(series: npt.NDArray[np.float64], max_lags: int = 1) -> tuple[float,
         max_lags: Number of lagged differences included in the regression.
 
     Returns:
-        Tuple (adf_statistic, p_value). p_value is a Student-t approximation
-        of the true (tabulated) Dickey-Fuller distribution.
+        Tuple (adf_statistic, p_value). p_value is computed via interpolation
+        against MacKinnon's (1994) tabulated asymptotic Dickey-Fuller
+        quantiles for the "constant, no trend" case, and clamped to
+        [0.0001, 0.9999] for statistics outside the tabulated range.
     """
     _validate_adf_inputs(series, max_lags)
     return _adf_test(series, max_lags)
@@ -99,7 +143,7 @@ def _adf_test(series: npt.NDArray[np.float64], max_lags: int) -> tuple[float, fl
     se_rho = float(np.sqrt(sigma2 * xtx_inv[1, 1]))
 
     t_stat = float(beta[1] / se_rho)
-    p_value = float(stats.t.cdf(t_stat, dof))
+    p_value = _mackinnon_c_pvalue(t_stat)
     return t_stat, p_value
 
 
@@ -128,7 +172,8 @@ def engle_granger_test(
 
     Returns:
         Tuple (beta, adf_statistic, p_value): the OLS cointegrating
-        coefficient and the ADF test result on the OLS residuals.
+        coefficient and the ADF test result (see `adf_test` for how
+        p_value is computed) on the OLS residuals.
     """
     _validate_engle_granger_inputs(y, x)
     return _engle_granger_test(y, x)

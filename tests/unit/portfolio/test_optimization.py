@@ -11,6 +11,7 @@ from quantcore.portfolio.optimization import (
     mean_variance_weights,
     min_variance_weights,
     risk_parity_weights,
+    unconstrained_mean_variance_weights,
 )
 
 
@@ -240,6 +241,84 @@ class TestL1TurnoverPenalizedWeights:
         )
         turnover = np.abs(weights - previous_weights).sum()
         assert turnover == pytest.approx(0.0, abs=1e-4)
+
+
+class TestUnconstrainedMeanVarianceWeights:
+    def test_invalid_inputs_mismatched_shapes(self) -> None:
+        with pytest.raises(ValueError):
+            unconstrained_mean_variance_weights(
+                expected_returns=np.array([0.05, 0.07, 0.03]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                risk_aversion=2.0,
+            )
+
+    def test_invalid_inputs_non_square_cov_matrix(self) -> None:
+        with pytest.raises(ValueError):
+            unconstrained_mean_variance_weights(
+                expected_returns=np.array([0.05, 0.07]),
+                cov_matrix=np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+                risk_aversion=2.0,
+            )
+
+    def test_invalid_inputs_zero_risk_aversion(self) -> None:
+        with pytest.raises(ValueError):
+            unconstrained_mean_variance_weights(
+                expected_returns=np.array([0.05, 0.07]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                risk_aversion=0.0,
+            )
+
+    def test_invalid_inputs_negative_risk_aversion(self) -> None:
+        with pytest.raises(ValueError):
+            unconstrained_mean_variance_weights(
+                expected_returns=np.array([0.05, 0.07]),
+                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
+                risk_aversion=-1.0,
+            )
+
+    def test_matches_analytical_solution_for_uncorrelated_assets(self) -> None:
+        # For diagonal Sigma, the closed-form solution is
+        # w_i = mu_i / (risk_aversion * sigma_i^2).
+        expected_returns = np.array([0.05, 0.07])
+        cov = np.array([[0.04, 0.0], [0.0, 0.01]])
+        risk_aversion = 3.0
+
+        expected = np.array([0.05 / (3.0 * 0.04), 0.07 / (3.0 * 0.01)])
+        weights = unconstrained_mean_variance_weights(expected_returns, cov, risk_aversion)
+
+        assert weights == pytest.approx(expected, abs=1e-10)
+
+    def test_satisfies_first_order_condition(self) -> None:
+        expected_returns = np.array([0.05, 0.07, 0.03])
+        cov = np.array([[0.04, 0.01, 0.0], [0.01, 0.09, 0.0], [0.0, 0.0, 0.02]])
+        risk_aversion = 2.0
+
+        weights = unconstrained_mean_variance_weights(expected_returns, cov, risk_aversion)
+
+        assert cov @ weights * risk_aversion == pytest.approx(expected_returns, abs=1e-8)
+
+    def test_does_not_sum_to_one_and_differs_from_mean_variance_weights(self) -> None:
+        expected_returns = np.array([0.05, -0.20])
+        cov = np.array([[0.04, 0.0], [0.0, 0.01]])
+        risk_aversion = 1.0
+
+        unconstrained = unconstrained_mean_variance_weights(expected_returns, cov, risk_aversion)
+        constrained = mean_variance_weights(expected_returns, cov, risk_aversion, allow_short=True)
+
+        assert unconstrained.sum() != pytest.approx(1.0, abs=1e-6)
+        assert not np.allclose(unconstrained, constrained, atol=1e-3)
+
+    def test_matches_explicit_inverse_on_ill_conditioned_matrix(self) -> None:
+        # Near-singular but still invertible: a strong cross-correlation
+        # pushes the condition number high without breaking invertibility.
+        cov = np.array([[1.0, 0.9999], [0.9999, 1.0]])
+        expected_returns = np.array([0.05, 0.06])
+        risk_aversion = 2.0
+
+        weights = unconstrained_mean_variance_weights(expected_returns, cov, risk_aversion)
+        reference = np.linalg.inv(cov) @ expected_returns / risk_aversion
+
+        assert weights == pytest.approx(reference, abs=1e-6)
 
 
 class TestKellyFraction:

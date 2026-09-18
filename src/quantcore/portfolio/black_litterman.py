@@ -48,7 +48,9 @@ def implied_equilibrium_returns(
 
     Args:
         cov_matrix: (k, k) covariance matrix of asset returns.
-        market_weights: (k,) market-cap weights, summing to 1.
+        market_weights: (k,) portfolio weights, typically market-cap weights.
+            Not required to sum to 1: an all-zero vector is a valid input and
+            represents no informative prior, giving Pi = 0.
         risk_aversion: Market risk aversion coefficient (lambda).
 
     Returns:
@@ -106,7 +108,11 @@ def black_litterman(
 
     Args:
         cov_matrix: (k, k) covariance matrix of asset returns.
-        market_weights: (k,) market-cap weights.
+        market_weights: (k,) portfolio weights, typically market-cap weights,
+            used to derive the equilibrium prior Pi (see
+            `implied_equilibrium_returns`). Not required to sum to 1: an
+            all-zero vector is a valid input meaning no informative prior
+            (Pi = 0), leaving the posterior driven entirely by the views.
         P: (v, k) view matrix.
         Q: (v,) view expected returns.
         omega: (v, v) view uncertainty covariance.

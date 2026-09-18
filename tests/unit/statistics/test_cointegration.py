@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pytest
 
@@ -54,6 +56,56 @@ class TestAdfTest:
         assert isinstance(stat, float)
         assert isinstance(p_value, float)
 
+    @pytest.mark.parametrize(
+        ("t_stat", "expected_p", "tol"),
+        [
+            (-2.86, 0.05, 0.02),
+            (-3.43, 0.01, 0.02),
+            (-2.57, 0.10, 0.02),
+        ],
+    )
+    def test_mackinnon_pvalue_matches_known_critical_values(
+        self, t_stat: float, expected_p: float, tol: float
+    ) -> None:
+        # Import lazily to keep this internal helper's usage localized to the
+        # test that specifically validates its critical-value calibration.
+        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
+
+        assert _mackinnon_c_pvalue(t_stat) == pytest.approx(expected_p, abs=tol)
+
+    def test_mackinnon_pvalue_monotonically_decreases_as_stat_falls(self) -> None:
+        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
+
+        t_stats = np.linspace(-10.0, 5.0, 200)
+        p_values = [_mackinnon_c_pvalue(t) for t in t_stats]
+        assert all(a <= b for a, b in pairwise(p_values))
+
+    def test_mackinnon_pvalue_clamped_within_unit_interval_at_extremes(self) -> None:
+        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
+
+        very_negative = _mackinnon_c_pvalue(-100.0)
+        very_positive = _mackinnon_c_pvalue(100.0)
+        assert 0.0 <= very_negative <= 1.0
+        assert 0.0 <= very_positive <= 1.0
+        assert not np.isnan(very_negative)
+        assert not np.isnan(very_positive)
+        assert very_negative == pytest.approx(0.0001)
+        assert very_positive == pytest.approx(0.9999)
+
+    def test_random_walk_reports_large_pvalue_not_old_overconfident_value(self) -> None:
+        # Regression test for the production bug: the prior Student-t
+        # approximation reported p ~= 0.03 for genuine unit-root series,
+        # falsely signaling stationarity to downstream leg-selection filters.
+        for seed in range(5):
+            series = _random_walk(500, seed=seed)
+            _, p_value = adf_test(series, max_lags=1)
+            assert p_value > 0.3
+
+    def test_strongly_mean_reverting_series_reports_small_pvalue(self) -> None:
+        series = _stationary_ar1(500, phi=0.2)
+        _, p_value = adf_test(series, max_lags=1)
+        assert p_value < 0.05
+
 
 class TestEngleGrangerTest:
     def test_invalid_inputs(self) -> None:
@@ -75,6 +127,20 @@ class TestEngleGrangerTest:
         y = _random_walk(500, seed=RNG_SEED + 7)
         _, _, p_value = engle_granger_test(y, x)
         assert p_value > 0.01
+
+    def test_pvalue_consistent_with_adf_test_on_same_residuals(self) -> None:
+        x = _random_walk(500, seed=RNG_SEED)
+        spread = _stationary_ar1(500, phi=0.5, seed=RNG_SEED + 1)
+        y = 2.0 * x + spread
+        _, eg_adf_stat, eg_p_value = engle_granger_test(y, x)
+
+        x_reg = np.column_stack([np.ones_like(x), x])
+        ols_beta, _, _, _ = np.linalg.lstsq(x_reg, y, rcond=None)
+        residuals = y - x_reg @ ols_beta
+        adf_stat, p_value = adf_test(residuals, max_lags=1)
+
+        assert eg_adf_stat == pytest.approx(adf_stat)
+        assert eg_p_value == pytest.approx(p_value)
 
 
 class TestJohansenTraceTest:

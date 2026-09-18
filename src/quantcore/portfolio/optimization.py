@@ -120,6 +120,62 @@ def _mean_variance_weights(
     return np.asarray(result.x, dtype=np.float64)
 
 
+def _validate_unconstrained_mean_variance_inputs(
+    expected_returns: npt.NDArray[np.float64],
+    cov_matrix: npt.NDArray[np.float64],
+    risk_aversion: float,
+) -> None:
+    _validate_cov_matrix(cov_matrix)
+    if expected_returns.ndim != 1 or expected_returns.shape[0] != cov_matrix.shape[0]:
+        raise ValueError("expected_returns must be a 1D array matching cov_matrix's dimension")
+    if risk_aversion <= 0.0:
+        raise ValueError("risk_aversion must be strictly positive")
+
+
+def unconstrained_mean_variance_weights(
+    expected_returns: npt.NDArray[np.float64],
+    cov_matrix: npt.NDArray[np.float64],
+    risk_aversion: float,
+) -> npt.NDArray[np.float64]:
+    """Solve the unconstrained mean-variance first-order condition Sigma @ w = mu / lambda.
+
+    This is the closed-form maximizer of w^T mu - 0.5*risk_aversion*w^T Sigma w
+    with NO constraints imposed at all: no budget constraint (sum(w) == 1), no
+    long-only constraint. The resulting weights need not sum to 1, may be
+    negative (short positions), and may exceed 1x gross exposure (leverage).
+    Use this for a raw tangency-style allocation (e.g. as a prior or building
+    block in a downstream optimizer that layers its own constraints); use
+    `mean_variance_weights` instead when a fully-invested, optionally
+    long-only portfolio is required.
+
+    Because this is a direct linear solve rather than an SLSQP call, it is
+    substantially faster than `mean_variance_weights`.
+
+    Args:
+        expected_returns: Expected asset returns, shape (k,).
+        cov_matrix: Covariance matrix of asset returns, shape (k, k).
+        risk_aversion: Risk-aversion coefficient lambda, must be strictly
+            positive (weights are divided by it).
+
+    Returns:
+        Unconstrained portfolio weights of shape (k,). Not guaranteed to sum
+        to 1.
+    """
+    _validate_unconstrained_mean_variance_inputs(expected_returns, cov_matrix, risk_aversion)
+    return _unconstrained_mean_variance_weights(expected_returns, cov_matrix, risk_aversion)
+
+
+def _unconstrained_mean_variance_weights(
+    expected_returns: npt.NDArray[np.float64],
+    cov_matrix: npt.NDArray[np.float64],
+    risk_aversion: float,
+) -> npt.NDArray[np.float64]:
+    # np.linalg.solve over an explicit np.linalg.inv: forming the inverse
+    # explicitly squares the condition number's effect on rounding error,
+    # whereas solve dispatches to a direct LU factorization of cov_matrix.
+    return np.linalg.solve(cov_matrix, expected_returns) / risk_aversion
+
+
 def _validate_l1_turnover_penalized_inputs(
     expected_returns: npt.NDArray[np.float64],
     cov_matrix: npt.NDArray[np.float64],

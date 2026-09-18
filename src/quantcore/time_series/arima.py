@@ -26,6 +26,7 @@ References:
 
 from __future__ import annotations
 
+import numba
 import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
@@ -109,6 +110,71 @@ def arima_fit(
     return _arima_fit(series, p, d, q)
 
 
+def _validate_arima_residuals_inputs(
+    series: npt.NDArray[np.float64],
+    ar_coefs: npt.NDArray[np.float64],
+    ma_coefs: npt.NDArray[np.float64],
+    d: int,
+) -> None:
+    if series.size == 0:
+        raise ValueError("series must be non-empty")
+    if ar_coefs.ndim != 1:
+        raise ValueError("ar_coefs must be a 1-D array")
+    if ma_coefs.ndim != 1:
+        raise ValueError("ma_coefs must be a 1-D array")
+    if d not in (0, 1, 2):
+        raise ValueError("d must be 0, 1, or 2")
+    if series.size <= d + max(ar_coefs.size, ma_coefs.size):
+        raise ValueError("series is too short for the given (ar_coefs, ma_coefs, d)")
+
+
+def arima_residuals(
+    series: npt.NDArray[np.float64],
+    ar_coefs: npt.NDArray[np.float64],
+    ma_coefs: npt.NDArray[np.float64],
+    d: int,
+) -> npt.NDArray[np.float64]:
+    """Recompute the CSS residual series for an already-fitted ARIMA model.
+
+    This closes the gap left by `arima_fit`, which returns only the fitted
+    coefficients and `sigma2_hat`, with no residual series to diagnose the
+    fit with. Pass this function's output straight into `ljung_box_test` to
+    check whether the fit actually whitened the series:
+
+        ar_coefs, ma_coefs, _ = arima_fit(series, p, d, q)
+        residuals = arima_residuals(series, ar_coefs, ma_coefs, d)
+        _, p_value = ljung_box_test(residuals, n_lags)
+
+    A high `p_value` means the residuals are consistent with white noise, so
+    the chosen (p, d, q) order adequately removed the series' autocorrelation.
+    A low `p_value` means significant autocorrelation remains and the order
+    (or the fit) should be reconsidered -- this is the proper POST-fit
+    analogue of a cruder pre-fit Ljung-Box gate run on the raw series.
+
+    Args:
+        series: Raw (undifferenced) series, on the same scale `arima_fit`
+            was called with.
+        ar_coefs: Fitted AR coefficients, shape (p,) -- e.g. `arima_fit`'s
+            first return value.
+        ma_coefs: Fitted MA coefficients, shape (q,) -- e.g. `arima_fit`'s
+            second return value.
+        d: Integration order used when fitting.
+
+    Returns:
+        CSS residual series on the differenced scale, from index
+        `max(p, q)` onward -- the same slicing convention `arima_fit` uses
+        internally to compute `sigma2_hat`. Calling this with the
+        (ar_coefs, ma_coefs) `arima_fit` returned for the same (series, d)
+        reproduces `arima_fit`'s internal residuals exactly, since both
+        route through the same CSS kernel.
+    """
+    _validate_arima_residuals_inputs(series, ar_coefs, ma_coefs, d)
+    differenced = _difference(series, d)
+    phi = np.ascontiguousarray(ar_coefs, dtype=np.float64)
+    ma = np.ascontiguousarray(ma_coefs, dtype=np.float64)
+    return _css_residuals_numba_kernel(phi, ma, differenced)
+
+
 def select_arima_order(
     series: npt.NDArray[np.float64],
     max_p: int,
@@ -174,21 +240,31 @@ def _difference(series: npt.NDArray[np.float64], d: int) -> npt.NDArray[np.float
     return diffed
 
 
-def _css_residuals(
-    params: npt.NDArray[np.float64],
+# phi/ma are pre-sliced by callers (rather than a combined `params` array
+# sliced inside) because Numba needs simple, directly-typed array arguments
+# -- slicing `params[:p]`/`params[p:p+q]` outside the njit boundary keeps the
+# kernel's signature trivial to type and lets every caller (the Nelder-Mead
+# objective and `arima_residuals`) share the exact same compiled code path,
+# which is what makes their outputs bit-identical by construction.
+@numba.njit(cache=True)
+def _css_residuals_numba_kernel(
+    phi: npt.NDArray[np.float64],
+    ma: npt.NDArray[np.float64],
     y: npt.NDArray[np.float64],
-    p: int,
-    q: int,
 ) -> npt.NDArray[np.float64]:
-    phi = params[:p]
-    ma = params[p : p + q]
-    n = y.size
+    p = phi.shape[0]
+    q = ma.shape[0]
+    n = y.shape[0]
     start = max(p, q)
     residuals = np.zeros(n, dtype=np.float64)
 
     for t in range(start, n):
-        ar_term = float(np.dot(phi, y[t - p : t][::-1])) if p > 0 else 0.0
-        ma_term = float(np.dot(ma, residuals[t - q : t][::-1])) if q > 0 else 0.0
+        ar_term = 0.0
+        for i in range(p):
+            ar_term += phi[i] * y[t - 1 - i]
+        ma_term = 0.0
+        for i in range(q):
+            ma_term += ma[i] * residuals[t - 1 - i]
         residuals[t] = y[t] - ar_term - ma_term
 
     return residuals[start:]
@@ -200,7 +276,9 @@ def _css_objective(
     p: int,
     q: int,
 ) -> float:
-    residuals = _css_residuals(params, y, p, q)
+    phi = params[:p]
+    ma = params[p : p + q]
+    residuals = _css_residuals_numba_kernel(phi, ma, y)
     return float(np.sum(residuals**2))
 
 

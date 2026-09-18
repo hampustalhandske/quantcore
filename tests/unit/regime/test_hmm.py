@@ -30,6 +30,23 @@ def _best_label_matched_accuracy(decoded: np.ndarray, true_states: np.ndarray) -
     return max(direct, swapped)
 
 
+def _three_state_synthetic_data(
+    seed: int, n_blocks: int = 9, block_size: int = 60
+) -> tuple[np.ndarray, np.ndarray]:
+    # Cycling blocks from three regimes with distinct means AND distinct
+    # variances (calm/mid/crisis), matching the downstream sort-by-variance
+    # labeling convention: state 2 has both the largest mean spread and the
+    # largest variance so both mean- and variance-based orderings agree.
+    rng = np.random.default_rng(seed)
+    means = np.array([-2.0, 0.0, 2.0])
+    stds = np.array([np.sqrt(0.05), np.sqrt(0.2), np.sqrt(0.8)])
+    true_states = np.array(
+        [i % 3 for i in range(n_blocks) for _ in range(block_size)], dtype=np.int64
+    )
+    observations = rng.normal(loc=means[true_states], scale=stds[true_states])
+    return observations, true_states
+
+
 class TestHmmFit:
     def test_invalid_empty_observations_raises(self) -> None:
         with pytest.raises(ValueError):
@@ -56,6 +73,49 @@ class TestHmmFit:
         assert variances.shape == (2,)
         assert initial_probs.shape == (2,)
 
+    @pytest.mark.parametrize("seed", [0, 1, 7, 42, 123])
+    @pytest.mark.parametrize("n_states", [2, 3])
+    def test_variances_always_sorted_ascending(self, seed: int, n_states: int) -> None:
+        observations, _ = (
+            _two_state_synthetic_data() if n_states == 2 else _three_state_synthetic_data(seed)
+        )
+        _, _, variances, _ = hmm_fit(observations, n_states=n_states, seed=seed)
+        assert np.all(np.diff(variances) >= 0.0)
+
+    @pytest.mark.parametrize("seed", [0, 1, 7, 42, 123])
+    @pytest.mark.parametrize("n_states", [2, 3])
+    def test_transition_matrix_row_stochastic_after_relabeling(
+        self, seed: int, n_states: int
+    ) -> None:
+        # Catches a transposition bug: permuting only one axis of
+        # transition_matrix would break the row-stochastic property since
+        # rows and columns index the same state permutation.
+        observations, _ = (
+            _two_state_synthetic_data() if n_states == 2 else _three_state_synthetic_data(seed)
+        )
+        transition_matrix, _, _, _ = hmm_fit(observations, n_states=n_states, seed=seed)
+        assert np.allclose(transition_matrix.sum(axis=1), 1.0)
+
+    def test_state_ordering_stable_across_refits_on_similar_data(self) -> None:
+        # The actual bug being fixed: two fits of the same underlying
+        # generative process (different seeds/sample windows) must land in
+        # the same regime order, so downstream callers don't need to
+        # re-identify "crisis" by variance themselves each time.
+        obs_a, _ = _three_state_synthetic_data(seed=1, n_blocks=9)
+        obs_b, _ = _three_state_synthetic_data(seed=2, n_blocks=12)
+
+        _, means_a, variances_a, _ = hmm_fit(obs_a, n_states=3, seed=1)
+        _, means_b, variances_b, _ = hmm_fit(obs_b, n_states=3, seed=2)
+
+        assert np.all(np.diff(variances_a) >= 0.0)
+        assert np.all(np.diff(variances_b) >= 0.0)
+        # Both fits should recover the same calm -> mid -> crisis mean
+        # ordering, not an arbitrary permutation.
+        assert np.all(np.diff(means_a) > 0.0)
+        assert np.all(np.diff(means_b) > 0.0)
+        for i in range(3):
+            assert means_a[i] == pytest.approx(means_b[i], abs=0.5)
+
 
 class TestSelectHmmNStates:
     def test_invalid_criterion_raises(self) -> None:
@@ -81,6 +141,24 @@ class TestSelectHmmNStates:
         observations, _ = _two_state_synthetic_data()
         n_states = select_hmm_n_states(observations, max_states=4, criterion="bic")
         assert n_states == 2
+
+
+class TestHmmFitDecodeIntegration:
+    def test_decode_and_predict_proba_work_with_relabeled_fit_output(self) -> None:
+        observations, true_states = _two_state_synthetic_data()
+        transition_matrix, means, variances, initial_probs = hmm_fit(
+            observations, n_states=2, seed=SEED
+        )
+
+        decoded = hmm_decode(observations, transition_matrix, means, variances, initial_probs)
+        assert decoded.shape == observations.shape
+        assert _best_label_matched_accuracy(decoded, true_states) > 0.9
+
+        posteriors = hmm_predict_proba(
+            observations, transition_matrix, means, variances, initial_probs
+        )
+        assert posteriors.shape == (observations.shape[0], 2)
+        assert np.allclose(posteriors.sum(axis=1), 1.0)
 
 
 class TestHmmDecode:

@@ -115,6 +115,25 @@ class TestBlackLitterman:
 
         assert abs(posterior_returns[0] - strong_view_value) < abs(pi[0] - strong_view_value)
 
+    def test_zero_market_weights_gives_zero_prior_and_finite_posterior(self) -> None:
+        # market_weights need not sum to 1; an all-zero vector is a
+        # deliberately supported "no informative prior" input (Pi = 0),
+        # leaving the posterior driven entirely by the views.
+        market_weights = np.zeros(2)
+        pi = implied_equilibrium_returns(self.cov_matrix, market_weights, self.risk_aversion)
+        assert pi == pytest.approx(np.zeros(2), abs=1e-12)
+
+        P = np.array([[1.0, -1.0]])
+        Q = np.array([0.02])
+        omega = np.array([[1e-4]])
+
+        posterior_returns, posterior_cov = black_litterman(
+            self.cov_matrix, market_weights, P, Q, omega, self.risk_aversion, self.tau
+        )
+
+        assert np.all(np.isfinite(posterior_returns))
+        assert np.all(np.isfinite(posterior_cov))
+
     def test_posterior_cov_is_symmetric(self) -> None:
         P = np.array([[1.0, -1.0]])
         Q = np.array([0.02])

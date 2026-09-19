@@ -16,8 +16,14 @@ import numpy as np
 import pytest
 
 from quantcore.risk.egarch import (
+    _EGARCH_INFEASIBLE_PENALTY,
     EGARCHParams,
     GJRGARCHParams,
+    _egarch_11_variance,
+    _egarch_11_variance_numpy,
+    _egarch_negative_log_likelihood,
+    _gjr_garch_11_variance,
+    _gjr_garch_11_variance_numpy,
     egarch_11_variance,
     egarch_fit,
     ewma_variance,
@@ -88,6 +94,85 @@ class TestGjrGarch11Variance:
         gjr = gjr_garch_11_variance(RETURNS, omega=omega, alpha=alpha, gamma=0.0, beta=beta)
         garch = garch_11_variance(RETURNS, omega=omega, alpha=alpha, beta=beta)
         assert np.max(np.abs(gjr - garch)) < 1e-10
+
+
+class TestEgarchNumbaNumpyAgreement:
+    """Numba/NumPy agreement for the EGARCH(1,1) recursion.
+
+    Per CLAUDE.md: every numerically heavy function needs a NumPy reference
+    implementation and a Numba-accelerated kernel, with a test asserting they
+    agree within a numerical tolerance.
+    """
+
+    def test_agree_on_hand_picked_series(self) -> None:
+        omega, alpha, gamma, beta = 0.01, 0.1, -0.05, 0.9
+
+        numpy_log_variance = _egarch_11_variance_numpy(RETURNS, omega, alpha, gamma, beta)
+        numba_log_variance = _egarch_11_variance(RETURNS, omega, alpha, gamma, beta)
+
+        assert numpy_log_variance.shape == numba_log_variance.shape
+        assert np.allclose(numpy_log_variance, numba_log_variance, rtol=1e-10, atol=1e-10)
+
+    def test_agree_across_parameterizations(self) -> None:
+        rng = np.random.default_rng(33)
+        returns = rng.normal(0.0, 0.02, size=50)
+
+        for omega, alpha, gamma, beta in [
+            (0.01, 0.1, -0.05, 0.9),
+            (-0.02, 0.05, 0.1, 0.85),
+            (0.0, 0.0, 0.0, 0.5),  # alpha == gamma == 0 boundary
+            (0.05, 0.2, -0.1, 0.0),  # beta == 0 boundary
+        ]:
+            numpy_log_variance = _egarch_11_variance_numpy(returns, omega, alpha, gamma, beta)
+            numba_log_variance = _egarch_11_variance(returns, omega, alpha, gamma, beta)
+            assert np.allclose(numpy_log_variance, numba_log_variance, rtol=1e-10, atol=1e-10)
+
+    def test_agree_on_long_series(self) -> None:
+        rng = np.random.default_rng(4444)
+        returns = rng.normal(0.0, 0.015, size=2000)
+        omega, alpha, gamma, beta = 0.01, 0.12, -0.04, 0.88
+
+        numpy_log_variance = _egarch_11_variance_numpy(returns, omega, alpha, gamma, beta)
+        numba_log_variance = _egarch_11_variance(returns, omega, alpha, gamma, beta)
+
+        assert np.allclose(numpy_log_variance, numba_log_variance, rtol=1e-10, atol=1e-10)
+
+
+class TestGjrGarchNumbaNumpyAgreement:
+    """Numba/NumPy agreement for the GJR-GARCH(1,1) recursion."""
+
+    def test_agree_on_hand_picked_series(self) -> None:
+        omega, alpha, gamma, beta = 0.01, 0.05, 0.1, 0.8
+
+        numpy_variance = _gjr_garch_11_variance_numpy(RETURNS, omega, alpha, gamma, beta)
+        numba_variance = _gjr_garch_11_variance(RETURNS, omega, alpha, gamma, beta)
+
+        assert numpy_variance.shape == numba_variance.shape
+        assert np.allclose(numpy_variance, numba_variance, rtol=1e-10, atol=1e-10)
+
+    def test_agree_across_parameterizations(self) -> None:
+        rng = np.random.default_rng(55)
+        returns = rng.normal(0.0, 0.02, size=50)
+
+        for omega, alpha, gamma, beta in [
+            (0.01, 0.05, 0.1, 0.8),
+            (0.0002, 0.0, 0.2, 0.5),  # alpha == 0 boundary
+            (0.0002, 0.5, -0.2, 0.0),  # beta == 0 boundary
+            (1e-6, 0.08, 0.05, 0.88),
+        ]:
+            numpy_variance = _gjr_garch_11_variance_numpy(returns, omega, alpha, gamma, beta)
+            numba_variance = _gjr_garch_11_variance(returns, omega, alpha, gamma, beta)
+            assert np.allclose(numpy_variance, numba_variance, rtol=1e-10, atol=1e-10)
+
+    def test_agree_on_long_series(self) -> None:
+        rng = np.random.default_rng(6666)
+        returns = rng.normal(0.0, 0.015, size=2000)
+        omega, alpha, gamma, beta = 0.000015, 0.07, 0.06, 0.85
+
+        numpy_variance = _gjr_garch_11_variance_numpy(returns, omega, alpha, gamma, beta)
+        numba_variance = _gjr_garch_11_variance(returns, omega, alpha, gamma, beta)
+
+        assert np.allclose(numpy_variance, numba_variance, rtol=1e-10, atol=1e-10)
 
 
 class TestEwmaVariance:
@@ -308,6 +393,41 @@ class TestEgarchFit:
             f"short-window (n=60) EGARCH failure rate {failure_rate:.1%} regressed back "
             "toward the pre-fix ~16-23% baseline"
         )
+
+    # ---- Interior ZeroDivisionError region: the Numba kernel raises where
+    # the NumPy loop silently returns inf, at an in-bounds beta the
+    # seed-stability guard alone does not catch (sigma_prev underflowing to
+    # exactly 0.0 partway through the recursion, not at the seed). ----
+
+    def test_objective_returns_infeasible_penalty_instead_of_raising_on_interior_zero_division(
+        self,
+    ) -> None:
+        # Regression test: this (omega, alpha, gamma, beta) point drives
+        # `_egarch_11_variance`'s Numba kernel to divide by an exact-zero
+        # `sigma_prev` at an interior step, even though `beta = -0.99` passes
+        # the objective's own -1+margin < beta < 1-margin seed-stability
+        # check. Without the try/except ZeroDivisionError around the Numba
+        # call, this would propagate out of SLSQP's objective evaluation and
+        # crash the fit instead of degrading gracefully to the usual
+        # infeasible-point penalty.
+        rng = np.random.default_rng(0)
+        returns = rng.normal(0.0, 0.02, size=500)
+        params = np.array([-100.0, 0.1, 0.1, -0.99])
+
+        result = _egarch_negative_log_likelihood(params, returns, omega_scale=1.0)
+
+        assert result == _EGARCH_INFEASIBLE_PENALTY
+
+    def test_egarch_fit_does_not_raise_near_interior_zero_division_region(self) -> None:
+        # `egarch_fit` itself must never raise merely because SLSQP's probing
+        # wanders into the interior-ZeroDivisionError region above -- it
+        # should either converge or report `converged=False`, matching its
+        # documented graceful-degradation contract.
+        epsilon = _simulate_egarch_11_process(500, 0.0, 0.1, -0.05, 0.9, seed=RNG_SEED)
+
+        result = egarch_fit(epsilon)
+
+        assert isinstance(result, EGARCHParams)
 
 
 class TestGjrGarchFit:

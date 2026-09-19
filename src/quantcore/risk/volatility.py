@@ -89,7 +89,12 @@ def _garch_11_variance_numpy(
     alpha: float,
     beta: float,
 ) -> npt.NDArray[np.float64]:
-    """Plain NumPy reference implementation of the GARCH(1,1) recursion."""
+    """Plain NumPy reference implementation of the GARCH(1,1) recursion.
+
+    Correctness reference for `_garch_11_variance`'s Numba kernel — see
+    `test_volatility_numba_agreement.py` for the agreement test between the
+    two.
+    """
     n = returns.shape[0]
     variance = np.empty(n, dtype=np.float64)
 
@@ -171,7 +176,7 @@ def _negative_log_likelihood(
     omega = omega_scaled * sample_var
     if omega <= 0.0 or alpha < 0.0 or beta < 0.0 or alpha + beta >= 1.0:
         return _INFEASIBLE_PENALTY
-    variance = _garch_11_variance_numpy(epsilon, omega, alpha, beta)
+    variance = _garch_11_variance(epsilon, omega, alpha, beta)
     if np.any(variance <= 0.0) or not np.all(np.isfinite(variance)):
         return _INFEASIBLE_PENALTY
     log_likelihood = -0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance)

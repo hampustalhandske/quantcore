@@ -36,9 +36,19 @@ numbers without re-deriving them.
 - **Use Numba where the computation is a tight numerical loop** — recursive
   variance recursions, path simulation, Viterbi decoding, Kalman predict/update
   cycles. Use plain NumPy/SciPy for closed-form expressions (Greeks, yield curve
-  formulas, OLS) and for objective functions passed to `scipy.optimize` (which
-  cannot call Numba JIT functions). One implementation per function — no parallel
-  NumPy reference copy unless a specific need (like an MLE penalty callable)
+  formulas, OLS). Objective functions passed to `scipy.optimize` can and should
+  call into Numba JIT kernels directly — scipy only requires the objective
+  itself to be a plain callable, it doesn't care what it calls internally, and
+  the Numba kernel is typically an order of magnitude faster than the NumPy
+  loop it replaces. The one real constraint: Numba's njit-compiled scalar
+  float division raises `ZeroDivisionError` on exact zero, where NumPy's array
+  division silently returns `inf`. This only matters where an unguarded
+  division sits inside the hot loop itself (e.g. dividing by a value that can
+  underflow to exactly 0.0 at an interior step) — wrap the call in
+  `try/except ZeroDivisionError` and return the objective's usual
+  infeasible-point penalty in that case. One implementation per function — no
+  parallel NumPy reference copy unless a specific need (like this
+  ZeroDivisionError mismatch, or the NumPy/Numba agreement test itself)
   forces it.
 - Public functions must be fully typed (mypy strict mode is enforced outside
   `core/`).

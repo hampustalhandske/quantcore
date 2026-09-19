@@ -128,9 +128,8 @@ def _egarch_11_variance_numpy(
 ) -> npt.NDArray[np.float64]:
     """Plain NumPy reference implementation of the EGARCH(1,1) recursion.
 
-    Used only by the MLE objective in `egarch_fit`, since scipy.optimize
-    cannot call into Numba JIT functions directly as objectives (matching
-    the pattern established by `volatility._garch_11_variance_numpy`).
+    Correctness reference for `_egarch_11_variance`'s Numba kernel — see
+    `test_egarch.py` for the agreement test between the two.
     """
     n = returns.shape[0]
     log_variance = np.empty(n, dtype=np.float64)
@@ -184,7 +183,17 @@ def _egarch_negative_log_likelihood(
     # so the resulting RuntimeWarnings are suppressed rather than left to
     # spam every out-of-domain evaluation.
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        log_variance = _egarch_11_variance_numpy(epsilon, omega, alpha, gamma, beta)
+        try:
+            log_variance = _egarch_11_variance(epsilon, omega, alpha, gamma, beta)
+        except ZeroDivisionError:
+            # Numba's njit-compiled scalar float division raises on exact
+            # zero, where NumPy's array division silently returns inf/-inf
+            # (which the isfinite check below would otherwise catch). This
+            # can happen at an interior step even when `beta` passes the
+            # seed-stability guard above, since that guard only protects the
+            # seed's own division -- sigma_prev can still underflow to
+            # exactly 0.0 at a later step.
+            return _EGARCH_INFEASIBLE_PENALTY
         if not np.all(np.isfinite(log_variance)):
             return _EGARCH_INFEASIBLE_PENALTY
         variance = np.exp(log_variance)
@@ -446,9 +455,8 @@ def _gjr_garch_11_variance_numpy(
 ) -> npt.NDArray[np.float64]:
     """Plain NumPy reference implementation of the GJR-GARCH(1,1) recursion.
 
-    Used only by the MLE objective in `gjr_garch_fit`, since scipy.optimize
-    cannot call into Numba JIT functions directly as objectives (matching
-    the pattern established by `volatility._garch_11_variance_numpy`).
+    Correctness reference for `_gjr_garch_11_variance`'s Numba kernel — see
+    `test_egarch.py` for the agreement test between the two.
     """
     n = returns.shape[0]
     variance = np.empty(n, dtype=np.float64)
@@ -504,7 +512,7 @@ def _gjr_garch_negative_log_likelihood(
         or not (_GJR_GARCH_BETA_BOUNDS[0] < beta < _GJR_GARCH_BETA_BOUNDS[1])
     ):
         return _GJR_GARCH_INFEASIBLE_PENALTY
-    variance = _gjr_garch_11_variance_numpy(epsilon, omega, alpha, gamma, beta)
+    variance = _gjr_garch_11_variance(epsilon, omega, alpha, gamma, beta)
     if np.any(variance <= 0.0) or not np.all(np.isfinite(variance)):
         return _GJR_GARCH_INFEASIBLE_PENALTY
     log_likelihood = -0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance)

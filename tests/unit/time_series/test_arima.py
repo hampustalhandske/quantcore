@@ -57,6 +57,35 @@ class TestLjungBoxTest:
         _, p_value = ljung_box_test(series, n_lags=10)
         assert p_value < 0.05
 
+    def test_invalid_negative_model_df_raises(self) -> None:
+        residuals = np.arange(20, dtype=np.float64)
+        with pytest.raises(ValueError):
+            ljung_box_test(residuals, n_lags=5, model_df=-1)
+
+    def test_invalid_model_df_at_least_n_lags_raises(self) -> None:
+        residuals = np.arange(20, dtype=np.float64)
+        with pytest.raises(ValueError):
+            ljung_box_test(residuals, n_lags=5, model_df=5)
+
+    def test_default_model_df_is_zero(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        residuals = rng.normal(0.0, 1.0, size=200)
+        stat_default, p_default = ljung_box_test(residuals, n_lags=10)
+        stat_explicit, p_explicit = ljung_box_test(residuals, n_lags=10, model_df=0)
+        assert stat_default == pytest.approx(stat_explicit)
+        assert p_default == pytest.approx(p_explicit)
+
+    def test_model_df_reduces_degrees_of_freedom_and_pvalue(self) -> None:
+        # Same Q statistic, fewer df -> the survival function is evaluated
+        # further into the chi-squared tail -> a smaller (not larger)
+        # p-value for model_df > 0, all else equal.
+        rng = np.random.default_rng(RNG_SEED)
+        residuals = rng.normal(0.0, 1.0, size=200)
+        q_no_adjustment, p_no_adjustment = ljung_box_test(residuals, n_lags=10, model_df=0)
+        q_adjusted, p_adjusted = ljung_box_test(residuals, n_lags=10, model_df=3)
+        assert q_adjusted == pytest.approx(q_no_adjustment)
+        assert p_adjusted < p_no_adjustment
+
 
 class TestArimaFit:
     def test_invalid_inputs_empty_series(self) -> None:

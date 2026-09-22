@@ -36,6 +36,46 @@ import numpy.typing as npt
 from scipy.optimize import NonlinearConstraint, minimize
 
 
+class ConvergenceError(RuntimeError):
+    """Maximum-likelihood optimization failed to converge to a fully
+    feasible solution from any starting point.
+
+    `fit_garch_11`, `egarch_fit`, and `gjr_garch_fit` all raise this in the
+    analogous case (see each function's docstring) — no silent fallback
+    and no partial-result return value; the fit is not trustworthy enough
+    to hand back as if it were a normal answer. Unlike a plain
+    `RuntimeError`, it carries the best attempt actually found across all
+    starting points (by objective value, preferring a feasible point over
+    an infeasible one), so a caller that wants to inspect a best-effort
+    fit despite the failure can still do so by catching this and reading
+    `params`/`log_likelihood`/`optimizer_message`, rather than receiving
+    a `converged=False` result as if it were usable.
+
+    Attributes:
+        params: The best attempt's raw parameter tuple, in the same order
+            the raising function's docstring describes, or `None` if no
+            starting point produced any usable (finite-objective) result
+            at all.
+        log_likelihood: The best attempt's Gaussian log-likelihood, or
+            `None` under the same condition as `params`.
+        optimizer_message: The underlying `scipy.optimize.minimize`
+            result's `message` for the best attempt, or `None` under the
+            same condition as `params`.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        params: tuple[float, ...] | None,
+        log_likelihood: float | None,
+        optimizer_message: str | None,
+    ) -> None:
+        super().__init__(message)
+        self.params = params
+        self.log_likelihood = log_likelihood
+        self.optimizer_message = optimizer_message
+
+
 def _validate_garch_inputs(
     returns: npt.NDArray[np.float64],
     omega: float,
@@ -218,10 +258,15 @@ def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]
 
     Raises:
         ValueError: If `returns` is empty.
-        RuntimeError: If maximum-likelihood optimization fails to converge
-            to a feasible solution from any of several starting points. No
-            silent fallback is returned in this case -- a non-converged fit
-            is not a usable GARCH parameterization.
+        ConvergenceError: If maximum-likelihood optimization fails to
+            converge to a feasible solution from any of several starting
+            points (a `RuntimeError` subclass — see `ConvergenceError`).
+            No silent fallback and no partial result is returned in this
+            case; catch `ConvergenceError` and read its `params` if you
+            need the best attempt anyway. `egarch_fit`/`gjr_garch_fit`
+            (`risk/egarch.py`) raise the same exception in the analogous
+            case — all three GARCH-family fitters use this one
+            convergence convention.
 
     References:
         Bollerslev, T. (1986), "Generalized Autoregressive Conditional
@@ -265,6 +310,7 @@ def _fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float
     )
 
     best_result = None
+    best_converged = False
     for alpha0, beta0 in _STARTING_POINTS:
         omega0 = sample_var * (1.0 - alpha0 - beta0)
         omega0 = max(omega0, _MIN_OMEGA)
@@ -278,19 +324,46 @@ def _fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float
             bounds=bounds,
             constraints=[stationarity_constraint],
         )
-        if not result.success:
+        if not np.isfinite(result.fun):
             continue
-        omega = result.x[0] * sample_var
-        alpha, beta = float(result.x[1]), float(result.x[2])
-        if omega <= 0.0 or alpha < 0.0 or beta < 0.0 or alpha + beta >= 1.0:
-            continue
-        if best_result is None or result.fun < best_result.fun:
+
+        omega_candidate = float(result.x[0]) * sample_var
+        alpha_candidate, beta_candidate = float(result.x[1]), float(result.x[2])
+        feasible = (
+            omega_candidate > 0.0
+            and alpha_candidate >= 0.0
+            and beta_candidate >= 0.0
+            and alpha_candidate + beta_candidate < 1.0
+        )
+        converged = bool(result.success) and feasible
+        is_better = (
+            best_result is None
+            or (converged and not best_converged)
+            or (converged == best_converged and result.fun < best_result.fun)
+        )
+        if is_better:
             best_result = result
+            best_converged = converged
 
     if best_result is None:
-        raise RuntimeError(
+        raise ConvergenceError(
+            "fit_garch_11: GARCH(1,1) maximum-likelihood optimization produced no "
+            "usable (finite-objective) result from any starting point",
+            params=None,
+            log_likelihood=None,
+            optimizer_message=None,
+        )
+    if not best_converged:
+        raise ConvergenceError(
             "fit_garch_11: GARCH(1,1) maximum-likelihood optimization failed to "
-            "converge to a feasible solution from any starting point"
+            "converge to a feasible solution from any starting point",
+            params=(
+                float(best_result.x[0]) * sample_var,
+                float(best_result.x[1]),
+                float(best_result.x[2]),
+            ),
+            log_likelihood=-float(best_result.fun),
+            optimizer_message=str(best_result.message),
         )
 
     omega_raw = best_result.x[0] * sample_var

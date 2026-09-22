@@ -63,7 +63,19 @@ def var_fit(
     Returns:
         Tuple (coef_matrix, sigma_u): coef_matrix has shape
         (k, k*n_lags + 1) with the intercept in the last column;
-        sigma_u is the (k, k) residual covariance matrix.
+        sigma_u is the (k, k) residual covariance matrix, normalized by
+        `T_eff - (k*n_lags + 1)` (Lutkepohl 2005's unbiased estimator: the
+        number of effective observations minus the number of parameters
+        estimated per equation), not `T_eff - 1` -- a plain per-column
+        `ddof=1` sample covariance of the residuals would silently use the
+        wrong degrees of freedom, since the residuals came from a
+        `k*n_lags + 1`-parameter regression per equation, not a 1-parameter
+        (mean-only) one.
+
+    References:
+        Lutkepohl, H. (2005). *New Introduction to Multiple Time Series
+        Analysis*. Springer. (Sigma_u_hat, Section 3.2.2.) See
+        docs/REFERENCES.md.
     """
     _validate_var_fit_inputs(data, n_lags)
     return _var_fit(data, n_lags)
@@ -79,7 +91,9 @@ def _var_fit(
     coefs, _, _, _ = np.linalg.lstsq(x, y, rcond=None)
     coef_matrix = coefs.T
     residuals = y - x @ coefs
-    sigma_u = np.cov(residuals, rowvar=False, ddof=1)
+    n_eff, n_params = x.shape
+    dof = n_eff - n_params
+    sigma_u = (residuals.T @ residuals) / dof
     if k == 1:
         sigma_u = sigma_u.reshape(1, 1)
     return coef_matrix, sigma_u
@@ -105,6 +119,19 @@ def select_var_lag_order(
     Raises:
         ValueError: If `criterion` is not "aic" or "bic", or if no candidate
             lag order is feasible for the given system length.
+
+    Note:
+        Every candidate lag order is fit on the *same* trailing window of
+        `n_obs - max_lags` observations (dropping the first `max_lags -
+        n_lags` rows for a given `n_lags`), not on `n_obs - n_lags`
+        observations each. Information criteria are only comparable across
+        models fit on the same effective sample size; holding it fixed at
+        the smallest one usable by the largest candidate is the standard
+        procedure (Lutkepohl 2005, pp. 146-150), matching
+        `statsmodels.tsa.api.VAR.select_order`. The criteria themselves use
+        the maximum-likelihood (bias-uncorrected, 1/n_eff) residual
+        covariance, not `var_fit`'s unbiased estimator -- also per
+        Lutkepohl's definition and `statsmodels`' `sigma_u_mle`.
     """
     if criterion not in ("aic", "bic"):
         raise ValueError('criterion must be "aic" or "bic"')
@@ -115,18 +142,23 @@ def select_var_lag_order(
 
     for n_lags in range(1, max_lags + 1):
         try:
-            coef_matrix, sigma_u = var_fit(system, n_lags)
+            coef_matrix, _ = var_fit(system[max_lags - n_lags :], n_lags)
         except ValueError:
             continue
 
-        n_eff = n_obs - n_lags
-        _, log_det = np.linalg.slogdet(sigma_u)
-        log_l = -0.5 * n_eff * (k * np.log(2.0 * np.pi) + log_det + k)
-        k_params = coef_matrix.size
+        n_eff = n_obs - max_lags
+        x = _build_lagged_design(system[max_lags - n_lags :], n_lags)
+        residuals = system[max_lags:] - x @ coef_matrix.T
+        sigma_u_mle = (residuals.T @ residuals) / n_eff
+        if k == 1:
+            sigma_u_mle = sigma_u_mle.reshape(1, 1)
+        _, log_det = np.linalg.slogdet(sigma_u_mle)
+
+        free_params = n_lags * k**2 + k
         score = (
-            2.0 * k_params - 2.0 * log_l
+            log_det + (2.0 / n_eff) * free_params
             if criterion == "aic"
-            else k_params * np.log(n_eff) - 2.0 * log_l
+            else log_det + (np.log(n_eff) / n_eff) * free_params
         )
 
         if score < best_score:

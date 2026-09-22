@@ -20,11 +20,10 @@ EWMA variance (RiskMetrics):
 
 `egarch_fit` and `gjr_garch_fit` estimate (omega, alpha, gamma, beta) for
 their respective recursions via Gaussian maximum likelihood, following the
-same multi-start SLSQP approach as `volatility.fit_garch_11`. Unlike
-`fit_garch_11`, which raises if every starting point fails to converge, these
-fitters are meant to support live callers that need a graceful degradation
-path: they return a `converged` diagnostic on the result instead, so the
-caller can decide whether to trust a given fit.
+same multi-start SLSQP approach as `volatility.fit_garch_11`, and the same
+convergence convention: all three GARCH-family fitters raise
+`volatility.ConvergenceError` (carrying the best attempt found) rather
+than returning a partial or unconverged result silently.
 
 References:
     Nelson, D.B. (1991), "Conditional Heteroskedasticity in Asset Returns: A
@@ -51,6 +50,8 @@ import numba
 import numpy as np
 import numpy.typing as npt
 from scipy.optimize import NonlinearConstraint, minimize
+
+from quantcore.risk.volatility import ConvergenceError
 
 _E_ABS_Z = float(np.sqrt(2.0 / np.pi))
 
@@ -223,11 +224,6 @@ class EGARCHParams:
         beta: Persistence.
         log_likelihood: Gaussian log-likelihood attained at the reported
             parameters.
-        converged: Whether the underlying SLSQP optimization reported
-            success at a feasible point (|beta| < 1). `False` means the fit
-            is a best-effort result only -- callers that need a trustworthy
-            volatility estimate should fall back to a simpler model (e.g.
-            EWMA) rather than use it.
     """
 
     omega: float
@@ -235,7 +231,6 @@ class EGARCHParams:
     gamma: float
     beta: float
     log_likelihood: float
-    converged: bool
 
 
 # Starting points spanning a range of ARCH response, leverage sign/magnitude,
@@ -272,37 +267,36 @@ def egarch_fit(returns: npt.NDArray[np.float64]) -> EGARCHParams:
     joint-magnitude restriction on omega, alpha, or gamma (see
     `_validate_egarch_inputs`).
 
-    Unlike `volatility.fit_garch_11`, this function does not raise on
-    optimizer non-convergence. Live callers are expected to check the
-    `converged` field on the returned `EGARCHParams` and fall back to a
-    simpler model themselves if it is `False`, rather than have a
-    partially-usable fit hidden behind an exception.
+    Like `volatility.fit_garch_11`, this function raises
+    `volatility.ConvergenceError` (a `RuntimeError` subclass) on optimizer
+    non-convergence rather than returning a partial result; catch it and
+    read its `params`/`log_likelihood`/`optimizer_message` if you need the
+    best attempt anyway.
 
     EGARCH(1,1) has four free parameters and no closed-form corner solution
     to fall back on, so short windows are noticeably harder to fit reliably
     than GARCH(1,1)/GJR-GARCH(1,1). Empirically, both 60- and 120-observation
     windows (a trading quarter/half-year) show a non-convergence rate around
     5-8%; this drops close to 0% only once the window reaches several
-    hundred observations. Always check `converged` regardless of window
-    length -- there is no length at which convergence is guaranteed, only
-    increasingly likely.
+    hundred observations. There is no window length at which convergence is
+    guaranteed, only increasingly likely — callers working with short
+    windows should be prepared to handle `ConvergenceError`.
 
     Args:
         returns: Raw (not mean-adjusted) return series. Reliable convergence
             generally needs several hundred observations; shorter windows
             (e.g. 60-120) still converge most of the time but fail
-            noticeably more often -- always check `converged`.
+            noticeably more often.
 
     Returns:
-        `EGARCHParams` with the fitted (omega, alpha, gamma, beta), the
-        attained log-likelihood, and a `converged` flag.
+        `EGARCHParams` with the fitted (omega, alpha, gamma, beta) and the
+        attained log-likelihood.
 
     Raises:
         ValueError: If `returns` is empty.
-        RuntimeError: If every starting point produced a non-finite
-            objective value, leaving no usable result at all to report (not
-            raised merely because SLSQP reported non-convergence -- that
-            case is instead surfaced via `converged=False`).
+        ConvergenceError: If no starting point converged to a feasible
+            point (see `volatility.ConvergenceError`; its `params` are
+            `(omega, alpha, gamma, beta)` in that order for this function).
 
     References:
         Nelson, D.B. (1991), "Conditional Heteroskedasticity in Asset
@@ -328,7 +322,7 @@ def _fit_egarch_11(returns: npt.NDArray[np.float64]) -> EGARCHParams:
     ]
 
     best_result = None
-    best_feasible = False
+    best_converged = False
     for alpha0, gamma0, beta0 in _EGARCH_STARTING_POINTS:
         omega0 = log_sample_var * (1.0 - beta0)
         x0 = np.array([omega0 / omega_scale, alpha0, gamma0, beta0], dtype=np.float64)
@@ -348,24 +342,43 @@ def _fit_egarch_11(returns: npt.NDArray[np.float64]) -> EGARCHParams:
         feasible = (
             -1.0 + _EGARCH_STATIONARITY_MARGIN < beta_candidate < 1.0 - _EGARCH_STATIONARITY_MARGIN
         )
+        converged = bool(result.success) and feasible
         is_better = (
             best_result is None
-            or (feasible and not best_feasible)
-            or (feasible == best_feasible and result.fun < best_result.fun)
+            or (converged and not best_converged)
+            or (converged == best_converged and result.fun < best_result.fun)
         )
         if is_better:
             best_result = result
-            best_feasible = feasible
+            best_converged = converged
 
     if best_result is None:
-        raise RuntimeError(
+        raise ConvergenceError(
             "egarch_fit: EGARCH(1,1) maximum-likelihood optimization produced no "
-            "usable (finite-objective) result from any starting point"
+            "usable (finite-objective) result from any starting point",
+            params=None,
+            log_likelihood=None,
+            optimizer_message=None,
+        )
+    if not best_converged:
+        raise ConvergenceError(
+            "egarch_fit: EGARCH(1,1) maximum-likelihood optimization failed to "
+            "converge to a feasible solution from any starting point",
+            params=tuple(
+                float(v)
+                for v in (
+                    best_result.x[0] * omega_scale,
+                    best_result.x[1],
+                    best_result.x[2],
+                    best_result.x[3],
+                )
+            ),
+            log_likelihood=-float(best_result.fun),
+            optimizer_message=str(best_result.message),
         )
 
     omega_hat = float(best_result.x[0]) * omega_scale
     alpha_hat, gamma_hat, beta_hat = (float(v) for v in best_result.x[1:])
-    converged = bool(best_result.success) and best_feasible
 
     return EGARCHParams(
         omega=omega_hat,
@@ -373,7 +386,6 @@ def _fit_egarch_11(returns: npt.NDArray[np.float64]) -> EGARCHParams:
         gamma=gamma_hat,
         beta=beta_hat,
         log_likelihood=-float(best_result.fun),
-        converged=converged,
     )
 
 
@@ -532,11 +544,6 @@ class GJRGARCHParams:
         beta: GARCH persistence.
         log_likelihood: Gaussian log-likelihood attained at the reported
             parameters.
-        converged: Whether the underlying SLSQP optimization reported
-            success at a feasible point. `False` means the fit is a
-            best-effort result only -- callers that need a trustworthy
-            volatility estimate should fall back to a simpler model (e.g.
-            EWMA) rather than use it.
     """
 
     omega: float
@@ -544,7 +551,6 @@ class GJRGARCHParams:
     gamma: float
     beta: float
     log_likelihood: float
-    converged: bool
 
 
 # Starting points spanning low/typical/high leverage asymmetry and
@@ -580,25 +586,24 @@ def gjr_garch_fit(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
     validates: omega > 0, alpha >= 0, alpha + gamma >= 0, and
     alpha + gamma/2 + beta < 1 for covariance stationarity.
 
-    Unlike `volatility.fit_garch_11`, this function does not raise on
-    optimizer non-convergence. Live callers are expected to check the
-    `converged` field on the returned `GJRGARCHParams` and fall back to a
-    simpler model themselves if it is `False`, rather than have a
-    partially-usable fit hidden behind an exception.
+    Like `volatility.fit_garch_11`, this function raises
+    `volatility.ConvergenceError` (a `RuntimeError` subclass) on optimizer
+    non-convergence rather than returning a partial result; catch it and
+    read its `params`/`log_likelihood`/`optimizer_message` if you need the
+    best attempt anyway.
 
     Args:
         returns: Raw (not mean-adjusted) return series.
 
     Returns:
-        `GJRGARCHParams` with the fitted (omega, alpha, gamma, beta), the
-        attained log-likelihood, and a `converged` flag.
+        `GJRGARCHParams` with the fitted (omega, alpha, gamma, beta) and
+        the attained log-likelihood.
 
     Raises:
         ValueError: If `returns` is empty.
-        RuntimeError: If every starting point produced a non-finite
-            objective value, leaving no usable result at all to report (not
-            raised merely because SLSQP reported non-convergence -- that
-            case is instead surfaced via `converged=False`).
+        ConvergenceError: If no starting point converged to a feasible
+            point (see `volatility.ConvergenceError`; its `params` are
+            `(omega, alpha, gamma, beta)` in that order for this function).
 
     References:
         Glosten, L.R., Jagannathan, R., and Runkle, D.E. (1993), "On the
@@ -637,7 +642,7 @@ def _fit_gjr_garch_11(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
     )
 
     best_result = None
-    best_feasible = False
+    best_converged = False
     for alpha0, gamma0, beta0 in _GJR_GARCH_STARTING_POINTS:
         omega0 = sample_var * (1.0 - alpha0 - gamma0 / 2.0 - beta0)
         omega0 = max(omega0, _GJR_GARCH_MIN_OMEGA)
@@ -662,24 +667,43 @@ def _fit_gjr_garch_11(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
             and alpha_candidate + gamma_candidate >= 0.0
             and alpha_candidate + gamma_candidate / 2.0 + beta_candidate < 1.0
         )
+        converged = bool(result.success) and feasible
         is_better = (
             best_result is None
-            or (feasible and not best_feasible)
-            or (feasible == best_feasible and result.fun < best_result.fun)
+            or (converged and not best_converged)
+            or (converged == best_converged and result.fun < best_result.fun)
         )
         if is_better:
             best_result = result
-            best_feasible = feasible
+            best_converged = converged
 
     if best_result is None:
-        raise RuntimeError(
+        raise ConvergenceError(
             "gjr_garch_fit: GJR-GARCH(1,1) maximum-likelihood optimization produced no "
-            "usable (finite-objective) result from any starting point"
+            "usable (finite-objective) result from any starting point",
+            params=None,
+            log_likelihood=None,
+            optimizer_message=None,
+        )
+    if not best_converged:
+        raise ConvergenceError(
+            "gjr_garch_fit: GJR-GARCH(1,1) maximum-likelihood optimization failed to "
+            "converge to a feasible solution from any starting point",
+            params=tuple(
+                float(v)
+                for v in (
+                    best_result.x[0] * sample_var,
+                    best_result.x[1],
+                    best_result.x[2],
+                    best_result.x[3],
+                )
+            ),
+            log_likelihood=-float(best_result.fun),
+            optimizer_message=str(best_result.message),
         )
 
     omega_hat = float(best_result.x[0]) * sample_var
     alpha_hat, gamma_hat, beta_hat = (float(v) for v in best_result.x[1:])
-    converged = bool(best_result.success) and best_feasible
 
     return GJRGARCHParams(
         omega=omega_hat,
@@ -687,7 +711,6 @@ def _fit_gjr_garch_11(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
         gamma=gamma_hat,
         beta=beta_hat,
         log_likelihood=-float(best_result.fun),
-        converged=converged,
     )
 
 

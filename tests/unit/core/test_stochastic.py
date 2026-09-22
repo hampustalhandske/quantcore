@@ -66,6 +66,15 @@ class TestSimulateOuPaths:
         kwargs = dict(theta=1.0, mu=0.0, sigma=0.2, x0=1.0, t=1.0, n_paths=5, n_steps=10, seed=42)
         assert np.array_equal(simulate_ou_paths(**kwargs), simulate_ou_paths(**kwargs))
 
+    def test_default_seed_is_none_and_draws_fresh_entropy(self) -> None:
+        # Uniformity with euler_maruyama/simulate_gbm_paths (owner follow-up
+        # 2f): default seed=None, not a fixed value, so two no-seed calls
+        # are NOT reproducible against each other.
+        kwargs = dict(theta=1.0, mu=0.0, sigma=0.2, x0=1.0, t=1.0, n_paths=5, n_steps=10)
+        first = simulate_ou_paths(**kwargs)
+        second = simulate_ou_paths(**kwargs)
+        assert not np.array_equal(first, second)
+
     def test_terminal_distribution_matches_stationary_moments(self) -> None:
         theta, mu, sigma = 3.0, 0.5, 0.4
         paths = simulate_ou_paths(
@@ -259,6 +268,23 @@ class TestSimulateHestonPaths:
         assert np.array_equal(s1, s2)
         assert np.array_equal(v1, v2)
 
+    def test_default_seed_is_none_and_draws_fresh_entropy(self) -> None:
+        kwargs = dict(
+            s0=100.0,
+            v0=0.04,
+            mu=0.05,
+            kappa=1.0,
+            theta=0.04,
+            xi=0.2,
+            rho=-0.5,
+            t=1.0,
+            n_paths=5,
+            n_steps=10,
+        )
+        s1, _ = simulate_heston_paths(**kwargs)
+        s2, _ = simulate_heston_paths(**kwargs)
+        assert not np.array_equal(s1, s2)
+
     def test_constant_vol_matches_gbm_terminal_moments(self) -> None:
         # rho=0, xi=0 -> V_t stays at v0 deterministically, so S_t is exactly
         # GBM with volatility sqrt(v0). Compare terminal log(S_T) moments
@@ -350,6 +376,12 @@ class TestSimulateCirPaths:
             r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=5, n_steps=10, seed=42
         )
         assert np.array_equal(simulate_cir_paths(**kwargs), simulate_cir_paths(**kwargs))
+
+    def test_default_seed_is_none_and_draws_fresh_entropy(self) -> None:
+        kwargs = dict(r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=5, n_steps=10)
+        first = simulate_cir_paths(**kwargs)
+        second = simulate_cir_paths(**kwargs)
+        assert not np.array_equal(first, second)
 
     def test_terminal_mean_converges_to_theta(self) -> None:
         theta = 0.05

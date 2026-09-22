@@ -30,7 +30,7 @@ from quantcore.risk.egarch import (
     gjr_garch_11_variance,
     gjr_garch_fit,
 )
-from quantcore.risk.volatility import garch_11_variance
+from quantcore.risk.volatility import ConvergenceError, garch_11_variance
 
 RETURNS = np.array([0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012])
 RNG_SEED = 2024
@@ -290,7 +290,6 @@ class TestEgarchFit:
         for field in (result.omega, result.alpha, result.gamma, result.beta):
             assert isinstance(field, float)
         assert isinstance(result.log_likelihood, float)
-        assert isinstance(result.converged, bool)
 
     # ---- Constraint satisfaction across several synthetic series. ----
 
@@ -349,18 +348,17 @@ class TestEgarchFit:
 
         assert result_1 == result_2
 
-    # ---- `converged` diagnostic behavior. ----
+    # ---- Non-convergence raises ConvergenceError, not a converged=False
+    # return value (owner follow-up: GARCH-family fitters unified on
+    # raising -- see quantcore.risk.volatility.ConvergenceError). ----
 
-    def test_converged_flag_is_consistent_with_feasibility(self) -> None:
-        # Whatever the optimizer reports, a converged result must, by
-        # definition, be feasible -- the fitter should never claim
-        # convergence while returning a beta outside the stationarity
-        # region.
+    def test_returned_result_is_always_feasible(self) -> None:
+        # egarch_fit no longer has a partial-result return path: whatever
+        # it returns (as opposed to raising ConvergenceError) must, by
+        # construction, be feasible.
         epsilon = _simulate_egarch_11_process(600, 0.0, 0.1, -0.05, 0.9, seed=RNG_SEED)
         result = egarch_fit(epsilon)
-
-        if result.converged:
-            assert -1.0 < result.beta < 1.0
+        assert -1.0 < result.beta < 1.0
 
     # ---- Short-window (n=60) convergence-rate regression. ----
 
@@ -381,11 +379,8 @@ class TestEgarchFit:
         for seed in range(n_trials):
             epsilon = _simulate_egarch_11_process(60, 0.0, 0.1, -0.05, 0.9, seed=seed + 10_000)
             try:
-                result = egarch_fit(epsilon)
-            except RuntimeError:
-                failures += 1
-                continue
-            if not result.converged:
+                egarch_fit(epsilon)
+            except ConvergenceError:
                 failures += 1
 
         failure_rate = failures / n_trials
@@ -393,6 +388,33 @@ class TestEgarchFit:
             f"short-window (n=60) EGARCH failure rate {failure_rate:.1%} regressed back "
             "toward the pre-fix ~16-23% baseline"
         )
+
+    def test_convergence_error_carries_best_attempt(self, monkeypatch) -> None:
+        # Deterministically force every SLSQP call to report failure, so
+        # egarch_fit must raise ConvergenceError carrying its best (still
+        # finite-objective) attempt, rather than relying on a naturally
+        # hard-to-fit series that may or may not actually fail.
+        from scipy.optimize import minimize as real_minimize
+
+        import quantcore.risk.egarch as egarch_module
+
+        def failing_minimize(*args, **kwargs):
+            result = real_minimize(*args, **kwargs)
+            result.success = False
+            result.message = "forced failure for test"
+            return result
+
+        monkeypatch.setattr(egarch_module, "minimize", failing_minimize)
+        epsilon = _simulate_egarch_11_process(200, 0.0, 0.1, -0.05, 0.9, seed=RNG_SEED)
+
+        with pytest.raises(ConvergenceError) as exc_info:
+            egarch_fit(epsilon)
+
+        exc = exc_info.value
+        assert exc.params is not None
+        assert len(exc.params) == 4
+        assert isinstance(exc.log_likelihood, float)
+        assert exc.optimizer_message == "forced failure for test"
 
     # ---- Interior ZeroDivisionError region: the Numba kernel raises where
     # the NumPy loop silently returns inf, at an in-bounds beta the
@@ -418,11 +440,12 @@ class TestEgarchFit:
 
         assert result == _EGARCH_INFEASIBLE_PENALTY
 
-    def test_egarch_fit_does_not_raise_near_interior_zero_division_region(self) -> None:
-        # `egarch_fit` itself must never raise merely because SLSQP's probing
-        # wanders into the interior-ZeroDivisionError region above -- it
-        # should either converge or report `converged=False`, matching its
-        # documented graceful-degradation contract.
+    def test_egarch_fit_does_not_crash_near_interior_zero_division_region(self) -> None:
+        # `egarch_fit` itself must never crash (an uncaught exception other
+        # than its own documented ValueError/ConvergenceError) merely
+        # because SLSQP's probing wanders into the interior-ZeroDivisionError
+        # region above -- it should either converge or raise
+        # ConvergenceError, never propagate the raw ZeroDivisionError.
         epsilon = _simulate_egarch_11_process(500, 0.0, 0.1, -0.05, 0.9, seed=RNG_SEED)
 
         result = egarch_fit(epsilon)
@@ -441,7 +464,6 @@ class TestGjrGarchFit:
         for field in (result.omega, result.alpha, result.gamma, result.beta):
             assert isinstance(field, float)
         assert isinstance(result.log_likelihood, float)
-        assert isinstance(result.converged, bool)
 
     # ---- Constraint satisfaction across several synthetic series. ----
 
@@ -516,18 +538,42 @@ class TestGjrGarchFit:
 
         assert result_1 == result_2
 
-    # ---- `converged` diagnostic behavior. ----
+    # ---- Non-convergence raises ConvergenceError, not a converged=False
+    # return value (owner follow-up: GARCH-family fitters unified on
+    # raising -- see quantcore.risk.volatility.ConvergenceError). ----
 
-    def test_converged_flag_is_consistent_with_feasibility(self) -> None:
-        # Whatever the optimizer reports, a converged result must, by
-        # definition, be feasible -- the fitter should never claim
-        # convergence while returning parameters that violate the
-        # constraints `gjr_garch_11_variance` itself enforces.
+    def test_returned_result_is_always_feasible(self) -> None:
+        # gjr_garch_fit no longer has a partial-result return path: whatever
+        # it returns (as opposed to raising ConvergenceError) must, by
+        # construction, be feasible.
         epsilon = _simulate_gjr_garch_11_process(600, 1e-5, 0.05, 0.10, 0.80, seed=RNG_SEED)
         result = gjr_garch_fit(epsilon)
 
-        if result.converged:
-            assert result.omega > 0.0
-            assert result.alpha >= 0.0
-            assert result.alpha + result.gamma >= 0.0
-            assert result.alpha + result.gamma / 2.0 + result.beta < 1.0
+        assert result.omega > 0.0
+        assert result.alpha >= 0.0
+        assert result.alpha + result.gamma >= 0.0
+        assert result.alpha + result.gamma / 2.0 + result.beta < 1.0
+
+    def test_convergence_error_carries_best_attempt(self, monkeypatch) -> None:
+        # See the analogous EGARCH test's comment for the rationale.
+        from scipy.optimize import minimize as real_minimize
+
+        import quantcore.risk.egarch as egarch_module
+
+        def failing_minimize(*args, **kwargs):
+            result = real_minimize(*args, **kwargs)
+            result.success = False
+            result.message = "forced failure for test"
+            return result
+
+        monkeypatch.setattr(egarch_module, "minimize", failing_minimize)
+        epsilon = _simulate_gjr_garch_11_process(200, 1e-5, 0.05, 0.10, 0.80, seed=RNG_SEED)
+
+        with pytest.raises(ConvergenceError) as exc_info:
+            gjr_garch_fit(epsilon)
+
+        exc = exc_info.value
+        assert exc.params is not None
+        assert len(exc.params) == 4
+        assert isinstance(exc.log_likelihood, float)
+        assert exc.optimizer_message == "forced failure for test"

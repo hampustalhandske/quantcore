@@ -58,7 +58,7 @@ def simulate_ou_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int = 0,
+    seed: int | None = None,
 ) -> npt.NDArray[np.float64]:
     """Simulate Ornstein-Uhlenbeck paths using the exact conditional-Gaussian transition.
 
@@ -70,7 +70,9 @@ def simulate_ou_paths(
         t: Total time horizon (must be non-negative).
         n_paths: Number of independent sample paths.
         n_steps: Number of discretization steps.
-        seed: Seed for reproducibility.
+        seed: Seed for reproducibility. None (default) draws fresh
+            entropy each call (non-reproducible unless you pass a seed),
+            matching `euler_maruyama`/`simulate_gbm_paths`'s convention.
 
     Returns:
         Array of shape (n_paths, n_steps + 1) of simulated OU paths, including
@@ -113,7 +115,7 @@ def _simulate_ou_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int,
+    seed: int | None,
 ) -> npt.NDArray[np.float64]:
     dt = t / n_steps
     rng = np.random.default_rng(seed)
@@ -163,7 +165,7 @@ def simulate_heston_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int = 0,
+    seed: int | None = None,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Simulate Heston stochastic-volatility paths via log-Euler (S) / Milstein (V).
 
@@ -178,7 +180,9 @@ def simulate_heston_paths(
         t: Total time horizon (must be non-negative).
         n_paths: Number of independent sample paths.
         n_steps: Number of discretization steps.
-        seed: Seed for reproducibility.
+        seed: Seed for reproducibility. None (default) draws fresh
+            entropy each call (non-reproducible unless you pass a seed),
+            matching `euler_maruyama`/`simulate_gbm_paths`'s convention.
 
     Returns:
         Tuple (S_paths, V_paths), each of shape (n_paths, n_steps + 1),
@@ -247,7 +251,7 @@ def _simulate_heston_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int,
+    seed: int | None,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     dt = t / n_steps
     rng = np.random.default_rng(seed)
@@ -289,7 +293,7 @@ def simulate_cir_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int = 0,
+    seed: int | None = None,
 ) -> npt.NDArray[np.float64]:
     """Simulate CIR square-root diffusion paths via Milstein discretization.
 
@@ -301,7 +305,9 @@ def simulate_cir_paths(
         t: Total time horizon (must be non-negative).
         n_paths: Number of independent sample paths.
         n_steps: Number of discretization steps.
-        seed: Seed for reproducibility.
+        seed: Seed for reproducibility. None (default) draws fresh
+            entropy each call (non-reproducible unless you pass a seed),
+            matching `euler_maruyama`/`simulate_gbm_paths`'s convention.
 
     Returns:
         Array of shape (n_paths, n_steps + 1) of simulated CIR paths,
@@ -351,7 +357,7 @@ def _simulate_cir_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int,
+    seed: int | None,
 ) -> npt.NDArray[np.float64]:
     dt = t / n_steps
     rng = np.random.default_rng(seed)

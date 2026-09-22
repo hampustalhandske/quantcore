@@ -49,6 +49,26 @@ docs/REFERENCES.md # source-of-truth bibliography for every calculation
 Each module's `__init__.py` is the public API contract for that
 subpackage — see "Using it as a library" below.
 
+## Verification status & changelog
+
+Every public function is independently checked against a reference
+implementation or a published closed-form/worked example (not just
+internal unit tests):
+
+- [`docs/VERIFICATION_PLAN.md`](docs/VERIFICATION_PLAN.md) — the plan and
+  per-function status (done / in progress / not started).
+- [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) — per-function verdict
+  (`verified` / `non-standard` / `defect` / `unverifiable`) against its
+  oracle, with the oracle library and version used.
+- [`docs/VERIFICATION_REPORT.md`](docs/VERIFICATION_REPORT.md) —
+  owner-facing summary of what's been found and fixed, pass by pass.
+- [`CHANGELOG.md`](CHANGELOG.md) — every numerical result that changed,
+  with a before/after example; also documents additive vs. breaking
+  changes.
+
+Before relying on a specific function's numbers, check its status in
+`docs/CONFORMANCE.md`.
+
 ### Numba vs. plain NumPy
 
 `core/` holds Numba-JIT-compiled kernels for tight numerical loops
@@ -98,6 +118,19 @@ uv run ruff check .         # lint
 uv run ruff format .        # format
 uv run mypy src/            # type check (strict outside core/)
 ```
+
+`tests/unit/` and `tests/integration/` run by default. `tests/oracle/`
+(differential tests against reference libraries — `statsmodels`, `arch`,
+`scikit-learn`, `QuantLib`, etc. — see "Verification status" above) needs
+the `oracle` extra and is marked with `@pytest.mark.oracle`:
+
+```bash
+uv sync --extra dev --extra oracle
+uv run pytest tests/oracle -m oracle
+```
+
+These libraries are test-only and never imported from `src/quantcore` —
+quantcore's runtime dependencies stay NumPy/SciPy/Numba.
 
 ### Conventions
 

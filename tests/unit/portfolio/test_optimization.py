@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -346,3 +348,69 @@ class TestKellyFraction:
     def test_clamps_to_unit_interval(self) -> None:
         assert kelly_fraction(expected_return=10.0, variance=0.01) == pytest.approx(1.0)
         assert kelly_fraction(expected_return=-10.0, variance=0.01) == pytest.approx(-1.0)
+
+    def test_clip_false_returns_unclamped_textbook_value(self) -> None:
+        assert kelly_fraction(expected_return=10.0, variance=0.01, clip=False) == pytest.approx(
+            1000.0
+        )
+        assert kelly_fraction(expected_return=-10.0, variance=0.01, clip=False) == pytest.approx(
+            -1000.0
+        )
+
+    def test_clip_false_matches_clip_true_within_unit_interval(self) -> None:
+        clipped = kelly_fraction(expected_return=0.02, variance=0.04)
+        unclipped = kelly_fraction(expected_return=0.02, variance=0.04, clip=False)
+        assert clipped == pytest.approx(unclipped)
+
+
+class TestSlsqpConvergenceIsChecked:
+    """Regression tests: min_variance_weights, mean_variance_weights,
+    l1_turnover_penalized_weights, and risk_parity_weights each used to
+    return `result.x` unconditionally, even when SLSQP reported
+    `success=False` -- a silent fallback to a possibly infeasible or
+    non-optimal point. Each must now raise instead.
+    """
+
+    def test_min_variance_weights_raises_on_slsqp_failure(self, monkeypatch) -> None:
+        import quantcore.portfolio.optimization as opt_module
+
+        fake_result = SimpleNamespace(
+            success=False, status=4, message="fake failure", x=np.zeros(2)
+        )
+        monkeypatch.setattr(opt_module, "minimize", lambda *a, **k: fake_result)
+        with pytest.raises(RuntimeError):
+            min_variance_weights(np.eye(2))
+
+    def test_mean_variance_weights_raises_on_slsqp_failure(self, monkeypatch) -> None:
+        import quantcore.portfolio.optimization as opt_module
+
+        fake_result = SimpleNamespace(
+            success=False, status=4, message="fake failure", x=np.zeros(2)
+        )
+        monkeypatch.setattr(opt_module, "minimize", lambda *a, **k: fake_result)
+        with pytest.raises(RuntimeError):
+            mean_variance_weights(np.array([0.05, 0.03]), np.eye(2), risk_aversion=1.0)
+
+    def test_l1_turnover_penalized_weights_raises_on_slsqp_failure(self, monkeypatch) -> None:
+        import quantcore.portfolio.optimization as opt_module
+
+        fake_result = SimpleNamespace(
+            success=False, status=4, message="fake failure", x=np.zeros(4)
+        )
+        monkeypatch.setattr(opt_module, "minimize", lambda *a, **k: fake_result)
+        with pytest.raises(RuntimeError):
+            l1_turnover_penalized_weights(
+                np.array([0.05, 0.03]),
+                np.eye(2),
+                previous_weights=np.array([0.5, 0.5]),
+                cost_bps=10.0,
+                risk_aversion=1.0,
+            )
+
+    def test_risk_parity_weights_raises_on_slsqp_failure(self, monkeypatch) -> None:
+        import quantcore.portfolio.optimization as opt_module
+
+        fake_result = SimpleNamespace(success=False, status=4, message="fake failure", x=np.ones(2))
+        monkeypatch.setattr(opt_module, "minimize", lambda *a, **k: fake_result)
+        with pytest.raises(RuntimeError):
+            risk_parity_weights(np.eye(2))

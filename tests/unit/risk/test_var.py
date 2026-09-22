@@ -350,3 +350,79 @@ def test_cvar_returns_length_validation_still_applies_with_overrides() -> None:
 def test_cvar_empty_returns_validation_still_applies_with_overrides() -> None:
     with pytest.raises(ValueError):
         conditional_value_at_risk(np.array([]), 0.95, mean=MEAN_OVERRIDE, volatility=VOL_OVERRIDE)
+
+
+def test_component_var_sums_to_portfolio_var_across_confidence_levels() -> None:
+    # Regression/pinning test (owner follow-up 2d): component_var uses
+    # z_alpha = Phi^-1(alpha) where value_at_risk uses Phi^-1(1 - alpha) --
+    # opposite signs, but NOT an inconsistency: component_var has no mean
+    # term and multiplies z_alpha directly rather than subtracting it, so
+    # the two conventions cancel exactly. Verified here across several
+    # portfolios and confidence levels so this can't quietly regress, and
+    # so a future reader doesn't need to redo the algebra to trust it.
+    from quantcore.performance.metrics import component_var
+
+    rng = np.random.default_rng(20240921)
+    for trial in range(5):
+        n = int(rng.integers(2, 6))
+        a = rng.normal(size=(n, n))
+        cov = a @ a.T
+        weights = rng.normal(size=n)
+        weights /= weights.sum()
+        portfolio_std = float(np.sqrt(weights @ cov @ weights))
+
+        for confidence_level in (0.90, 0.95, 0.975, 0.99):
+            component_sum = float(component_var(weights, cov, confidence_level).sum())
+            portfolio_var = value_at_risk(
+                np.zeros(10), confidence_level, mean=0.0, volatility=portfolio_std
+            )
+            assert component_sum == pytest.approx(portfolio_var, abs=1e-9), (
+                trial,
+                confidence_level,
+            )
+
+
+class TestValueAtRiskMethods:
+    def test_invalid_method_raises(self) -> None:
+        with pytest.raises(ValueError):
+            value_at_risk(np.array([0.01, -0.01, 0.02]), 0.95, method="bogus")  # type: ignore[arg-type]
+
+    def test_default_method_is_gaussian(self) -> None:
+        returns = np.array([0.01, -0.02, 0.03, -0.01, 0.02])
+        assert value_at_risk(returns, 0.95) == pytest.approx(
+            value_at_risk(returns, 0.95, method="gaussian")
+        )
+
+    def test_historical_method_rejects_mean_or_volatility_override(self) -> None:
+        returns = np.array([0.01, -0.02, 0.03, -0.01])
+        with pytest.raises(ValueError):
+            value_at_risk(returns, 0.95, mean=0.0, method="historical")
+        with pytest.raises(ValueError):
+            conditional_value_at_risk(returns, 0.95, volatility=0.1, method="historical")
+
+    def test_historical_var_matches_hand_computed_quantile(self) -> None:
+        returns = np.array([0.05, -0.10, 0.02, -0.03, 0.08, -0.15, 0.01, -0.02])
+        expected = -float(np.quantile(returns, 0.05))
+        actual = value_at_risk(returns, 0.95, method="historical")
+        assert actual == pytest.approx(expected)
+
+    def test_historical_cvar_is_tail_mean_at_or_below_var_threshold(self) -> None:
+        returns = np.array([0.05, -0.10, 0.02, -0.03, 0.08, -0.15, 0.01, -0.02])
+        threshold = np.quantile(returns, 0.05)
+        expected = -float(np.mean(returns[returns <= threshold]))
+        actual = conditional_value_at_risk(returns, 0.95, method="historical")
+        assert actual == pytest.approx(expected)
+
+    def test_cornish_fisher_reduces_to_gaussian_for_zero_skew_kurtosis(self) -> None:
+        rng = np.random.default_rng(7)
+        returns = rng.normal(0.0, 0.01, size=100_000)  # large sample -> S,K ~= 0
+        cf = value_at_risk(returns, 0.95, method="cornish_fisher")
+        gaussian = value_at_risk(returns, 0.95, method="gaussian")
+        assert cf == pytest.approx(gaussian, rel=1e-2)
+
+    def test_cornish_fisher_cvar_reduces_to_gaussian_for_zero_skew_kurtosis(self) -> None:
+        rng = np.random.default_rng(7)
+        returns = rng.normal(0.0, 0.01, size=100_000)
+        cf = conditional_value_at_risk(returns, 0.95, method="cornish_fisher")
+        gaussian = conditional_value_at_risk(returns, 0.95, method="gaussian")
+        assert cf == pytest.approx(gaussian, rel=1e-2)

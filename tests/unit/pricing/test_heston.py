@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from quantcore.pricing.black_scholes import black_scholes_call
-from quantcore.pricing.heston import heston_cos_call
+from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
+from quantcore.pricing.heston import heston_cos_call, heston_cos_put
 
 BASE_KWARGS = dict(
     spot=100.0,
@@ -72,3 +72,41 @@ class TestHestonCosCall:
         low_strike = heston_cos_call(**{**BASE_KWARGS, "strike": 90.0})
         high_strike = heston_cos_call(**{**BASE_KWARGS, "strike": 110.0})
         assert low_strike >= high_strike
+
+    def test_zero_dividend_yield_matches_plain_call(self) -> None:
+        plain = heston_cos_call(**BASE_KWARGS)
+        with_zero_q = heston_cos_call(**BASE_KWARGS, dividend_yield=0.0)
+        assert with_zero_q == plain
+
+    def test_dividend_yield_lowers_call_price(self) -> None:
+        no_div = heston_cos_call(**BASE_KWARGS)
+        with_div = heston_cos_call(**BASE_KWARGS, dividend_yield=0.03)
+        assert with_div < no_div
+
+
+class TestHestonCosPut:
+    def test_reduces_to_black_scholes_when_xi_zero(self) -> None:
+        kwargs = {**BASE_KWARGS, "v0": 0.04, "theta": 0.04, "xi": 0.0, "rho": 0.0}
+        heston_price = heston_cos_put(**kwargs)
+        bs_price = black_scholes_put(
+            spot=kwargs["spot"],
+            strike=kwargs["strike"],
+            rate=kwargs["rate"],
+            volatility=kwargs["v0"] ** 0.5,
+            time_to_maturity=kwargs["time_to_maturity"],
+        )
+        assert heston_price == pytest.approx(bs_price, abs=1e-2)
+
+    def test_put_call_parity(self) -> None:
+        import numpy as np
+
+        call = heston_cos_call(**BASE_KWARGS, dividend_yield=0.02)
+        put = heston_cos_put(**BASE_KWARGS, dividend_yield=0.02)
+        expected_diff = BASE_KWARGS["spot"] * np.exp(
+            -0.02 * BASE_KWARGS["time_to_maturity"]
+        ) - BASE_KWARGS["strike"] * np.exp(-BASE_KWARGS["rate"] * BASE_KWARGS["time_to_maturity"])
+        assert (call - put) == pytest.approx(expected_diff, abs=1e-8)
+
+    def test_price_within_no_arbitrage_bounds(self) -> None:
+        price = heston_cos_put(**BASE_KWARGS)
+        assert 0.0 < price < BASE_KWARGS["strike"]

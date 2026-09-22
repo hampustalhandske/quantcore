@@ -8,9 +8,10 @@ from quantcore.risk.egarch import (
     gjr_garch_fit,
 )
 from quantcore.risk.var import conditional_value_at_risk, value_at_risk
-from quantcore.risk.volatility import fit_garch_11, garch_11_variance
+from quantcore.risk.volatility import ConvergenceError, fit_garch_11, garch_11_variance
 
 __all__ = [
+    "ConvergenceError",
     "EGARCHParams",
     "GJRGARCHParams",
     "conditional_value_at_risk",

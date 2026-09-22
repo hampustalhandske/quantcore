@@ -45,21 +45,46 @@ def _validate_ljung_box_inputs(residuals: npt.NDArray[np.float64], n_lags: int) 
 def ljung_box_test(
     residuals: npt.NDArray[np.float64],
     n_lags: int,
+    model_df: int = 0,
 ) -> tuple[float, float]:
     """Ljung-Box Q-test for autocorrelation in a residual series.
 
     Args:
         residuals: Residual series to test.
         n_lags: Number of lags to include in the test statistic.
+        model_df: Number of fitted ARMA parameters (p + q) to subtract from
+            the chi-squared degrees of freedom. 0 (default) is the
+            original, only behavior: `df = n_lags`, appropriate when
+            testing a raw series that wasn't fit by an ARMA model.
+            When `residuals` come from an ARMA(p, q) fit and you're
+            testing whether autocorrelation remains, the standard
+            adjustment is `df = n_lags - p - q` (matches `statsmodels`'
+            `acorr_ljungbox`'s `model_df`) — using the unadjusted `n_lags`
+            in that case overstates the degrees of freedom, understating
+            significance (a Q-statistic that should reject the
+            no-autocorrelation null more easily reports a p-value that's
+            too large). Must satisfy `model_df < n_lags`.
 
     Returns:
-        Tuple (q_statistic, p_value), with p_value from chi2.sf(Q, df=n_lags).
+        Tuple (q_statistic, p_value), with p_value from
+        `chi2.sf(Q, df=n_lags - model_df)`.
+
+    References:
+        Ljung, G.M. and Box, G.E.P. (1978). "On a Measure of Lack of Fit
+        in Time Series Models." *Biometrika*, 65(2), 297-303. See
+        docs/REFERENCES.md.
     """
     _validate_ljung_box_inputs(residuals, n_lags)
-    return _ljung_box_test(residuals, n_lags)
+    if model_df < 0:
+        raise ValueError("model_df must be non-negative")
+    if model_df >= n_lags:
+        raise ValueError("model_df must be strictly less than n_lags")
+    return _ljung_box_test(residuals, n_lags, model_df)
 
 
-def _ljung_box_test(residuals: npt.NDArray[np.float64], n_lags: int) -> tuple[float, float]:
+def _ljung_box_test(
+    residuals: npt.NDArray[np.float64], n_lags: int, model_df: int = 0
+) -> tuple[float, float]:
     n = residuals.size
     centered = residuals - residuals.mean()
     denom = float(np.sum(centered**2))
@@ -70,7 +95,7 @@ def _ljung_box_test(residuals: npt.NDArray[np.float64], n_lags: int) -> tuple[fl
 
     lags = np.arange(1, n_lags + 1, dtype=np.float64)
     q_statistic = float(n * (n + 2) * np.sum(autocorr**2 / (n - lags)))
-    p_value = float(chi2.sf(q_statistic, df=n_lags))
+    p_value = float(chi2.sf(q_statistic, df=n_lags - model_df))
     return q_statistic, p_value
 
 
@@ -139,11 +164,13 @@ def arima_residuals(
     This closes the gap left by `arima_fit`, which returns only the fitted
     coefficients and `sigma2_hat`, with no residual series to diagnose the
     fit with. Pass this function's output straight into `ljung_box_test` to
-    check whether the fit actually whitened the series:
+    check whether the fit actually whitened the series -- passing
+    `model_df=p + q` (the fitted ARMA parameter count), since these
+    residuals come from a fitted model, not a raw series:
 
         ar_coefs, ma_coefs, _ = arima_fit(series, p, d, q)
         residuals = arima_residuals(series, ar_coefs, ma_coefs, d)
-        _, p_value = ljung_box_test(residuals, n_lags)
+        _, p_value = ljung_box_test(residuals, n_lags, model_df=p + q)
 
     A high `p_value` means the residuals are consistent with white noise, so
     the chosen (p, d, q) order adequately removed the series' autocorrelation.

@@ -7,7 +7,7 @@ from quantcore.pricing.greeks import (
     bs_vega,
     implied_volatility,
 )
-from quantcore.pricing.heston import heston_cos_call
+from quantcore.pricing.heston import heston_cos_call, heston_cos_put
 from quantcore.pricing.monte_carlo import monte_carlo_call_price, monte_carlo_put_price
 from quantcore.pricing.options_positions import (
     ProtectivePutSizing,
@@ -27,6 +27,7 @@ __all__ = [
     "bs_theta",
     "bs_vega",
     "heston_cos_call",
+    "heston_cos_put",
     "implied_volatility",
     "monte_carlo_call_price",
     "monte_carlo_put_price",

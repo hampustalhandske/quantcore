@@ -6,9 +6,13 @@ EWMA covariance (RiskMetrics 1996):
 
 Ledoit-Wolf shrinkage (Ledoit & Wolf 2004):
     Sigma_LW = (1 - alpha)*S + alpha*mu*I
-    where S is the sample covariance, mu = trace(S)/k is the shrinkage
-    target's scale, and alpha in [0, 1] is the analytical shrinkage
-    intensity from Theorem 1 of the paper.
+    where S is the sample covariance (Theorem 1's derivation uses the
+    population/biased normalization 1/T, not the unbiased 1/(T-1) --
+    unlike `sample_covariance`'s public convention, S here must match the
+    paper's own normalization throughout for alpha to be Theorem 1's
+    actual asymptotically-optimal value, not an ad hoc close relative),
+    mu = trace(S)/k is the shrinkage target's scale, and alpha in [0, 1] is
+    the analytical shrinkage intensity from Theorem 1 of the paper.
 
 References:
     Ledoit, O. and Wolf, M. (2004), "A Well-Conditioned Estimator for
@@ -110,11 +114,16 @@ def ledoit_wolf_shrinkage(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.fl
 
 def _ledoit_wolf_shrinkage(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     num_obs, num_assets = returns.shape
-    sample = _sample_covariance(returns)
+    demeaned = returns - returns.mean(axis=0)
+    # Theorem 1's own normalization is 1/T (biased/population), not
+    # `sample_covariance`'s 1/(T-1) (unbiased) convention -- using ddof=1
+    # here would make alpha, and therefore Sigma_LW, a different (and not
+    # Theorem-1-optimal) estimator, even though 1/(T-1) is the more
+    # familiar convention elsewhere in this package.
+    sample = (demeaned.T @ demeaned) / num_obs
     mu_hat = float(np.trace(sample)) / num_assets
     target = mu_hat * np.eye(num_assets)
 
-    demeaned = returns - returns.mean(axis=0)
     d_squared = float(np.sum((sample - target) ** 2)) / num_assets
 
     b_bar_squared = 0.0

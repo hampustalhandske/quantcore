@@ -8,6 +8,14 @@ Gaussian HMM with K hidden states, T observations:
 Forward variable: alpha_t(k) = P(y_1,...,y_t, s_t=k)
 Backward variable: beta_t(k) = P(y_{t+1},...,y_T | s_t=k)
 
+Filtered posterior (Hamilton 1989), causal — depends only on y_1..y_t:
+    filtered_t(k) = alpha_t(k) / sum_j alpha_t(j) = P(s_t=k | y_1..y_t)
+Smoothed posterior (Baum-Welch's gamma), non-causal — depends on the whole
+sequence y_1..y_T:
+    gamma_t(k) = alpha_t(k)*beta_t(k) / sum_j alpha_t(j)*beta_t(j)
+`hmm_filtered_proba` computes the former, `hmm_predict_proba` the latter —
+see their docstrings for which is safe to use where.
+
 Baum-Welch E-step (Baum et al. 1970):
     gamma_t(k) = alpha_t(k)*beta_t(k) / sum_j alpha_t(j)*beta_t(j)
     xi_t(i,j)  = alpha_t(i)*A_{ij}*b_j(y_{t+1})*beta_{t+1}(j) / sum_{i,j}(...)
@@ -385,7 +393,17 @@ def hmm_predict_proba(
     variances: npt.NDArray[np.float64],
     initial_probs: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
-    """Compute smoothed state posteriors gamma_t(k) via forward-backward.
+    """Compute SMOOTHED state posteriors gamma_t(k) = P(s_t=k | y_1..y_T) via forward-backward.
+
+    WARNING — uses future observations: gamma_t(k) is conditioned on the
+    *entire* sequence, including y_{t+1}..y_T, via the backward pass. This
+    makes it unsuitable for anything causal — a live regime-detection
+    signal, a backtest that must not see the future, walk-forward
+    validation — despite its `predict_proba`-style name (kept for API
+    compatibility; new code needing a causal signal should use
+    `hmm_filtered_proba` instead, which uses only y_1..y_t at each t). Use
+    `hmm_predict_proba` only for retrospective analysis of a full,
+    already-observed history.
 
     Args:
         observations: Observation sequence, shape (T,).
@@ -420,3 +438,53 @@ def _hmm_predict_proba(
     log_gamma = log_alpha + log_beta
     log_gamma -= _logsumexp_rows(log_gamma)
     return np.exp(log_gamma)
+
+
+def hmm_filtered_proba(
+    observations: npt.NDArray[np.float64],
+    transition_matrix: npt.NDArray[np.float64],
+    means: npt.NDArray[np.float64],
+    variances: npt.NDArray[np.float64],
+    initial_probs: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Compute CAUSAL (filtered) state posteriors P(s_t=k | y_1..y_t) via the forward pass only.
+
+    Unlike `hmm_predict_proba` (the full forward-backward smoother, which
+    conditions on the entire sequence including future observations),
+    `hmm_filtered_proba`'s row t depends only on y_1..y_t — the standard
+    Hamilton (1989) filtered-probability recursion, and the only one of the
+    two safe to use as a live signal or in a walk-forward backtest.
+
+    Args:
+        observations: Observation sequence, shape (T,).
+        transition_matrix: State transition matrix, shape (K, K).
+        means: Emission means per state, shape (K,).
+        variances: Emission variances per state, shape (K,).
+        initial_probs: Initial state distribution, shape (K,).
+
+    Returns:
+        Filtered state posteriors, shape (T, K), rows sum to 1.
+
+    References:
+        Hamilton, J.D. (1989). "A New Approach to the Economic Analysis of
+        Nonstationary Time Series and the Business Cycle." Econometrica,
+        57(2), 357-384. See docs/REFERENCES.md.
+    """
+    _validate_hmm_params(observations, transition_matrix, means, variances, initial_probs)
+    return _hmm_filtered_proba(observations, transition_matrix, means, variances, initial_probs)
+
+
+def _hmm_filtered_proba(
+    observations: npt.NDArray[np.float64],
+    transition_matrix: npt.NDArray[np.float64],
+    means: npt.NDArray[np.float64],
+    variances: npt.NDArray[np.float64],
+    initial_probs: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    log_emission = _log_emission_matrix(observations, means, variances)
+    log_a = np.log(np.clip(transition_matrix, _MIN_PROB, None))
+    log_pi = np.log(np.clip(initial_probs, _MIN_PROB, None))
+
+    log_alpha = _forward_log(log_emission, log_a, log_pi)
+    log_filtered = log_alpha - _logsumexp_rows(log_alpha)
+    return np.exp(log_filtered)

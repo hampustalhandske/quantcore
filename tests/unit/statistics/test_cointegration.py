@@ -10,6 +10,7 @@ import pytest
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
+    johansen_max_eigenvalue_test,
     johansen_trace_test,
     ou_half_life,
     spread_zscore,
@@ -40,6 +41,34 @@ class TestAdfTest:
         with pytest.raises(ValueError):
             adf_test(np.array([1.0, 2.0, 3.0]), max_lags=5)
 
+    def test_invalid_trend_raises(self) -> None:
+        with pytest.raises(ValueError):
+            adf_test(_random_walk(100), trend="bogus")
+
+    def test_invalid_autolag_raises(self) -> None:
+        with pytest.raises(ValueError):
+            adf_test(_random_walk(100), max_lags=5, autolag="bogus")
+
+    @pytest.mark.parametrize("trend", ["n", "c", "ct"])
+    def test_default_autolag_none_uses_max_lags_exactly(self, trend: str) -> None:
+        # autolag=None (default) must be the exact same computation as
+        # before trend/autolag existed: max_lags lags, no search.
+        series = _stationary_ar1(300, phi=0.5)
+        stat_default, p_default = adf_test(series, max_lags=2, trend=trend)
+        stat_explicit, p_explicit = adf_test(series, max_lags=2, trend=trend, autolag=None)
+        assert stat_default == pytest.approx(stat_explicit)
+        assert p_default == pytest.approx(p_explicit)
+
+    @pytest.mark.parametrize("trend", ["n", "c", "ct"])
+    @pytest.mark.parametrize("autolag", ["aic", "bic", "t-stat"])
+    def test_autolag_selects_lag_in_range_and_returns_finite_stat(
+        self, trend: str, autolag: str
+    ) -> None:
+        series = _stationary_ar1(300, phi=0.5)
+        stat, p_value = adf_test(series, max_lags=8, trend=trend, autolag=autolag)
+        assert np.isfinite(stat)
+        assert 0.0 <= p_value <= 1.0
+
     def test_random_walk_does_not_strongly_reject(self) -> None:
         series = _random_walk(500)
         _, p_value = adf_test(series, max_lags=1)
@@ -68,29 +97,49 @@ class TestAdfTest:
         self, t_stat: float, expected_p: float, tol: float
     ) -> None:
         # Import lazily to keep this internal helper's usage localized to the
-        # test that specifically validates its critical-value calibration.
-        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
+        # test that specifically validates its response-surface calibration.
+        from quantcore.statistics.cointegration import _mackinnon_pvalue
 
-        assert _mackinnon_c_pvalue(t_stat) == pytest.approx(expected_p, abs=tol)
+        assert _mackinnon_pvalue(t_stat, n_series=1) == pytest.approx(expected_p, abs=tol)
 
     def test_mackinnon_pvalue_monotonically_decreases_as_stat_falls(self) -> None:
-        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
+        from quantcore.statistics.cointegration import _mackinnon_pvalue
 
-        t_stats = np.linspace(-10.0, 5.0, 200)
-        p_values = [_mackinnon_c_pvalue(t) for t in t_stats]
+        t_stats = np.linspace(-10.0, 0.9, 200)
+        p_values = [_mackinnon_pvalue(t, n_series=1) for t in t_stats]
         assert all(a <= b for a, b in pairwise(p_values))
 
     def test_mackinnon_pvalue_clamped_within_unit_interval_at_extremes(self) -> None:
-        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
+        from quantcore.statistics.cointegration import _mackinnon_pvalue
 
-        very_negative = _mackinnon_c_pvalue(-100.0)
-        very_positive = _mackinnon_c_pvalue(100.0)
+        very_negative = _mackinnon_pvalue(-100.0, n_series=1)
+        very_positive = _mackinnon_pvalue(100.0, n_series=1)
         assert 0.0 <= very_negative <= 1.0
         assert 0.0 <= very_positive <= 1.0
         assert not np.isnan(very_negative)
         assert not np.isnan(very_positive)
         assert very_negative == pytest.approx(0.0001)
         assert very_positive == pytest.approx(0.9999)
+
+    def test_mackinnon_pvalue_rejects_n_series_outside_tabulated_range(self) -> None:
+        from quantcore.statistics.cointegration import _mackinnon_pvalue
+
+        with pytest.raises(ValueError):
+            _mackinnon_pvalue(-3.0, n_series=0)
+        with pytest.raises(ValueError):
+            _mackinnon_pvalue(-3.0, n_series=7)
+
+    def test_mackinnon_pvalue_shifts_left_as_n_series_grows(self) -> None:
+        # The defect this guards against: reusing the N=1 (plain
+        # Dickey-Fuller) distribution regardless of N understates how far
+        # left the null distribution of an N-variable residual-based test
+        # actually lies, and so overstates significance (a smaller p-value
+        # than is warranted). See engle_granger_test's docstring.
+        from quantcore.statistics.cointegration import _mackinnon_pvalue
+
+        assert _mackinnon_pvalue(-3.0, n_series=1) == pytest.approx(0.0349, abs=1e-3)
+        assert _mackinnon_pvalue(-3.0, n_series=2) == pytest.approx(0.1102, abs=1e-3)
+        assert _mackinnon_pvalue(-2.86, n_series=2) == pytest.approx(0.1473, abs=1e-3)
 
     def test_random_walk_reports_large_pvalue_not_old_overconfident_value(self) -> None:
         # Regression test for the production bug: the prior Student-t
@@ -128,19 +177,28 @@ class TestEngleGrangerTest:
         _, _, p_value = engle_granger_test(y, x)
         assert p_value > 0.01
 
-    def test_pvalue_consistent_with_adf_test_on_same_residuals(self) -> None:
-        x = _random_walk(500, seed=RNG_SEED)
-        spread = _stationary_ar1(500, phi=0.5, seed=RNG_SEED + 1)
+    def test_statistic_matches_adf_test_on_same_residuals_but_pvalue_does_not(self) -> None:
+        # The ADF *statistic* on the OLS residuals is identical whichever way
+        # you compute it. Its p-value is not: `engle_granger_test` must use
+        # the N=2 Engle-Granger distribution, not the N=1 (plain Dickey-
+        # Fuller) distribution `adf_test` uses when given the same residuals
+        # directly, because those residuals actually came from an estimated
+        # 2-variable cointegrating regression.
+        # phi close to 1 keeps the statistic in a range where neither
+        # p-value has saturated at the 0.0001 floor, so the N=1 vs N=2
+        # difference is actually visible.
+        x = _random_walk(300, seed=RNG_SEED)
+        spread = _stationary_ar1(300, phi=0.99, seed=RNG_SEED + 1)
         y = 2.0 * x + spread
         _, eg_adf_stat, eg_p_value = engle_granger_test(y, x)
 
         x_reg = np.column_stack([np.ones_like(x), x])
         ols_beta, _, _, _ = np.linalg.lstsq(x_reg, y, rcond=None)
         residuals = y - x_reg @ ols_beta
-        adf_stat, p_value = adf_test(residuals, max_lags=1)
+        adf_stat, adf_p_value = adf_test(residuals, max_lags=1)
 
         assert eg_adf_stat == pytest.approx(adf_stat)
-        assert eg_p_value == pytest.approx(p_value)
+        assert eg_p_value > adf_p_value
 
 
 class TestJohansenTraceTest:
@@ -163,6 +221,92 @@ class TestJohansenTraceTest:
         data = rng.normal(size=(200, 3))
         trace_stats, _, _ = johansen_trace_test(data, n_lags=1)
         assert np.all(trace_stats >= 0.0)
+
+    def test_default_critical_values_match_published_table_unrestricted_constant(self) -> None:
+        # Regression test for the production bug: the old table was the
+        # no-deterministic-term case shifted by one index (its 12.3212 was
+        # the "c" case's k-r=2 value, not k-r=1), so it required a trace
+        # statistic above ~12.32 where the correct 95% threshold is 3.84 —
+        # the test almost never rejected. These are MacKinnon, Haug &
+        # Michelis (1999) Table 1's unrestricted-constant 95% values,
+        # k-r = 1..6, and must never silently shift again.
+        rng = np.random.default_rng(RNG_SEED)
+        data = rng.normal(size=(50, 6))
+        _, crit_values, _ = johansen_trace_test(data, n_lags=1)
+        expected = np.array([95.7542, 69.8189, 47.8545, 29.7961, 15.4943, 3.8415])
+        np.testing.assert_allclose(crit_values, expected)
+
+    @pytest.mark.parametrize(
+        ("deterministic", "confidence", "expected_k_minus_r_1"),
+        [
+            ("n", 0.95, 4.1296),
+            ("c", 0.95, 3.8415),
+            ("ct", 0.95, 3.8415),
+            ("c", 0.90, 2.7055),
+            ("c", 0.99, 6.6349),
+        ],
+    )
+    def test_critical_value_selects_correct_table_and_column(
+        self, deterministic: str, confidence: float, expected_k_minus_r_1: float
+    ) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        data = rng.normal(size=(50, 2))
+        _, crit_values, _ = johansen_trace_test(
+            data, n_lags=1, deterministic=deterministic, confidence=confidence
+        )
+        assert crit_values[-1] == pytest.approx(expected_k_minus_r_1)
+
+    def test_invalid_deterministic_or_confidence_raises(self) -> None:
+        data = np.random.default_rng(RNG_SEED).normal(size=(50, 2))
+        with pytest.raises(ValueError):
+            johansen_trace_test(data, deterministic="bogus")
+        with pytest.raises(ValueError):
+            johansen_trace_test(data, confidence=0.5)
+
+    def test_supports_up_to_twelve_series(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        data = rng.normal(size=(50, 12))
+        trace_stats, crit_values, eigenvectors = johansen_trace_test(data, n_lags=1)
+        assert trace_stats.shape == (12,)
+        assert crit_values.shape == (12,)
+        assert eigenvectors.shape == (12, 12)
+
+
+class TestJohansenMaxEigenvalueTest:
+    def test_output_shapes(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        data = rng.normal(size=(200, 3))
+        max_eig_stats, crit_values, eigvals, eigenvectors = johansen_max_eigenvalue_test(
+            data, n_lags=1
+        )
+        assert max_eig_stats.shape == (3,)
+        assert crit_values.shape == (3,)
+        assert eigvals.shape == (3,)
+        assert eigenvectors.shape == (3, 3)
+
+    def test_eigenvalues_descending_and_in_unit_interval(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        data = rng.normal(size=(200, 3))
+        _, _, eigvals, _ = johansen_max_eigenvalue_test(data, n_lags=1)
+        assert np.all(eigvals >= 0.0) and np.all(eigvals < 1.0)
+        assert all(a >= b for a, b in pairwise(eigvals))
+
+    def test_max_eigenvalue_statistics_sum_to_trace_statistic(self) -> None:
+        # trace_stat[r] = sum_{i=r}^{k-1} max_eig_stat[i] by construction
+        # (both derive from the same eigenvalues); check the r=0 case, which
+        # is the full trace statistic.
+        rng = np.random.default_rng(RNG_SEED)
+        data = rng.normal(size=(200, 3))
+        trace_stats, _, _ = johansen_trace_test(data, n_lags=1)
+        max_eig_stats, _, _, _ = johansen_max_eigenvalue_test(data, n_lags=1)
+        assert trace_stats[0] == pytest.approx(np.sum(max_eig_stats))
+
+    def test_default_critical_values_match_published_table(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        data = rng.normal(size=(50, 3))
+        _, crit_values, _, _ = johansen_max_eigenvalue_test(data, n_lags=1)
+        expected = np.array([21.1314, 14.2639, 3.8415])
+        np.testing.assert_allclose(crit_values, expected)
 
 
 class TestOuHalfLife:

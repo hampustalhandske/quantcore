@@ -32,7 +32,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from quantcore.risk.volatility import fit_garch_11, garch_11_variance
+from quantcore.risk.volatility import ConvergenceError, fit_garch_11, garch_11_variance
 
 RNG_SEED = 2024
 
@@ -227,6 +227,37 @@ def test_fit_garch_11_invariant_to_constant_additive_shift() -> None:
 def test_fit_garch_11_empty_returns_raises() -> None:
     with pytest.raises(ValueError):
         fit_garch_11(np.array([]))
+
+
+def test_fit_garch_11_raises_convergence_error_with_best_attempt(monkeypatch) -> None:
+    # Owner follow-up: GARCH-family fitters unified on raising
+    # ConvergenceError (a RuntimeError subclass carrying the best attempt
+    # found) rather than any of them silently returning a partial/
+    # unconverged result. Deterministically forces every SLSQP call to
+    # report failure so this doesn't depend on finding a naturally
+    # hard-to-fit series.
+    from scipy.optimize import minimize as real_minimize
+
+    import quantcore.risk.volatility as volatility_module
+
+    def failing_minimize(*args, **kwargs):
+        result = real_minimize(*args, **kwargs)
+        result.success = False
+        result.message = "forced failure for test"
+        return result
+
+    monkeypatch.setattr(volatility_module, "minimize", failing_minimize)
+    epsilon, _ = _simulate_garch_11_process(200, 1e-5, 0.1, 0.85, seed=RNG_SEED)
+
+    with pytest.raises(ConvergenceError) as exc_info:
+        fit_garch_11(epsilon)
+
+    exc = exc_info.value
+    assert isinstance(exc, RuntimeError)
+    assert exc.params is not None
+    assert len(exc.params) == 3
+    assert isinstance(exc.log_likelihood, float)
+    assert exc.optimizer_message == "forced failure for test"
 
 
 # ---------------------------------------------------------------------------

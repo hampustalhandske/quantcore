@@ -1,11 +1,13 @@
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
+    johansen_max_eigenvalue_test,
     johansen_trace_test,
     ou_half_life,
     spread_zscore,
 )
 from quantcore.statistics.regression import (
+    FactorLoadingsResult,
     factor_loadings,
     fama_macbeth_regression,
     newey_west_cov,
@@ -14,10 +16,12 @@ from quantcore.statistics.regression import (
 )
 
 __all__ = [
+    "FactorLoadingsResult",
     "adf_test",
     "engle_granger_test",
     "factor_loadings",
     "fama_macbeth_regression",
+    "johansen_max_eigenvalue_test",
     "johansen_trace_test",
     "newey_west_cov",
     "newey_west_optimal_lags",

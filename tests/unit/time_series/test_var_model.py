@@ -52,12 +52,23 @@ class TestSelectVarLagOrder:
             select_var_lag_order(data, max_lags=3, criterion="hqic")
 
     def test_does_not_crash_on_infeasible_small_lags(self) -> None:
-        # With very few observations most candidate lag orders are rejected
-        # by var_fit (not enough observations); select_var_lag_order must
-        # skip those rather than raise, as long as at least n_lags=1 fits.
-        data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 8, RNG_SEED)
+        # Every candidate is fit on the same fixed-size trailing window of
+        # n_obs - max_lags observations (for comparable information
+        # criteria, matching statsmodels' VAR.select_order); with few
+        # observations and a large max_lags, that fixed window is too
+        # small for the higher lag orders, which var_fit rejects.
+        # select_var_lag_order must skip those rather than raise, as long
+        # as at least n_lags=1 fits.
+        data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 10, RNG_SEED)
         n_lags = select_var_lag_order(data, max_lags=5, criterion="aic")
         assert n_lags >= 1
+
+    def test_raises_when_max_lags_leaves_no_feasible_candidate(self) -> None:
+        # With too few observations for even n_lags=1 to leave a usable
+        # fixed window (n_obs - max_lags), no candidate is feasible.
+        data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 8, RNG_SEED)
+        with pytest.raises(ValueError, match="no feasible n_lags"):
+            select_var_lag_order(data, max_lags=5, criterion="aic")
 
     def test_var1_series_selects_low_lag_order(self) -> None:
         # Lag-order selection is noisy in finite samples; assert the

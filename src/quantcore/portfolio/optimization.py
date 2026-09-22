@@ -24,12 +24,24 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-from scipy.optimize import LinearConstraint, minimize
+from scipy.optimize import LinearConstraint, OptimizeResult, minimize
 
 
 def _validate_cov_matrix(cov_matrix: npt.NDArray[np.float64]) -> None:
     if cov_matrix.ndim != 2 or cov_matrix.shape[0] != cov_matrix.shape[1]:
         raise ValueError("cov_matrix must be a square 2D array")
+
+
+def _require_slsqp_success(result: OptimizeResult, func_name: str) -> None:
+    """No silent fallbacks (see CLAUDE.md): a caller must be told when
+    SLSQP didn't converge, rather than silently receiving whatever
+    infeasible/non-optimal point it stopped at.
+    """
+    if not result.success:
+        raise RuntimeError(
+            f"{func_name}: SLSQP optimization did not converge "
+            f"(status={result.status}, message={result.message!r})"
+        )
 
 
 def _validate_min_variance_inputs(cov_matrix: npt.NDArray[np.float64]) -> None:
@@ -48,6 +60,10 @@ def min_variance_weights(
 
     Returns:
         Portfolio weights of shape (k,), summing to 1.
+
+    Raises:
+        RuntimeError: If the SLSQP optimization does not converge. No
+            silent fallback is returned in this case.
     """
     _validate_min_variance_inputs(cov_matrix)
     return _min_variance_weights(cov_matrix, allow_short)
@@ -66,6 +82,7 @@ def _min_variance_weights(
         return float(w @ cov_matrix @ w)
 
     result = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=constraints)
+    _require_slsqp_success(result, "min_variance_weights")
     return np.asarray(result.x, dtype=np.float64)
 
 
@@ -97,6 +114,10 @@ def mean_variance_weights(
 
     Returns:
         Portfolio weights of shape (k,), summing to 1.
+
+    Raises:
+        RuntimeError: If the SLSQP optimization does not converge. No
+            silent fallback is returned in this case.
     """
     _validate_mean_variance_inputs(expected_returns, cov_matrix, risk_aversion)
     return _mean_variance_weights(expected_returns, cov_matrix, risk_aversion, allow_short)
@@ -117,6 +138,7 @@ def _mean_variance_weights(
         return float(-(w @ expected_returns) + 0.5 * risk_aversion * (w @ cov_matrix @ w))
 
     result = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=constraints)
+    _require_slsqp_success(result, "mean_variance_weights")
     return np.asarray(result.x, dtype=np.float64)
 
 
@@ -222,6 +244,10 @@ def l1_turnover_penalized_weights(
 
     Returns:
         Portfolio weights of shape (k,), summing to 1.
+
+    Raises:
+        RuntimeError: If the SLSQP optimization does not converge. No
+            silent fallback is returned in this case.
     """
     _validate_l1_turnover_penalized_inputs(
         expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion
@@ -274,6 +300,7 @@ def _l1_turnover_penalized_weights(
         )
 
     result = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=constraints)
+    _require_slsqp_success(result, "l1_turnover_penalized_weights")
     return np.asarray(_weights_from_slacks(result.x), dtype=np.float64)
 
 
@@ -290,6 +317,10 @@ def risk_parity_weights(cov_matrix: npt.NDArray[np.float64]) -> npt.NDArray[np.f
     Returns:
         Portfolio weights of shape (k,), summing to 1, with equal risk
         contributions.
+
+    Raises:
+        RuntimeError: If the SLSQP optimization does not converge. No
+            silent fallback is returned in this case.
     """
     _validate_risk_parity_inputs(cov_matrix)
     return _risk_parity_weights(cov_matrix)
@@ -315,6 +346,7 @@ def _risk_parity_weights(cov_matrix: npt.NDArray[np.float64]) -> npt.NDArray[np.
         constraints=constraints,
         options={"maxiter": 1000, "ftol": 1e-16},
     )
+    _require_slsqp_success(result, "risk_parity_weights")
     weights = np.asarray(result.x, dtype=np.float64)
     return weights / weights.sum()
 
@@ -324,20 +356,27 @@ def _validate_kelly_fraction_inputs(expected_return: float, variance: float) -> 
         raise ValueError("variance must be strictly positive")
 
 
-def kelly_fraction(expected_return: float, variance: float) -> float:
+def kelly_fraction(expected_return: float, variance: float, clip: bool = True) -> float:
     """Compute the single-asset Kelly fraction f* = expected_return / variance.
 
     Args:
         expected_return: Excess expected return E[r] - r_f.
         variance: Return variance sigma^2 (must be strictly positive).
+        clip: If True (default), clamp the result to [-1, 1] — a leverage
+            cap, not part of Kelly's (1956) original formula, which has no
+            such bound (a high-edge, low-variance input can legitimately
+            call for a fraction outside [-1, 1] under the textbook
+            criterion). Pass `clip=False` for the unclamped textbook value.
 
     Returns:
-        Kelly fraction, clamped to [-1, 1].
+        Kelly fraction; clamped to [-1, 1] if `clip` is True.
     """
     _validate_kelly_fraction_inputs(expected_return, variance)
-    return _kelly_fraction(expected_return, variance)
+    return _kelly_fraction(expected_return, variance, clip)
 
 
-def _kelly_fraction(expected_return: float, variance: float) -> float:
+def _kelly_fraction(expected_return: float, variance: float, clip: bool) -> float:
     fraction = expected_return / variance
+    if not clip:
+        return float(fraction)
     return float(np.clip(fraction, -1.0, 1.0))

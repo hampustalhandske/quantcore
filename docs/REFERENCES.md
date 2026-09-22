@@ -10,6 +10,11 @@ cite the relevant entry in their docstrings.
   Liabilities." *Journal of Political Economy*, 81(3), 637–654.
   → `pricing/black_scholes.py`
 
+- Merton, R.C. (1973). "Theory of Rational Option Pricing." *Bell Journal
+  of Economics and Management Science*, 4(1), 141–183.
+  → `pricing/black_scholes.py`, `pricing/greeks.py`, `pricing/heston.py`
+  (continuous dividend yield / cost-of-carry extension, `dividend_yield`)
+
 - Boyle, P. (1977). "Options: A Monte Carlo Approach." *Journal of
   Financial Economics*, 4(3), 323–338.
   → `pricing/monte_carlo.py` (base method)
@@ -122,7 +127,8 @@ cite the relevant entry in their docstrings.
 - Hamilton, J.D. (1989). "A New Approach to the Economic Analysis of
   Nonstationary Time Series and the Business Cycle." *Econometrica*, 57(2),
   357–384.
-  → `regime/hmm.py` (Markov-switching model applied to financial returns)
+  → `regime/hmm.py` (Markov-switching model applied to financial returns;
+  causal filtered-probability recursion, `hmm_filtered_proba`)
 
 ## Cointegration and mean reversion
 
@@ -133,7 +139,8 @@ cite the relevant entry in their docstrings.
 
 - Johansen, S. (1988). "Statistical Analysis of Cointegration Vectors."
   *Journal of Economic Dynamics and Control*, 12(2–3), 231–254.
-  → `statistics/cointegration.py` (Johansen trace test, eigenvectors)
+  → `statistics/cointegration.py` (Johansen trace and maximum-eigenvalue
+  tests, eigenvectors)
 
 - Avellaneda, M. and Lee, J.-H. (2010). "Statistical Arbitrage in the U.S.
   Equities Market." *Quantitative Finance*, 10(7), 761–782.
@@ -142,9 +149,17 @@ cite the relevant entry in their docstrings.
 - MacKinnon, J.G. (1994). "Approximate Asymptotic Distribution Functions for
   Unit-Root and Cointegration Tests." *Journal of Business & Economic
   Statistics*, 12(2), 167–176.
-  → `statistics/cointegration.py` (ADF p-values via the tabulated asymptotic
-  Dickey-Fuller "constant, no trend" quantiles, replacing the Student-t
-  approximation; `engle_granger_test` inherits this via `adf_test`)
+  → `statistics/cointegration.py` (ADF/Engle-Granger p-values via the
+  response-surface approximation to the "constant, no trend" Dickey-Fuller
+  distribution, parameterized by N — the number of I(1) series in the
+  regression the tested residuals came from; `_mackinnon_pvalue`)
+
+- MacKinnon, J.G., Haug, A.A., and Michelis, L. (1999). "Numerical
+  Distribution Functions of Likelihood Ratio Tests for Cointegration."
+  *Journal of Applied Econometrics*, 14(5), 563–577.
+  → `statistics/cointegration.py` (Johansen trace and maximum-eigenvalue
+  test critical values, by deterministic-term case and confidence level;
+  `_JOHANSEN_TRACE_CRIT`, `_JOHANSEN_MAX_EIG_CRIT`)
 
 ## Time series
 
@@ -193,8 +208,9 @@ cite the relevant entry in their docstrings.
 
 - Newey, W.K. and West, K.D. (1994). "Automatic Lag Selection in Covariance
   Matrix Estimation." *Review of Economic Studies*, 61(4), 631–653.
-  → `statistics/regression.py` (automatic bandwidth plug-in rule,
-  `newey_west_optimal_lags`)
+  → `statistics/regression.py` (closed-form, sample-size-only bandwidth
+  rule of thumb, `newey_west_optimal_lags`; not this paper's separate
+  fully data-driven AR(1)-approximation procedure)
 
 ## Portfolio optimization
 
@@ -204,7 +220,9 @@ cite the relevant entry in their docstrings.
 
 - Kelly, J.L. (1956). "A New Interpretation of Information Rate." *Bell System
   Technical Journal*, 35(4), 917–926.
-  → `portfolio/optimization.py` (Kelly fraction for position sizing)
+  → `portfolio/optimization.py` (Kelly fraction for position sizing;
+  `kelly_fraction`'s default [-1, 1] clamp is a leverage cap, not part of
+  Kelly's original formula — `clip=False` returns the unclamped value)
 
 - Maillard, S., Roncalli, T., and Teïletche, J. (2010). "The Properties of
   Equally Weighted Risk Contribution Portfolios." *Journal of Portfolio

@@ -1,14 +1,20 @@
 """Heston stochastic-volatility option pricing via the COS method.
 
 Heston characteristic function (Heston 1993), stable "little trap"
-parameterization (Albrecher et al. 2007), for the log-return X_T = ln(S_T/S0):
+parameterization (Albrecher et al. 2007), for the log-return X_T = ln(S_T/S0),
+under the risk-neutral drift b = r - q (q = continuous dividend yield /
+cost-of-carry adjustment, 0.0 by default -- reduces to plain Heston with
+drift r):
 
     d(u)   = sqrt((kappa - i*rho*xi*u)^2 + xi^2*(i*u + u^2))
     g(u)   = (kappa - i*rho*xi*u - d) / (kappa - i*rho*xi*u + d)
-    C(u)   = i*u*r*T + (kappa*theta/xi^2) *
+    C(u)   = i*u*b*T + (kappa*theta/xi^2) *
              ((kappa - i*rho*xi*u - d)*T - 2*ln((1 - g*exp(-d*T)) / (1 - g)))
     D(u)   = (kappa - i*rho*xi*u - d)/xi^2 * (1 - exp(-d*T)) / (1 - g*exp(-d*T))
     phi(u) = exp(C(u) + D(u)*v0)
+
+`heston_cos_put` is `heston_cos_call` via put-call parity:
+    Put = Call - S0*exp(-q*T) + K*exp(-r*T)
 
 COS method (Fang & Oosterlee 2008) for a European call, with x = ln(S0/K)
 and truncation range [a, b] given by cumulants c1, c2:
@@ -80,6 +86,7 @@ def heston_cos_call(
     xi: float,
     rho: float,
     n_terms: int = 128,
+    dividend_yield: float = 0.0,
 ) -> float:
     """Price a European call under the Heston model via the COS method.
 
@@ -94,6 +101,8 @@ def heston_cos_call(
         xi: Vol-of-vol.
         rho: Correlation between the spot and variance Brownian motions.
         n_terms: Number of cosine-series terms.
+        dividend_yield: Continuously compounded dividend yield / cost-of-
+            carry adjustment (q). 0.0 (default) is plain Heston, drift r.
 
     Returns:
         The Heston call price.
@@ -105,12 +114,13 @@ def heston_cos_call(
         spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms
     )
     return _heston_cos_call(
-        spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms
+        spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms, dividend_yield
     )
 
 
-def _heston_char_func(
-    u: npt.NDArray[np.complex128],
+def heston_cos_put(
+    spot: float,
+    strike: float,
     rate: float,
     time_to_maturity: float,
     v0: float,
@@ -118,12 +128,50 @@ def _heston_char_func(
     theta: float,
     xi: float,
     rho: float,
+    n_terms: int = 128,
+    dividend_yield: float = 0.0,
+) -> float:
+    """Price a European put under the Heston model, via put-call parity on `heston_cos_call`.
+
+    Args: see `heston_cos_call`.
+
+    Returns:
+        The Heston put price: `heston_cos_call(...) - spot*exp(-q*T) + strike*exp(-r*T)`.
+
+    References:
+        Heston (1993); Fang & Oosterlee (2008). See docs/REFERENCES.md.
+    """
+    _validate_heston_cos_call(
+        spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms
+    )
+    call_price = _heston_cos_call(
+        spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms, dividend_yield
+    )
+    return float(
+        call_price
+        - spot * np.exp(-dividend_yield * time_to_maturity)
+        + strike * np.exp(-rate * time_to_maturity)
+    )
+
+
+def _heston_char_func(
+    u: npt.NDArray[np.complex128],
+    drift: float,
+    time_to_maturity: float,
+    v0: float,
+    kappa: float,
+    theta: float,
+    xi: float,
+    rho: float,
 ) -> npt.NDArray[np.complex128]:
-    """Heston characteristic function of X_T = ln(S_T/S0), "little trap" form."""
+    """Heston characteristic function of X_T = ln(S_T/S0), "little trap" form.
+
+    `drift` is the risk-neutral drift b = r - q.
+    """
     if xi == 0.0:
         # Degenerate zero-vol-of-vol case: V_t == v0 deterministically, so
         # ln(S_T/S0) is Gaussian with the constant-variance GBM moments.
-        mean = (rate - 0.5 * v0) * time_to_maturity
+        mean = (drift - 0.5 * v0) * time_to_maturity
         var = v0 * time_to_maturity
         return np.exp(1j * u * mean - 0.5 * var * u**2)
 
@@ -137,7 +185,7 @@ def _heston_char_func(
     )
     d_term = ((xi_bar - d) / xi**2) * ((1.0 - exp_neg_dt) / (1.0 - g * exp_neg_dt))
 
-    return np.exp(1j * u * rate * time_to_maturity + c + d_term * v0)
+    return np.exp(1j * u * drift * time_to_maturity + c + d_term * v0)
 
 
 def _heston_cos_call(
@@ -151,12 +199,14 @@ def _heston_cos_call(
     xi: float,
     rho: float,
     n_terms: int,
+    dividend_yield: float = 0.0,
 ) -> float:
     if time_to_maturity == 0.0:
         return max(spot - strike, 0.0)
 
+    drift = rate - dividend_yield
     c1 = (
-        rate * time_to_maturity
+        drift * time_to_maturity
         + (1.0 - np.exp(-kappa * time_to_maturity)) * (theta - v0) / (2.0 * kappa)
         - 0.5 * theta * time_to_maturity
     )
@@ -190,7 +240,7 @@ def _heston_cos_call(
     u = k * np.pi / (b - a)
 
     phi = _heston_char_func(
-        u.astype(np.complex128), rate, time_to_maturity, v0, kappa, theta, xi, rho
+        u.astype(np.complex128), drift, time_to_maturity, v0, kappa, theta, xi, rho
     )
     re_term = np.real(phi * np.exp(1j * u * (x - a)))
 

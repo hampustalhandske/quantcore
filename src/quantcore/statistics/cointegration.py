@@ -2,7 +2,8 @@
 
 Engle-Granger (1987) two-step:
     Step 1 — estimate cointegrating vector via OLS: y = beta*x + epsilon
-    Step 2 — ADF test on residuals epsilon_hat;
+    Step 2 — ADF test on residuals epsilon_hat, with no constant in the
+             ADF regression (epsilon_hat is mean-zero by construction);
              null hypothesis: epsilon_hat has a unit root (no cointegration)
 
 ADF test statistic (Dickey & Fuller 1979):
@@ -171,7 +172,9 @@ _MACKINNON_LARGE_P_COEF: dict[str, npt.NDArray[np.float64]] = {
 _ADF_REGRESSION_CASES = ("n", "c", "ct")
 
 
-def _mackinnon_pvalue(t_stat: float, n_series: int, regression: str = "c") -> float:
+def _mackinnon_pvalue(
+    t_stat: float, n_series: int, regression: str = "c", clamp: bool = True
+) -> float:
     """MacKinnon (1994) response-surface p-value for the (A)DF tau statistic.
 
     Args:
@@ -182,13 +185,20 @@ def _mackinnon_pvalue(t_stat: float, n_series: int, regression: str = "c") -> fl
         regression: Deterministic case the ADF regression included: "n"
             (no constant, no trend), "c" (constant only), or "ct" (constant
             and linear trend).
+        clamp: If True, the returned p-value is clipped to
+            [0.0001, 0.9999] (the `adf_test` convention). If False, the
+            raw response-surface value is returned, saturating at exactly
+            0.0 / 1.0 beyond the tabulated statistic range -- the
+            `statsmodels.tsa.adfvalues.mackinnonp` convention, used by
+            `engle_granger_test` so strongly cointegrated pairs report a
+            p-value as small as the surface actually gives.
 
     Returns:
         Approximate right-tail-inclusive p-value under the null of a unit
-        root, clamped to [0.0001, 0.9999]: MacKinnon's response surface is
-        only fit over the tabulated statistic range, so a statistic beyond
-        the tabulated min/max saturates at the nearest tail probability
-        rather than reporting an unbounded, unvalidated p-value.
+        root. MacKinnon's response surface is only fit over the tabulated
+        statistic range, so a statistic beyond the tabulated min/max
+        saturates at the nearest tail probability rather than reporting an
+        unbounded, unvalidated p-value.
     """
     if regression not in _ADF_REGRESSION_CASES:
         raise ValueError(f"regression must be one of {_ADF_REGRESSION_CASES}")
@@ -199,17 +209,18 @@ def _mackinnon_pvalue(t_stat: float, n_series: int, regression: str = "c") -> fl
             f"(MacKinnon's tabulated range), got {n_series}"
         )
     idx = n_series - 1
+    lower, upper = (0.0001, 0.9999) if clamp else (0.0, 1.0)
     if t_stat >= tau_max[idx]:
-        return 0.9999
+        return upper
     if t_stat <= _MACKINNON_TAU_MIN[regression][idx]:
-        return 0.0001
+        return lower
     coefs = (
         _MACKINNON_SMALL_P_COEF[regression][idx]
         if t_stat <= _MACKINNON_TAU_STAR[regression][idx]
         else _MACKINNON_LARGE_P_COEF[regression][idx]
     )
     poly_value = float(np.polynomial.polynomial.polyval(t_stat, coefs))
-    return float(np.clip(norm.cdf(poly_value), 0.0001, 0.9999))
+    return float(np.clip(norm.cdf(poly_value), lower, upper))
 
 
 def _validate_adf_inputs(series: npt.NDArray[np.float64], max_lags: int, trend: str) -> None:
@@ -431,7 +442,8 @@ def engle_granger_test(
 
     Returns:
         Tuple (beta, adf_statistic, p_value): the OLS cointegrating
-        coefficient and the ADF statistic on the OLS residuals, with its
+        coefficient (step 1 fits `y = alpha + beta*x + u` with an
+        intercept) and the ADF statistic on the OLS residuals, with its
         p-value from MacKinnon's (1994) response surface for N=2 I(1)
         series (y and x) — the Engle-Granger distribution, not the plain
         (N=1) Dickey-Fuller distribution `adf_test` on a raw series uses.
@@ -439,6 +451,14 @@ def engle_granger_test(
         had one degree of unit-root freedom absorbed by the OLS fit, so
         their null distribution lies further left than a raw series' does;
         using the N=1 distribution here would overstate significance.
+
+        The step-2 ADF regression uses one lagged difference and no
+        constant (the residuals are mean-zero by construction of step 1),
+        and the p-value is *not* clamped: it saturates at exactly 0.0 / 1.0
+        beyond MacKinnon's tabulated range. Both conventions match
+        `statsmodels.tsa.stattools.coint(y, x, trend="c", maxlag=1,
+        autolag=None)`, whose statistic and p-value this function
+        reproduces to ~1e-10.
     """
     _validate_engle_granger_inputs(y, x)
     return _engle_granger_test(y, x)
@@ -451,7 +471,20 @@ def _engle_granger_test(
     ols_beta, _, _, _ = np.linalg.lstsq(x_reg, y, rcond=None)
     beta = float(ols_beta[1])
     residuals = y - x_reg @ ols_beta
-    adf_stat, p_value = _adf_test(residuals, max_lags=1, n_series=2)
+    # Step 2: ADF regression on the residuals with one lagged difference and
+    # *no* deterministic terms -- the step-1 OLS fit already includes an
+    # intercept, so its residuals are mean-zero by construction, and the
+    # MacKinnon N=2 surface is tabulated for the statistic computed that
+    # way (Engle & Granger 1987). The p-value's deterministic case is "c"
+    # because that is what the *cointegrating* regression included, not
+    # what the residual ADF regression included. Same conventions as
+    # `statsmodels.tsa.stattools.coint`: `adfuller(resid, regression="n")`
+    # then `mackinnonp(stat, regression="c", N=2)`.
+    dy = np.diff(residuals)
+    level = residuals[:-1]
+    n_lags = 1
+    adf_stat, _, _ = _adf_regression(dy, level, n_lags, dy.size, n_lags, trend="n")
+    p_value = _mackinnon_pvalue(adf_stat, n_series=2, regression="c", clamp=False)
     return beta, adf_stat, p_value
 
 

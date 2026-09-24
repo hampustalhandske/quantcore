@@ -97,16 +97,72 @@ class TestRiskParityWeights:
         with pytest.raises(ValueError):
             risk_parity_weights(np.array([1.0, 2.0, 3.0]))
 
+    def test_non_positive_variance_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            risk_parity_weights(np.array([[0.0, 0.0], [0.0, 1.0]]))
+
     def test_risk_contributions_are_equal(self) -> None:
         rng = np.random.default_rng(7)
         a = rng.normal(size=(4, 4))
         cov = a @ a.T + 4 * np.eye(4)  # random PD matrix
 
         weights = risk_parity_weights(cov)
-        marginal = cov @ weights
-        contributions = weights * marginal
-        assert contributions.max() - contributions.min() == pytest.approx(0.0, abs=1e-4)
-        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
+        contributions = weights * (cov @ weights) / (weights @ cov @ weights)
+        np.testing.assert_allclose(contributions, 0.25, atol=1e-9)
+        assert weights.sum() == pytest.approx(1.0, abs=1e-12)
+        assert np.all(weights > 0.0)
+
+    def test_one_dominant_variance_asset(self) -> None:
+        # Asset 0's variance is ~2700x asset 1's; an equal-weight start on
+        # the un-normalised least-squares objective used to terminate at
+        # [0.5, 0.5] with asset 0 carrying 99.99% of the risk.
+        cov = np.array([[4658.98781, -1.41048619], [-1.41048619, 1.72544360]])
+        weights = risk_parity_weights(cov)
+        contributions = weights * (cov @ weights) / (weights @ cov @ weights)
+        np.testing.assert_allclose(contributions, 0.5, atol=1e-9)
+        assert weights[0] < 0.05
+
+    def test_diagonal_covariance_gives_inverse_volatility_weights(self) -> None:
+        vols = np.array([0.1, 0.2, 0.4])
+        weights = risk_parity_weights(np.diag(vols**2))
+        expected = (1.0 / vols) / np.sum(1.0 / vols)
+        np.testing.assert_allclose(weights, expected, atol=1e-10)
+
+    def test_scale_invariant(self) -> None:
+        rng = np.random.default_rng(11)
+        a = rng.normal(size=(5, 5))
+        cov = a @ a.T + np.eye(5)
+        np.testing.assert_allclose(
+            risk_parity_weights(cov), risk_parity_weights(1e6 * cov), atol=1e-10
+        )
+
+    @pytest.mark.parametrize(
+        "family",
+        ["well_conditioned", "near_singular", "equal_vol", "one_dominant", "high_condition"],
+    )
+    def test_risk_contributions_equal_across_covariance_families(self, family: str) -> None:
+        rng = np.random.default_rng(20240924)
+        for _ in range(40):
+            k = int(rng.integers(2, 11))
+            if family == "well_conditioned":
+                a = rng.normal(size=(k, k))
+                cov = a @ a.T + 0.1 * np.eye(k)
+            elif family == "near_singular":
+                a = rng.normal(size=(k, 1))
+                cov = a @ a.T + 1e-8 * np.eye(k)
+            elif family == "equal_vol":
+                corr = rng.uniform(-0.3, 0.9)
+                cov = np.full((k, k), corr) + (1.0 - corr) * np.eye(k)
+            elif family == "one_dominant":
+                a = rng.normal(size=(k, k))
+                cov = a @ a.T + np.eye(k)
+                cov[0, 0] *= 1e4
+            else:
+                q, _ = np.linalg.qr(rng.normal(size=(k, k)))
+                cov = q @ np.diag(np.logspace(-4, 4, k)) @ q.T
+            weights = risk_parity_weights(cov)
+            contributions = weights * (cov @ weights) / (weights @ cov @ weights)
+            np.testing.assert_allclose(contributions, 1.0 / k, atol=1e-6)
 
 
 class TestL1TurnoverPenalizedWeights:
@@ -364,11 +420,11 @@ class TestKellyFraction:
 
 
 class TestSlsqpConvergenceIsChecked:
-    """Regression tests: min_variance_weights, mean_variance_weights,
-    l1_turnover_penalized_weights, and risk_parity_weights each used to
-    return `result.x` unconditionally, even when SLSQP reported
-    `success=False` -- a silent fallback to a possibly infeasible or
-    non-optimal point. Each must now raise instead.
+    """min_variance_weights, mean_variance_weights and
+    l1_turnover_penalized_weights must raise when SLSQP reports
+    `success=False` rather than return `result.x` -- a silent fallback to a
+    possibly infeasible or non-optimal point. risk_parity_weights has the
+    same contract for its own Newton iteration.
     """
 
     def test_min_variance_weights_raises_on_slsqp_failure(self, monkeypatch) -> None:
@@ -407,10 +463,13 @@ class TestSlsqpConvergenceIsChecked:
                 risk_aversion=1.0,
             )
 
-    def test_risk_parity_weights_raises_on_slsqp_failure(self, monkeypatch) -> None:
+    def test_risk_parity_weights_raises_on_non_convergence(self, monkeypatch) -> None:
+        # risk_parity_weights uses its own Newton iteration rather than
+        # SLSQP; forcing an iteration budget of zero with no fallback
+        # tolerance must raise rather than return the starting point.
         import quantcore.portfolio.optimization as opt_module
 
-        fake_result = SimpleNamespace(success=False, status=4, message="fake failure", x=np.ones(2))
-        monkeypatch.setattr(opt_module, "minimize", lambda *a, **k: fake_result)
+        monkeypatch.setattr(opt_module, "_RISK_PARITY_MAX_ITER", 0)
+        monkeypatch.setattr(opt_module, "_RISK_PARITY_STALL_TOL", 0.0)
         with pytest.raises(RuntimeError):
-            risk_parity_weights(np.eye(2))
+            risk_parity_weights(np.array([[1.0, 0.5], [0.5, 2.0]]))

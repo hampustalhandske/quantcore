@@ -1,18 +1,19 @@
-"""Oracle tests for B1: `engle_granger_test` / `adf_test` p-values vs statsmodels.
+"""Oracle tests for `engle_granger_test` / `adf_test` vs statsmodels.
 
-Confirmed defect B1 (see QUANTCORE_FIX_PROMPT.md): applying the N=1 (plain
-Dickey-Fuller) p-value distribution to residuals from an estimated N=2
-cointegrating regression overstates significance. The fix parameterizes
-MacKinnon's (1994) response surface by N (see `_mackinnon_pvalue`).
+`engle_granger_test` must reproduce `statsmodels.tsa.stattools.coint(y, x,
+trend="c", maxlag=1, autolag=None)` -- statistic and p-value -- which
+encodes the standard Engle-Granger (1987) conventions: the step-2 ADF
+regression on the step-1 residuals carries no constant (`adfuller(...,
+regression="n")`), and its p-value comes from MacKinnon's (1994) N=2
+response surface for the "c" case (the cointegrating regression's
+deterministic term), unclamped (`mackinnonp(stat, "c", N=2)`).
 
-Oracle: `statsmodels.tsa.stattools.adfuller` (N=1) and
-`statsmodels.tsa.adfvalues.mackinnonp` (N=2, the function `coint`'s p-value
-comes from). Both draw on the same MacKinnon (1994) response surface
-quantcore now implements independently from the paper's published Table II
-coefficients (reproduced in `cointegration.py`; cross-checked against
-`statsmodels` here since it is the standard implementation, per the ground
-rule that oracle tests validate agreement, not that one side is copied from
-the other).
+`adf_test` (N=1) is checked against `adfuller` directly. Both draw on the
+same MacKinnon (1994) response surface quantcore implements independently
+from the paper's published Table II coefficients (reproduced in
+`cointegration.py`; cross-checked against `statsmodels` here since it is
+the standard implementation, per the ground rule that oracle tests
+validate agreement, not that one side is copied from the other).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ import pytest
 pytest.importorskip("statsmodels")
 
 from statsmodels.tsa.adfvalues import mackinnonp
-from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.stattools import adfuller, coint
 
 from quantcore.statistics.cointegration import (
     _mackinnon_pvalue,
@@ -80,9 +81,28 @@ class TestAdfTestMatchesStatsmodelsAdfuller:
         assert quantcore_p == pytest.approx(sm_p, abs=1e-3)
 
 
-class TestEngleGrangerPvalueUsesNEqualsTwoDistribution:
-    """B1's actual regression: engle_granger_test must NOT match adf_test's
-    N=1 p-value on the same residuals, and must match the N=2 surface."""
+class TestEngleGrangerMatchesStatsmodelsCoint:
+    """Statistic and p-value must equal `coint`'s to 1e-10 for cointegrated,
+    independent-random-walk and near-unit-root pairs, from 10 to 5,000
+    observations."""
+
+    @pytest.mark.parametrize("family", ["cointegrated", "independent", "near_unit_root"])
+    @pytest.mark.parametrize("n_obs", [10, 30, 100, 500, 5000])
+    def test_statistic_and_pvalue_match_coint(self, family: str, n_obs: int) -> None:
+        for seed in range(5):
+            x = _random_walk(n_obs, seed=RNG_SEED + seed)
+            if family == "cointegrated":
+                y = 2.0 * x + _stationary_ar1(n_obs, phi=0.5, seed=RNG_SEED + 100 + seed)
+            elif family == "near_unit_root":
+                y = 2.0 * x + _stationary_ar1(n_obs, phi=0.99, seed=RNG_SEED + 100 + seed)
+            else:
+                y = _random_walk(n_obs, seed=RNG_SEED + 100 + seed)
+
+            _, eg_stat, eg_p = engle_granger_test(y, x)
+            sm_stat, sm_p, _ = coint(y, x, trend="c", maxlag=1, autolag=None)
+
+            assert eg_stat == pytest.approx(sm_stat, rel=1e-10, abs=1e-10)
+            assert eg_p == pytest.approx(sm_p, rel=1e-10, abs=1e-10)
 
     def test_pvalue_matches_n_equals_two_surface_not_n_equals_one(self) -> None:
         x = _random_walk(300, seed=RNG_SEED)
@@ -93,7 +113,7 @@ class TestEngleGrangerPvalueUsesNEqualsTwoDistribution:
         expected_n2 = mackinnonp(eg_stat, regression="c", N=2)
         wrong_n1 = mackinnonp(eg_stat, regression="c", N=1)
 
-        assert eg_p == pytest.approx(expected_n2, abs=1e-3)
+        assert eg_p == pytest.approx(expected_n2, abs=1e-10)
         assert eg_p != pytest.approx(wrong_n1, abs=1e-3)
 
     @pytest.mark.parametrize(
@@ -106,8 +126,7 @@ class TestEngleGrangerPvalueUsesNEqualsTwoDistribution:
     def test_brief_numbers_reproduced(
         self, statistic: float, wrong_n1_p: float, correct_n2_p: float
     ) -> None:
-        # The exact figures the finding was written against: at these
-        # statistics, using N=1 (the old bug) vs. the correct N=2 gives
+        # At these statistics, using N=1 vs. the correct N=2 gives
         # materially different p-values.
         assert _mackinnon_pvalue(statistic, n_series=1) == pytest.approx(wrong_n1_p, abs=2e-3)
         assert _mackinnon_pvalue(statistic, n_series=2) == pytest.approx(correct_n2_p, abs=2e-3)

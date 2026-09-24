@@ -7,8 +7,14 @@ Mean-variance (Markowitz 1952):
 
 Risk parity / Equal Risk Contribution (Maillard et al. 2010):
     RC_i = w_i * (Sigma*w)_i / (w^T Sigma w)  (risk contribution of asset i)
-    Objective: minimize sum_{i,j} (RC_i - RC_j)^2
-               i.e., make all RC_i equal to 1/k
+    Target: all RC_i equal to 1/k. Solved via Spinu's (2013) strictly convex
+    reformulation
+        min_{w > 0}  0.5 * w^T Sigma w - sum_i b_i * ln(w_i),   b_i = 1/k
+    whose first-order condition w_i * (Sigma*w)_i = b_i is exactly the
+    equal-risk-contribution condition once w is rescaled to sum to 1. The
+    Hessian Sigma + diag(b_i / w_i^2) is positive definite for any PSD
+    Sigma, so the minimiser is unique and a damped Newton iteration
+    converges from any interior starting point.
 
 Kelly fraction (Kelly 1956, single-asset):
     f* = (mu - r_f) / sigma^2
@@ -17,7 +23,8 @@ References:
     Markowitz, H. (1952), "Portfolio Selection." Kelly, J.L. (1956), "A New
     Interpretation of Information Rate." Maillard, Roncalli & Teïletche
     (2010), "The Properties of Equally Weighted Risk Contribution
-    Portfolios." See docs/REFERENCES.md.
+    Portfolios." Spinu, F. (2013), "An Algorithm for Computing Risk Parity
+    Weights." See docs/REFERENCES.md.
 """
 
 from __future__ import annotations
@@ -306,49 +313,131 @@ def _l1_turnover_penalized_weights(
 
 def _validate_risk_parity_inputs(cov_matrix: npt.NDArray[np.float64]) -> None:
     _validate_cov_matrix(cov_matrix)
+    if np.any(np.diag(cov_matrix) <= 0.0):
+        raise ValueError("cov_matrix must have strictly positive variances on its diagonal")
 
 
 def risk_parity_weights(cov_matrix: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Compute the equal-risk-contribution (risk parity) portfolio.
 
+    Solves Spinu's (2013) strictly convex reformulation
+    `min_{w > 0} 0.5 * w'Sigma*w - (1/k) * sum(ln w)` by damped Newton
+    iteration from the inverse-volatility portfolio, then rescales `w` to
+    sum to 1. The result is the unique long-only portfolio whose normalised
+    risk contributions `w_i * (Sigma*w)_i / (w'Sigma*w)` all equal `1/k`
+    (Maillard, Roncalli & Teiletche 2010).
+
+    Convergence target is a maximum risk-contribution deviation from `1/k`
+    of 1e-10. On covariances so ill-conditioned that floating-point
+    round-off in `Sigma*w` prevents the iteration from resolving the
+    contributions that finely (a near-singular matrix, or eigenvalues
+    spanning 1e8), the iteration stops once it can no longer improve and
+    the best iterate is returned provided its deviation is within 1e-6;
+    otherwise it raises.
+
     Args:
-        cov_matrix: Covariance matrix of asset returns, shape (k, k).
+        cov_matrix: Covariance matrix of asset returns, shape (k, k), with
+            strictly positive variances on the diagonal.
 
     Returns:
-        Portfolio weights of shape (k,), summing to 1, with equal risk
-        contributions.
+        Portfolio weights of shape (k,), strictly positive and summing to
+        1, with equal risk contributions.
 
     Raises:
-        RuntimeError: If the SLSQP optimization does not converge. No
-            silent fallback is returned in this case.
+        ValueError: If `cov_matrix` is not square or has a non-positive
+            variance on its diagonal.
+        RuntimeError: If the Newton iteration neither reaches the 1e-10
+            target within `_RISK_PARITY_MAX_ITER` iterations nor stalls
+            within the 1e-6 fallback tolerance. No silent fallback is
+            returned in this case.
     """
     _validate_risk_parity_inputs(cov_matrix)
     return _risk_parity_weights(cov_matrix)
 
 
+_RISK_PARITY_MAX_ITER = 200
+_RISK_PARITY_TOL = 1e-10
+_RISK_PARITY_STALL_TOL = 1e-6
+_RISK_PARITY_ROUNDOFF_ITERS = 5
+
+
 def _risk_parity_weights(cov_matrix: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     k = cov_matrix.shape[0]
-    x0 = np.full(k, 1.0 / k)
-    bounds = [(1e-8, None)] * k
-    constraints = [LinearConstraint(np.ones(k), 1.0, 1.0)]
+    # Rescaling Sigma by a positive constant rescales the unconstrained
+    # minimiser by its inverse square root and leaves the normalised weights
+    # unchanged, so the problem is solved on a unit-mean-variance copy for
+    # conditioning; the covariance's own scale never enters the tolerance.
+    sigma = cov_matrix / float(np.mean(np.diag(cov_matrix)))
+    budget = np.full(k, 1.0 / k)
 
     def objective(w: npt.NDArray[np.float64]) -> float:
-        marginal = cov_matrix @ w
-        contributions = w * marginal
-        diffs = contributions[:, None] - contributions[None, :]
-        return float(np.sum(diffs**2))
+        return float(0.5 * (w @ sigma @ w) - budget @ np.log(w))
 
-    result = minimize(
-        objective,
-        x0,
-        method="SLSQP",
-        bounds=bounds,
-        constraints=constraints,
-        options={"maxiter": 1000, "ftol": 1e-16},
+    def gradient(w: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        result: npt.NDArray[np.float64] = sigma @ w - budget / w
+        return result
+
+    def contribution_deviation(w: npt.NDArray[np.float64]) -> float:
+        sigma_w = sigma @ w
+        return float(np.max(np.abs(w * sigma_w / (w @ sigma_w) - budget)))
+
+    # Inverse-volatility start: already the exact solution for a diagonal
+    # Sigma and on the right scale for any other one.
+    w = 1.0 / np.sqrt(np.diag(sigma))
+    w /= w.sum()
+    best_w, best_dev = w, contribution_deviation(w)
+    # Once the objective can no longer resolve the predicted decrease, the
+    # iterate is within round-off of the optimum; Newton's quadratic
+    # convergence means a handful of further iterations is all that can
+    # still help, after which the iteration is only wandering in round-off.
+    roundoff_iters = 0
+    for _ in range(_RISK_PARITY_MAX_ITER):
+        if best_dev < _RISK_PARITY_TOL:
+            return np.asarray(best_w / best_w.sum(), dtype=np.float64)
+        if roundoff_iters > _RISK_PARITY_ROUNDOFF_ITERS:
+            break
+        grad = gradient(w)
+        hessian = sigma + np.diag(budget / w**2)
+        direction = np.linalg.solve(hessian, -grad)
+        f_current = objective(w)
+        slope = float(grad @ direction)
+        grad_norm = float(np.linalg.norm(grad))
+        # Backtracking line search: stay strictly inside w > 0 and satisfy
+        # the Armijo sufficient-decrease condition. Close to the optimum the
+        # predicted decrease drops below what `objective` can resolve in
+        # floating point, so the step is then accepted on gradient-norm
+        # descent instead (the Newton direction of a strictly convex
+        # function is also the Newton direction of its gradient system).
+        step = 1.0
+        accepted = False
+        while step >= 1e-12:
+            candidate = w + step * direction
+            if np.all(candidate > 0.0):
+                predicted_decrease = -1e-4 * step * slope
+                if objective(candidate) <= f_current - predicted_decrease:
+                    accepted = True
+                    break
+                if predicted_decrease < 1e-12 * (1.0 + abs(f_current)):
+                    roundoff_iters += 1
+                    if float(np.linalg.norm(gradient(candidate))) < grad_norm:
+                        accepted = True
+                    break
+            step *= 0.5
+        if not accepted:
+            break
+        w = candidate
+        dev = contribution_deviation(w)
+        if dev < best_dev:
+            best_w, best_dev = w, dev
+
+    if best_dev < _RISK_PARITY_STALL_TOL:
+        return np.asarray(best_w / best_w.sum(), dtype=np.float64)
+    raise RuntimeError(
+        f"risk_parity_weights: Newton iteration did not reach the risk-contribution "
+        f"tolerance {_RISK_PARITY_TOL} within {_RISK_PARITY_MAX_ITER} iterations "
+        f"(best deviation {best_dev:.3e} exceeds the {_RISK_PARITY_STALL_TOL} "
+        f"fallback tolerance); the covariance matrix may be numerically invalid"
     )
-    _require_slsqp_success(result, "risk_parity_weights")
-    weights = np.asarray(result.x, dtype=np.float64)
-    return weights / weights.sum()
 
 
 def _validate_kelly_fraction_inputs(expected_return: float, variance: float) -> None:

@@ -80,7 +80,13 @@ cite the relevant entry in their docstrings.
 - Fang, F. and Oosterlee, C.W. (2008). "A Novel Pricing Method for European
   Options Based on Fourier-Cosine Series Expansions." *SIAM Journal on
   Scientific Computing*, 31(2), 826–848.
-  → `pricing/heston.py` (COS method for option pricing under Heston)
+  → `pricing/heston.py` (COS method for option pricing under Heston: the
+  put is expanded in `y = ln(S_T/K)` on the range `x + c1 ∓ L*sqrt(c2 +
+  sqrt(c4))`, eq. 49, and the call follows by put-call parity as the paper
+  recommends in Section 3.3. The paper's Table 11 `c2` is not used as
+  printed: its `xi^2*theta*(6e^{-kT} - 7)` term should read
+  `theta*(4e^{-kT} - 5)` for the expression to equal the log-return's
+  variance; `_heston_cumulants` carries the corrected closed form.)
 
 ## Option Greeks and implied volatility
 
@@ -135,7 +141,9 @@ cite the relevant entry in their docstrings.
 - Engle, R.F. and Granger, C.W.J. (1987). "Co-Integration and Error
   Correction: Representation, Estimation, and Testing." *Econometrica*, 55(2),
   251–276.
-  → `statistics/cointegration.py` (Engle-Granger two-step cointegration test)
+  → `statistics/cointegration.py` (Engle-Granger two-step cointegration
+  test: step 1 OLS with intercept, step 2 ADF on the residuals with one
+  lagged difference and no constant, p-value from MacKinnon's N=2 surface)
 
 - Johansen, S. (1988). "Statistical Analysis of Cointegration Vectors."
   *Journal of Economic Dynamics and Control*, 12(2–3), 231–254.
@@ -227,7 +235,15 @@ cite the relevant entry in their docstrings.
 - Maillard, S., Roncalli, T., and Teïletche, J. (2010). "The Properties of
   Equally Weighted Risk Contribution Portfolios." *Journal of Portfolio
   Management*, 36(4), 60–70.
-  → `portfolio/optimization.py` (risk parity / equal risk contribution)
+  → `portfolio/optimization.py` (risk parity / equal risk contribution:
+  the target condition `w_i*(Sigma*w)_i / (w'Sigma*w) = 1/k`)
+
+- Spinu, F. (2013). "An Algorithm for Computing Risk Parity Weights."
+  SSRN Working Paper 2297383.
+  → `portfolio/optimization.py` (`risk_parity_weights` solves Spinu's
+  strictly convex reformulation `min_{w>0} 0.5*w'Sigma*w - sum(b_i ln w_i)`
+  by damped Newton iteration; its first-order condition is the
+  equal-risk-contribution condition and its minimiser is unique)
 
 - Lobo, M.S., Fazel, M., and Boyd, S. (2007). "Portfolio Optimization with
   Linear and Fixed Transaction Costs." *Annals of Operations Research*,
@@ -266,6 +282,12 @@ cite the relevant entry in their docstrings.
 - Young, T.W. (1991). "Calmar Ratio: A Smoother Tool." *Futures Magazine*
   (January 1991).
   → `performance/metrics.py` (Calmar ratio)
+
+- Bacon, C.R. (2008). *Practical Portfolio Performance Measurement and
+  Attribution*, 2nd ed. Wiley.
+  → `performance/metrics.py` (drawdown measured against the running maximum
+  of the wealth path *including* its starting capital, so a loss before the
+  first new high is a drawdown; `maximum_drawdown`, `drawdown_series`)
 
 ## Performance attribution
 

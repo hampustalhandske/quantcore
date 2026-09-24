@@ -5,15 +5,12 @@ weights vs `cvxpy` formulations (constraints satisfied, objective within
 tolerance)."
 
 Each quantcore SLSQP-based optimizer is checked against an independent
-convex reformulation solved by `cvxpy`. `risk_parity_weights` uses Spinu
-(2013)'s convex reformulation of the risk-parity problem (minimize
+convex reformulation solved by `cvxpy`. For `risk_parity_weights` the
+cvxpy problem is Spinu (2013)'s convex reformulation (minimize
 `0.5*w'*Sigma*w - sum(b_i*log(w_i))` over `w > 0`, then normalize to sum
-to 1) rather than quantcore's own sum-of-squared-risk-contribution-
-differences objective — the two are known to share the same solution
-(Spinu 2013; Maillard, Roncalli & Teiletche 2010 themselves also make this
-connection), so agreement between them confirms quantcore's answer is the
-game's actual risk-parity solution, not just a fixed point of its own
-particular objective formulation.
+to 1) solved by an independent interior-point solver, against quantcore's
+own damped-Newton solution of the same problem; agreement to cvxpy's own
+accuracy confirms quantcore lands on the unique risk-parity portfolio.
 """
 
 from __future__ import annotations

@@ -138,6 +138,11 @@ class TestDrawdownSeries:
         dd = drawdown_series(returns)
         assert np.all(dd == 0.0)
 
+    def test_peak_is_seeded_with_starting_capital(self) -> None:
+        returns = np.array([-0.10, -0.10, 0.50])
+        # cumulative: 0.90, 0.81, 1.215; peak (seeded with 1.0): 1.0, 1.0, 1.215
+        np.testing.assert_allclose(drawdown_series(returns), [0.10, 0.19, 0.0])
+
     def test_matches_hand_computed_path(self) -> None:
         returns = np.array([0.10, -0.05, -0.05])
         # cumulative: 1.10, 1.045, 0.99275
@@ -245,6 +250,16 @@ class TestMaximumDrawdown:
         expected = np.max((peak - cum) / peak)
         actual = maximum_drawdown(returns)
         assert actual == pytest.approx(expected, rel=1e-9)
+
+    def test_first_period_loss_is_a_drawdown_from_starting_capital(self) -> None:
+        # The wealth path starts at 1.0 before the first return; a loss on
+        # day one is a drawdown from that starting capital, not a new high.
+        assert maximum_drawdown(np.array([-0.5])) == pytest.approx(0.5)
+
+    def test_losses_before_first_new_high_measured_from_starting_capital(self) -> None:
+        # 1 - 0.9 * 0.9 = 0.19, not the 0.10 measured from the already
+        # reduced first value.
+        assert maximum_drawdown(np.array([-0.1, -0.1, 0.5])) == pytest.approx(0.19)
 
 
 class TestRollingSharpe:

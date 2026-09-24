@@ -177,16 +177,18 @@ class TestEngleGrangerTest:
         _, _, p_value = engle_granger_test(y, x)
         assert p_value > 0.01
 
-    def test_statistic_matches_adf_test_on_same_residuals_but_pvalue_does_not(self) -> None:
-        # The ADF *statistic* on the OLS residuals is identical whichever way
-        # you compute it. Its p-value is not: `engle_granger_test` must use
-        # the N=2 Engle-Granger distribution, not the N=1 (plain Dickey-
-        # Fuller) distribution `adf_test` uses when given the same residuals
-        # directly, because those residuals actually came from an estimated
-        # 2-variable cointegrating regression.
-        # phi close to 1 keeps the statistic in a range where neither
-        # p-value has saturated at the 0.0001 floor, so the N=1 vs N=2
-        # difference is actually visible.
+    def test_statistic_matches_no_constant_adf_on_same_residuals_but_pvalue_does_not(
+        self,
+    ) -> None:
+        # The step-2 regression has no constant (the step-1 residuals are
+        # mean-zero by construction), so the statistic equals `adf_test`'s
+        # with `trend="n"` on the same residuals -- and differs from the
+        # constant-including `trend="c"` fit. The p-value must still use
+        # the N=2 Engle-Granger surface, not the N=1 (plain Dickey-Fuller)
+        # surface `adf_test` applies, because the residuals came from an
+        # estimated 2-variable cointegrating regression.
+        # phi close to 1 keeps the statistic in a range where the N=1 vs
+        # N=2 difference is actually visible.
         x = _random_walk(300, seed=RNG_SEED)
         spread = _stationary_ar1(300, phi=0.99, seed=RNG_SEED + 1)
         y = 2.0 * x + spread
@@ -195,10 +197,22 @@ class TestEngleGrangerTest:
         x_reg = np.column_stack([np.ones_like(x), x])
         ols_beta, _, _, _ = np.linalg.lstsq(x_reg, y, rcond=None)
         residuals = y - x_reg @ ols_beta
-        adf_stat, adf_p_value = adf_test(residuals, max_lags=1)
+        stat_no_constant, p_n1 = adf_test(residuals, max_lags=1, trend="n")
+        stat_with_constant, _ = adf_test(residuals, max_lags=1, trend="c")
 
-        assert eg_adf_stat == pytest.approx(adf_stat)
-        assert eg_p_value > adf_p_value
+        assert eg_adf_stat == pytest.approx(stat_no_constant, rel=1e-12)
+        assert eg_adf_stat != pytest.approx(stat_with_constant, rel=1e-6)
+        assert eg_p_value > p_n1
+
+    def test_pvalue_is_not_floored_for_strongly_cointegrated_pairs(self) -> None:
+        # A near-white-noise spread gives a statistic far past MacKinnon's
+        # tabulated minimum; the p-value must saturate at exactly 0.0, not
+        # at `adf_test`'s 0.0001 floor.
+        x = _random_walk(2000, seed=RNG_SEED)
+        spread = _stationary_ar1(2000, phi=0.0, seed=RNG_SEED + 1)
+        y = 2.0 * x + spread
+        _, _, p_value = engle_granger_test(y, x)
+        assert p_value == 0.0
 
 
 class TestJohansenTraceTest:

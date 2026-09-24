@@ -9,6 +9,170 @@ upgrading.
 
 ## [0.2.0] — Unreleased
 
+### Fixed — numerical results changed (edgelab conformance hand-over, 2026-09-24)
+
+Four functions edgelab's conformance suite classified `defect` against
+independent oracles. Each is now `verified` against the oracle named in
+its finding; no other public function's numbers changed. Per-function
+one-liners for edgelab's re-pin are at the end of each item.
+
+**`engle_granger_test`'s residual ADF regression carried a redundant
+constant, and its p-value was floored at 0.0001.** Step 1 fits
+`y = alpha + beta*x + u` with an intercept, so the residuals are mean-zero
+by construction and the textbook Engle-Granger (1987) step 2 runs the ADF
+regression on them *without* a constant — the MacKinnon (1994) N=2
+cointegration surface is tabulated for the statistic computed that way,
+and `statsmodels.tsa.stattools.coint` does exactly this
+(`adfuller(resid, regression="n")`). quantcore's step 2 went through the
+constant-including `_adf_test`, changing the statistic itself (by 0.013 on
+average over simulated pairs, less negative in 93% of them). Separately,
+the p-value went through `adf_test`'s [0.0001, 0.9999] clamp, so strongly
+cointegrated pairs reported 0.0001 where the surface gives ~1e-12 and
+`coint` reports 0.0. Fixed: step 2 now fits `[level, lagged_diff]` with no
+deterministic terms, and its p-value comes from the N=2 "c" surface
+unclamped (saturating at exactly 0.0 / 1.0 beyond the tabulated range —
+`statsmodels.tsa.adfvalues.mackinnonp`'s convention). `adf_test` is
+unchanged: it keeps its constant and its clamp.
+
+```python
+# cointegrated pair: x a random walk, y = 2x + AR(1) spread (phi=0.5),
+# 180 observations, numpy.random.default_rng(169)
+engle_granger_test(y, x)[1:]  # before: (-6.9361, 0.0001)
+engle_granger_test(y, x)[
+    1:
+]  # after:  (-6.9570, 1.09e-08)  == statsmodels coint(y, x, maxlag=1, autolag=None)[:2]
+```
+
+Verified against `statsmodels.tsa.stattools.coint(y, x, trend="c",
+maxlag=1, autolag=None)`: statistic and p-value now agree to 1e-10 on
+cointegrated, independent-random-walk and near-unit-root pairs from 10 to
+5,000 observations (`tests/oracle/statistics/test_cointegration_oracle.py`).
+Monte Carlo size under the null remains ≈5% at the 5% level. *For edgelab:*
+convention change — step-2 ADF has no constant; p-value unclamped,
+saturating at 0.0 / 1.0.
+
+**`maximum_drawdown` (and `drawdown_series`) ignored the starting
+capital.** The running peak was seeded from the first cumulative value
+rather than from the wealth of 1.0 in place *before* the first return, so
+`drawdowns[0]` was always 0 and any losses before the path first exceeded
+its starting value were understated or missed entirely (Bacon 2008;
+`empyrical.stats.drawdown_series` prepends the start value for exactly this
+reason). Fixed by seeding the running maximum with 1.0 in the shared
+`_drawdown_series` helper. `time_under_water`, `max_drawdown_duration` and
+`calmar_ratio` build on the same helper, so an early-loss path now counts
+its first periods as underwater and Calmar's denominator reflects the true
+maximum drawdown — the documented invariant
+`maximum_drawdown(r) == drawdown_series(r).max()` is preserved. Paths that
+make a new high on their first period are unaffected.
+
+```python
+maximum_drawdown(np.array([-0.5]))  # before: 0.0   after: 0.5
+maximum_drawdown(np.array([-0.1, -0.1, 0.5]))  # before: 0.10  after: 0.19  (= 1 - 0.9*0.9)
+drawdown_series(np.array([-0.1, -0.1, 0.5]))  # before: [0.0, 0.10, 0.0]  after: [0.10, 0.19, 0.0]
+```
+
+Verified against `empyrical.max_drawdown` (500 random paths of length 1 to
+200, worst disagreement 1e-16) and `quantstats.stats.to_drawdown_series`
+(200 paths, 1e-16; the previous oracle test had to flip a negative first
+return to avoid this very edge case — it no longer does). *For edgelab:*
+formula change — running peak seeded with the starting capital of 1.0;
+`drawdown_series`, `time_under_water`, `max_drawdown_duration` and
+`calmar_ratio` move with it.
+
+**`risk_parity_weights` could return its equal-weight starting point
+unchanged, with `success=True`, on a covariance with one much
+higher-variance asset.** The SLSQP objective was the sum of squared
+differences of *raw* contributions `w_i*(Sigma*w)_i`, whose scale is set by
+the largest variance; with an absolute `ftol=1e-16` on an objective of
+order 1e7, SLSQP declared convergence at `x0` after five internal
+iterations. Replaced the SLSQP formulation entirely with Spinu (2013)'s
+strictly convex reformulation `min_{w>0} 0.5*w'Sigma*w - (1/k)*sum(ln w)`,
+solved by damped Newton iteration (Armijo backtracking, gradient-norm
+acceptance once the objective is within round-off of its minimum) from the
+inverse-volatility portfolio, on a unit-mean-variance rescaling of Sigma so
+the input's scale never enters the tolerance. Its first-order condition
+`w_i*(Sigma*w)_i = 1/k` *is* the equal-risk-contribution condition, and the
+Hessian `Sigma + diag(1/(k*w_i^2))` is positive definite for any PSD Sigma,
+so the minimiser is unique. Target tolerance is 1e-10 on the normalised
+contributions; on covariances so ill-conditioned that round-off in
+`Sigma*w` prevents that (rank-one-plus-1e-8, eigenvalues spanning 1e8), the
+best iterate is returned once the iteration can no longer improve, provided
+it is within 1e-6 — otherwise `RuntimeError`, as before. `cov_matrix` must
+now have strictly positive diagonal variances (`ValueError` otherwise).
+
+```python
+cov = np.array([[4658.98781, -1.41048619], [-1.41048619, 1.72544360]])
+w = risk_parity_weights(cov)
+w * (cov @ w) / (w @ cov @ w)
+# before: w = [0.5, 0.5],       contributions = [0.99993, 0.00007]
+# after:  w = [0.0189, 0.9811], contributions = [0.5, 0.5]  (to 1e-10)
+```
+
+Verified: normalised contributions equal `1/k` within 1e-10 on
+well-conditioned, equal-volatility and one-dominant-asset covariances and
+within 5e-8 on near-singular and condition-number-1e8 ones, over 2,500
+random matrices with 2 ≤ k ≤ 10 (`tests/unit/portfolio/test_optimization.py`);
+weights still match the independent `cvxpy` solution of the same convex
+problem (`tests/oracle/portfolio/test_optimization_oracle.py`). ~0.1 ms per
+call. Well-conditioned inputs that SLSQP already solved correctly change
+only at the 1e-4 level (SLSQP's own accuracy). *For edgelab:* formula
+change — Spinu (2013) convex reformulation, Newton-solved; contributions
+equal to 1e-10 (1e-6 worst case on near-singular input).
+
+**`heston_cos_call` / `heston_cos_put` priced far-from-the-money and
+short-dated options wildly wrong (one-week K=60 call on S=100 at 10.44
+instead of 40.00; K=300 at 82.83 instead of ~0).** Three defects in
+`_heston_cos_call`, fixed together:
+
+1. *Truncation range not shifted by the log-moneyness.* Fang & Oosterlee
+   (2008) expand in `y = ln(S_T/K)`, so the range `[a, b]` must be the
+   log-return's cumulant range shifted by `x = ln(S0/K)`; the code used the
+   unshifted range and, whenever `|x|` exceeded the half-width, the payoff
+   kink fell outside it. Fixed: `[a, b] = x + c1 ∓ L*sqrt(c2 + sqrt(c4))`.
+2. *Wrong second cumulant.* The `c2` transcribed from Fang & Oosterlee's
+   Table 11 has a `xi^2 * theta * (6e^{-kT} - 7)` term where the variance of
+   the log-return actually requires `theta * (4e^{-kT} - 5)`; derived from
+   `Var[-I/2 + M]` with the CIR covariance function and confirmed against
+   numerical derivatives of the characteristic function (the printed form
+   understates the variance by up to 20% at xi=1). Fixed to the exact form;
+   `c4` (from the cumulant-generating function by central differences) is
+   now included in the range so it widens automatically for fat-tailed,
+   Feller-violating parameters.
+3. *Call expanded directly.* The call payoff grows like `e^y`, so any right
+   -tail truncation error is amplified; Fang & Oosterlee recommend expanding
+   the put and using parity. `heston_cos_put` is now the direct COS
+   computation and `heston_cos_call` is `put + S*e^{-qT} - K*e^{-rT}`
+   (previously the reverse).
+
+Also in the same function: the `xi = 0` branch of the characteristic
+function assumed a *constant* variance `v0`, but with zero vol-of-vol the
+variance path is the deterministic mean-reverting curve; it now uses the
+integrated variance `theta*T + (v0 - theta)*(1 - e^{-kT})/k`. Only
+`xi = 0` with `v0 != theta` is affected.
+
+The default `n_terms` rises from 128 to 2048 (~0.2 ms per price): the
+tail-adaptive range is wider than the old fixed one, and 128 terms no
+longer resolve it on short-dated or high-vol-of-vol cases. **Callers
+pinning `n_terms=128` explicitly should drop the argument** — at 128 terms
+the worst case on the grid below degrades to ~1e-2 relative, versus ~1e-8
+at the default.
+
+```python
+heston_cos_call(100, 60, 0.0, 0.02, 0.04, 1.0, 0.04, 0.3, 0.0)  # before: 10.438430   after: 40.0
+heston_cos_call(100, 300, 0.0, 0.02, 0.04, 1.0, 0.04, 0.3, 0.0)  # before: 82.832795   after: 0.0
+heston_cos_put(100, 300, 0.0, 0.02, 0.04, 1.0, 0.04, 0.3, 0.0)  # before: 282.832795  after: 200.0
+```
+
+Verified against `QuantLib.AnalyticHestonEngine` (adaptive Gauss-Lobatto
+at 1e-12) over K/S ∈ {0.5 … 3}, T ∈ {7d … 2y}, xi ∈ {0.1 … 1.0},
+rho ∈ {0, -0.7}, at S=100, v0=theta=0.04, kappa=1, r=q=0: worst relative
+error 1.3e-8 on prices above 1e-4, worst absolute error 4e-11 below that
+(`tests/oracle/pricing/test_heston_cos_oracle.py`). At-the-money prices
+at moderate vol-of-vol are unchanged to ~1e-11 relative. *For
+edgelab:* formula change (range shifted by log-moneyness, exact `c2`, `c4`
+term, put expanded and call by parity) and default change
+(`n_terms` 128 → 2048).
+
 ### Added — additive (Workstream C, remaining items C2–C11)
 
 All defaults unchanged; every addition below is a new optional parameter

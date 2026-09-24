@@ -146,7 +146,12 @@ def _validate_maximum_drawdown(returns: npt.NDArray[np.float64]) -> None:
 
 
 def maximum_drawdown(returns: npt.NDArray[np.float64]) -> float:
-    """Maximum drawdown of the cumulative return path, as a positive fraction."""
+    """Maximum drawdown of the cumulative return path, as a positive fraction.
+
+    Measured against the running peak of the wealth path seeded with its
+    starting capital of 1.0 (see `drawdown_series`), so
+    `maximum_drawdown(np.array([-0.5])) == 0.5`.
+    """
     _validate_maximum_drawdown(returns)
     return _maximum_drawdown(returns)
 
@@ -159,8 +164,13 @@ def drawdown_series(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]
     """Drawdown at every period, as a positive fraction (0 at a new high).
 
     drawdown_t = (running_peak_t - cumulative_t) / running_peak_t, where
-    cumulative_t = prod(1 + returns[:t+1]) and running_peak_t is its
-    running maximum. `maximum_drawdown(returns) == drawdown_series(returns).max()`.
+    cumulative_t = prod(1 + returns[:t+1]) and running_peak_t is the running
+    maximum of the wealth path *including its starting value of 1.0* (the
+    capital in place before the first return; Bacon 2008), i.e.
+    running_peak_t = max(1.0, cumulative_0, ..., cumulative_t). A loss on the
+    first period is therefore a drawdown, matching
+    `empyrical.stats.drawdown_series`.
+    `maximum_drawdown(returns) == drawdown_series(returns).max()`.
 
     Args:
         returns: Periodic simple returns.
@@ -173,8 +183,12 @@ def drawdown_series(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]
 
 
 def _drawdown_series(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    # The wealth path starts at 1.0 *before* the first return is applied, so
+    # the running peak is seeded with that starting capital: a decline on the
+    # very first period (or any run of losses before the path first exceeds
+    # its starting value) is a drawdown from initial capital, not a new high.
     cumulative = np.cumprod(1.0 + returns)
-    peak = np.maximum.accumulate(cumulative)
+    peak = np.maximum.accumulate(np.concatenate(([1.0], cumulative)))[1:]
     result: npt.NDArray[np.float64] = (peak - cumulative) / peak
     return result
 

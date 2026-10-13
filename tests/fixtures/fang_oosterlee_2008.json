@@ -1,0 +1,51 @@
+{
+  "available": true,
+  "source": "Fang, F. and Oosterlee, C.W. (2008), \"A Novel Pricing Method for European Options Based on Fourier-Cosine Series Expansions.\" SIAM Journal on Scientific Computing, 31(2), 826-848.",
+  "url": "https://mpra.ub.uni-muenchen.de/9319/1/MPRA_paper_9319.pdf",
+  "urls_tried": [
+    "https://ir.cwi.nl/pub/13012/13012B.pdf",
+    "https://mpra.ub.uni-muenchen.de/9319/",
+    "https://mpra.ub.uni-muenchen.de/9319/1/MPRA_paper_9319.pdf"
+  ],
+  "note": "ir.cwi.nl/pub/13012/13012B.pdf returned HTTP 404. The MPRA landing page (9319/) returned an HTML record page (not the PDF itself); its 'Download' link, https://mpra.ub.uni-muenchen.de/9319/1/MPRA_paper_9319.pdf, returned the actual 22-page PDF (HTTP 200, 407842 bytes), text-extracted with pdftotext -layout and transcribed below from section 5.3 ('The Heston Model').",
+  "section": "5.3 The Heston Model",
+  "heston_call_reference_prices": [
+    {
+      "table": "Table 4",
+      "page": 15,
+      "time_to_maturity": 1.0,
+      "reference_value": 5.785155450,
+      "reference_value_note": "paper prints '5.785155450 . . .' (truncated, more digits not printed); obtained by the paper's own Carr-Madan reference computation with N=2^17 points, truncated Fourier domain [0, 1200]"
+    },
+    {
+      "table": "Table 5",
+      "page": 15,
+      "time_to_maturity": 10.0,
+      "reference_value": 22.318945791,
+      "reference_value_note": "paper prints '22.318945791 . . .' (truncated); Carr-Madan reference, N=2^17 points, truncated Fourier domain [0, 500]"
+    }
+  ],
+  "heston_parameters_eq_53": {
+    "citation": "equation (53), page 15",
+    "spot": 100.0,
+    "strike": 100.0,
+    "rate": 0.0,
+    "dividend_yield": 0.0,
+    "kappa": 1.5768,
+    "xi": 0.5751,
+    "theta": 0.0398,
+    "v0": 0.0175,
+    "rho": -0.5711,
+    "symbol_map": {
+      "kappa": "lambda (mean-reversion speed)",
+      "xi": "eta (vol-of-vol)",
+      "theta": "u-bar (long-run variance)",
+      "v0": "u0 (initial variance)",
+      "rho": "rho (spot/variance correlation)"
+    },
+    "feller_condition": "2*kappa*theta > xi**2 -> 2*1.5768*0.0398 = 0.125512... vs xi**2 = 0.33074... ; Feller condition VIOLATED for this parameter set (the paper itself notes cumulant c2 may go negative for Feller-violating sets, and uses |c2| in the COS truncation range for exactly this reason)."
+  },
+  "verification": {
+    "note": "Cross-checked in this session (not part of the fixture's authority, just a sanity note) against quantcore.pricing.heston_cos_call(n_terms=256) and QuantLib AnalyticHestonEngine on the same parameters: T=1 -> quantcore 5.785155443833959, QuantLib 5.7851554343762075; T=10 -> quantcore 22.318945791270988, QuantLib 22.318945791154498. Both agree with the paper's printed reference values to the precision printed."
+  }
+}

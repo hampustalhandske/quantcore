@@ -1,0 +1,2252 @@
+{
+  "hypothesis_profile": "ci",
+  "oracle_versions": {
+    "QuantLib": "1.43",
+    "arch": "8.0.0",
+    "cvxpy": "1.9.3",
+    "empyrical-reloaded": "0.5.12",
+    "filterpy": "1.4.5",
+    "hmmlearn": "0.3.3",
+    "hypothesis": "6.168.0",
+    "linearmodels": "7.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "py_vollib": "1.0.12",
+    "pykalman": "0.11.2",
+    "quantstats": "0.0.81",
+    "scikit-learn": "1.9.1",
+    "scipy": "1.18.1",
+    "statsmodels": "0.15.0"
+  },
+  "quantcore_version": "0.3.0",
+  "schema_version": 1,
+  "targets": {
+    "adf_test": {
+      "by_quantity": {
+        "p_value": {
+          "cases": 200,
+          "max_abs_error": 1.06e-13,
+          "max_rel_error": 3.24e-13
+        },
+        "statistic": {
+          "cases": 200,
+          "max_abs_error": 2.26e-13,
+          "max_rel_error": 1.19e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 2.26e-13,
+      "max_rel_error": 3.24e-13,
+      "oracle": "statsmodels",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-11,
+        "justification": "the statistic is an OLS t-ratio: quantcore takes its standard error from an explicit inverse of X'X and statsmodels from a pseudo-inverse of X, so the two differ by about eps*cond(X)^2, and cond(X) reaches ~1e2 on a 1000-point random walk, whose level column is of order sqrt(n) beside unit-scale differences: up to ~1e-11 relative. The p-value is the same closed form on both sides, Phi(polynomial(statistic)) with identical MacKinnon (1994) coefficients and no interpolation, so its relative error is the statistic's multiplied by |d ln p / d ln tau|, at most 61 over the tabulated range (attained near tau = -11.7): up to ~6e-10. rtol sits one order above that. atol covers a statistic near zero, whose absolute error is of order eps*cond(X)*sqrt(n) ~ 7e-13. Because both quantities share this one tolerance, a p-value below ~1e-9 is compared only loosely here and one below 1e-11 not at all; tests/oracle/statistics/test_cointegration_oracle.py holds the response surface to 1e-10 relative with no absolute term over its whole range, including the exact 0.0 and 1.0 beyond it.",
+        "rtol": 1e-08
+      }
+    },
+    "arch_lm": {
+      "by_quantity": {
+        "p_value": {
+          "cases": 200,
+          "max_abs_error": 6.86e-13,
+          "max_rel_error": 7.43e-13
+        },
+        "statistic": {
+          "cases": 200,
+          "max_abs_error": 1.5e-12,
+          "max_rel_error": 1.79e-11
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.5e-12,
+      "max_rel_error": 1.79e-11,
+      "oracle": "statsmodels.stats.diagnostic.het_arch",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "LM = (n - m)*R^2 with R^2 = 1 - SSR/SST from an auxiliary regression that quantcore solves by SVD least squares on residuals scaled to unit maximum and statsmodels by a pseudo-inverse on the raw squares. R^2 carries an absolute error of a few eps times the conditioning of the fit, so LM's absolute error grows with the sample, to ~1e-10 at n=5000, and its relative error is unbounded as LM -> 0, where 1 - SSR/SST cancels: there atol is the bound, not rtol. The p-value inherits that absolute error times the chi-squared density, which for one lag is unbounded at zero (dp ~ dLM/sqrt(2*pi*LM)): an error of 1e-11 in an LM of 1e-6 moves p by 4e-9. Both terms sit above that at 1e-8; a wrong lag count, a scaling by n instead of n - m, or demeaning the input moves LM at the percent level.",
+        "rtol": 1e-08
+      }
+    },
+    "arima_fit": {
+      "by_quantity": {
+        "log_likelihood": {
+          "cases": 60,
+          "max_abs_error": 4.74e-07,
+          "max_rel_error": 1.03e-09
+        },
+        "params": {
+          "cases": 60,
+          "max_abs_error": 5.16e-05,
+          "max_rel_error": 0.00345
+        }
+      },
+      "cases": 60,
+      "finding": null,
+      "max_abs_error": 5.16e-05,
+      "max_rel_error": 0.00345,
+      "oracle": "statsmodels (ARIMA, exact Gaussian state-space likelihood, both solutions evaluated under the SAME model's loglike -- see module docstring)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.001,
+        "justification": "iterative estimator: quantcore's L-BFGS-B fit and statsmodels' own fit maximize the same exact Gaussian likelihood and stop at slightly different points near its maximum, so raw parameters are never compared -- this tolerance governs only the `log_likelihood` quantity, both solutions evaluated under statsmodels' own `loglike` (never re-fit). atol=1e-3 nats is the oracle's accuracy, not quantcore's: quantcore's stopping rule leaves it within about 1e-9 nats of the maximum, while statsmodels' fit ends up to several 1e-4 nats below it (it stops some ARMA fits on its iteration limit) and its `loglike` carries about 1e-8 nats of evaluation noise, so a narrower band would count the oracle's own shortfall as quantcore wins. rtol=1e-6 scales the band with the log-likelihood's magnitude (about 1e-3 nats more at 800 observations). `params` is reported, never compared -- see `DecisiveFloatArrayComparator`.",
+        "rtol": 1e-06
+      }
+    },
+    "arima_forecast": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 6.66e-16,
+          "max_rel_error": 8.28e-16
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 6.66e-16,
+      "max_rel_error": 8.28e-16,
+      "oracle": "statsmodels (SARIMAX filtered at the given coefficients, exact diffuse initial state, steady-state shortcut off, then forecast -- see `_arima_forecast_reference`)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "exact conditional-mean forecast against statsmodels' SARIMAX filtered at the same coefficients with exact diffuse initialisation and its steady-state shortcut disabled (`tolerance=0.0`), so both sides run the same Kalman recursion to rounding; with the shortcut left on, statsmodels' own forecast is off by 1e-10 to 1e-9 and could not anchor this tolerance. The two filters arrange the arithmetic differently (quantcore uses the shift structure of the transition matrix and switches to the steady-state gain once the filtered covariance is below 1e-14 relative), and a perturbation of the gain decays at the MA root rate, which puts the difference near 1e-14 to 1e-13 on these series. rtol=1e-9 is one order looser than the closed-form default for the accumulated rounding of up to 1000 filter steps; atol=1e-10 covers forecasts that decay to zero (an MA(q) forecast is exactly 0 beyond q steps), where a relative error is undefined.",
+        "rtol": 1e-09
+      }
+    },
+    "arima_residuals": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 4.44e-16,
+          "max_rel_error": 1.57e-11
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 4.44e-16,
+      "max_rel_error": 1.57e-11,
+      "oracle": "scipy.signal.lfilter (the inverse ARMA filter phi(B)/theta(B) in transposed direct form II, initial conditions from lfiltic; statsmodels computes no conditional residuals -- see `_arima_residuals_reference`)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "conditional (sum-of-squares) residuals against scipy.signal.lfilter run as the inverse ARMA filter phi(B)/theta(B) from the same initial conditions (lfiltic): the same linear recursion evaluated in transposed direct form II instead of quantcore's loop over the difference equation, so the two differ only by rounding. Each step's rounding error is of order eps times the terms summed and is carried forward by the 1/theta(B) recursion, whose gain is at most 1/(1 - rho) for largest MA root modulus rho (about 3 for the generated families, rho <= 0.69), which puts the difference near 1e-14 on these O(10) series. rtol=1e-9 is one order looser than the closed-form default to leave room for that accumulation over up to 1000 steps; atol=1e-10 covers residuals that are themselves near zero.",
+        "rtol": 1e-09
+      }
+    },
+    "black_litterman": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-derived from He & Litterman 1999 eq. 8",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form Black-Litterman posterior via two np.linalg.solve calls against a (v, v) system, hand-derived from He & Litterman (1999) eq. 8 -- no library implements this exact inverse-free form, so the reference is anchored by citation plus two independent cross-checks in conformance/test_tier2_portfolio.py (a zero-confidence view recovers the prior; an infinite-confidence view recovers the view) that a wrong transcription would break; one order looser than the pure closed-form default to absorb the two linear solves' rounding, still far tighter than a definitional mismatch would produce; measured exact agreement (0.0 difference) against an independently-coded hand implementation of the same algebraically-equivalent inverse-free form quantcore's own module docstring derives.",
+        "rtol": 1e-09
+      }
+    },
+    "black_scholes_merton_price": {
+      "by_quantity": {
+        "value": {
+          "cases": 800,
+          "max_abs_error": 7.81e-14,
+          "max_rel_error": 0.00148
+        }
+      },
+      "cases": 800,
+      "finding": null,
+      "max_abs_error": 7.81e-14,
+      "max_rel_error": 0.00148,
+      "oracle": "Black-Scholes-Merton closed form on math.erf, independent of quantcore",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-07,
+        "justification": "closed-form BSM price; quantcore and the reference N()/erf-based formula agree to ~1e-13 absolute on ordinary inputs, but a deep OTM/ITM price near zero is the difference of two near-equal exp()*N() terms, so relative error grows while the absolute error stays at machine precision; atol dominates there (measured max abs error 1.14e-13, max rel error 1.48e-3 on 800 conformance draws across the atm/deep-itm/deep-otm/dividend/rate/vol families in test_tier2_pricing_extra.py; every case stayed within this tolerance -- all quantcore).",
+        "rtol": 1e-09
+      }
+    },
+    "bs_gamma": {
+      "by_quantity": {
+        "value": {
+          "cases": 800,
+          "max_abs_error": 1.27e-21,
+          "max_rel_error": 3.77e-15
+        }
+      },
+      "cases": 800,
+      "finding": null,
+      "max_abs_error": 1.27e-21,
+      "max_rel_error": 3.77e-15,
+      "oracle": "Black-Scholes-Merton closed-form gamma on math.erf; second oracle py_vollib.black_scholes_merton.greeks.analytical.gamma",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-15,
+        "justification": "closed-form BSM gamma = exp(-qT)*phi(d1)/(S*sigma*sqrt(T)); no cancellation (all factors are strictly positive products), so quantcore and the reference N()/erf-based formula agree near machine precision everywhere, including deep OTM/ITM: measured max abs error 8.1e-20, max rel error 9.0e-16 on 2000 draws across the atm/deep-itm/deep-otm/dividend/rate/vol families in conformance/test_tier2_pricing_extra.py's bsm_case generator.",
+        "rtol": 1e-10
+      }
+    },
+    "bs_rho": {
+      "by_quantity": {
+        "value": {
+          "cases": 800,
+          "max_abs_error": 4.55e-13,
+          "max_rel_error": 0.000103
+        }
+      },
+      "cases": 800,
+      "finding": null,
+      "max_abs_error": 4.55e-13,
+      "max_rel_error": 0.000103,
+      "oracle": "Black-Scholes-Merton closed-form rho per unit rate move on math.erf; second oracle py_vollib.black_scholes_merton.greeks.analytical.rho (per 1 PERCENTAGE POINT of rate, i.e. quantcore's value / 100 -- multiply py_vollib's result by 100 to compare)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-11,
+        "justification": "closed-form BSM rho = K*T*exp(-rT)*N(d2) (or the put mirror); a short-expiry deep OTM rho is close to zero (little time for the rate to matter), so relative error grows there from ordinary floating-point rounding in exp()/N(), not a formula difference -- atol dominates. Measured max abs error 9.1e-13 across the full 3000-case sweep (any magnitude), max rel error 1.1e-8 restricted to cases with |expected| > 1e-6; rtol two orders looser than the closed-form default and atol two orders above the measured max abs error, both comfortably above the measured values while still far tighter than a definitional mismatch (a wrong sign or a missing factor of K*T) would produce.",
+        "rtol": 1e-06
+      }
+    },
+    "bs_theta": {
+      "by_quantity": {
+        "value": {
+          "cases": 800,
+          "max_abs_error": 5.55e-17,
+          "max_rel_error": 1.21e-09
+        }
+      },
+      "cases": 800,
+      "finding": null,
+      "max_abs_error": 5.55e-17,
+      "max_rel_error": 1.21e-09,
+      "oracle": "Black-Scholes-Merton closed-form theta per calendar day on math.erf; second oracle py_vollib.black_scholes_merton.greeks.analytical.theta (per calendar day, same convention as quantcore -- no rescaling needed)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed-form BSM theta (a sum/difference of several exp()*N()/phi() terms, divided by 365); a deep OTM/short-expiry theta near zero is a difference of near-equal terms, so relative error grows while the absolute error stays at machine precision -- atol dominates there. Measured max abs error 5.6e-17 across the full 3000-case sweep (any magnitude), max rel error 5.1e-13 restricted to cases with |expected| > 1e-6 (the near-zero cases' relative error is cancellation noise, not a formula difference); rtol one order looser than the closed-form default to leave headroom above that measured 5.1e-13, atol one order above the measured 5.6e-17 max abs error.",
+        "rtol": 1e-08
+      }
+    },
+    "bsm_delta": {
+      "by_quantity": {
+        "value": {
+          "cases": 800,
+          "max_abs_error": 1.11e-16,
+          "max_rel_error": 9.27e-06
+        }
+      },
+      "cases": 800,
+      "finding": null,
+      "max_abs_error": 1.11e-16,
+      "max_rel_error": 9.27e-06,
+      "oracle": "Black-Scholes-Merton closed-form delta on math.erf, independent of quantcore",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form BSM delta = exp(-qT)*N(d1) (or -1 for a put); same cancellation as black_scholes_merton_price on deep OTM/ITM delta near 0: measured max abs error 1.11e-16, max rel error 5.17e-6 on the same 800-case sweep, atol dominates and every case stayed within this tolerance.",
+        "rtol": 1e-08
+      }
+    },
+    "bsm_vega": {
+      "by_quantity": {
+        "value": {
+          "cases": 800,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 800,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "Black-Scholes-Merton closed-form vega on math.erf, independent of quantcore",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed-form BSM vega = S*exp(-qT)*phi(d1)*sqrt(T), a single product with no cancellation; measured max relative error ~7.5e-16 against quantcore.pricing.bs_vega on the same sweep, at the closed-form default.",
+        "rtol": 1e-10
+      }
+    },
+    "calmar_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.23e-06,
+          "max_rel_error": 1.53e-08
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.23e-06,
+      "max_rel_error": 1.53e-08,
+      "oracle": "empyrical-reloaded",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "ratio of a CAGR (a power/root, not a pure sum-of-products) to a max-drawdown reduction; one order looser than the pure closed-form default to absorb the CAGR power's floating-point rounding, still tight enough to catch a definitional mismatch (a wrong return_method disagrees at the percent level, not the 1e-9 level). Condition-aware: rtol_eff = max(rtol, K*eps*kappa**p) with kappa = 1/MDD (the maximum drawdown of the case's own returns), K = 2, p = 1, because a fixed relative tolerance cannot hold as MDD -> 0: on returns of order 1e-8 (this suite's `tiny_scale` family, MDD of order 1e-8) the two sides differ by up to 1.5e-8. Derivation, to first order in the unit roundoff u = eps/2. Both sides build the same wealth path W = cumprod(1 + r) with the same operations in the same order, and the same numerator (empyrical's annual_return and quantcore's cagr raise the same product to the same power: bit-identical on 6132 inputs), so they can differ only in what each does after W. quantcore computes (P - W)/P with P the running peak: the subtraction is exact for a drawdown under 50% (Sterbenz), the division rounds once, relative error u. empyrical first multiplies the path by its starting value 100, which rounds W and P independently (relative error u each), then computes (W' - P')/P': the two scaling errors do not cancel in the difference, an absolute error up to 2u(1 - MDD) on a quantity of size MDD, plus u from the division. The two maximum drawdowns therefore differ by at most eps*(1 - MDD)/MDD + eps = eps/MDD relative, so p = 1; dividing the common numerator by each adds u per side, giving eps*(1/MDD + 1) <= 2*eps/MDD since MDD <= 1, so K = 2. Checked on 6132 inputs outside this suite (volatility 1e-2 to 1e-12 and the ten return families): largest difference 0.64 of eps*(1/MDD + 1). The bound is on the difference between the two implementations, which is what this tolerance judges; it is not a bound on either one's distance from the exact Calmar ratio of the same float64 returns. Against rational arithmetic, on the 11 cases of this suite's ci run that a fixed rtol of 1e-9 rejects, both maximum drawdowns are within eps/MDD of the exact one (quantcore at most 0.39, empyrical 0.59 of it), but the CAGR numerator both sides share is itself E**(p/n) - 1 with E - 1 as small as 1e-10 and is off by up to 1.3e-6 relative, identically on both sides, which no comparison between them can see.",
+        "rtol": 1e-09
+      }
+    },
+    "calmar_ratio_arithmetic": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 6.29e-08,
+          "max_rel_error": 1.34e-08
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 6.29e-08,
+      "max_rel_error": 1.34e-08,
+      "oracle": "hand-computed (mean(r)*ppy / |max drawdown|)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form arithmetic mean over a max-drawdown reduction. Condition-aware with the same kappa = 1/MDD, K = 2, p = 1 as calmar_ratio and for the same reason (see its derivation): the numerator mean(r)*periods_per_year is the same on both sides, the two maximum drawdowns differ by at most eps/MDD relative because empyrical scales the wealth path by 100 before subtracting the peak, and the final division adds u per side (largest difference on the same 6132 inputs: 0.88 of eps*(1/MDD + 1)). Against rational arithmetic, on the 10 cases of this suite's ci run that a fixed rtol of 1e-10 rejects, both sides are within eps/MDD of the exact ratio (quantcore at most 0.58, the oracle 0.97 of it; quantcore the closer in 5 of 10).",
+        "rtol": 1e-10
+      }
+    },
+    "common_sense_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "quantstats.stats.common_sense_ratio",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed form: profit factor (two sums of same-signed terms) times |Q(0.95)/Q(0.05)|, each quantile a linear interpolation between two order statistics by the same NumPy routine on both sides. atol covers the value 0 a series with no gain gives.",
+        "rtol": 1e-10
+      }
+    },
+    "conditional_value_at_risk": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "closed form (scipy.stats.norm)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed form, with an extra normal-pdf evaluation and division by (1 - alpha); one order looser than the pure closed-form default for that additional operation.",
+        "rtol": 1e-09
+      }
+    },
+    "cpc_index": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "quantstats.stats.cpc_index",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed form: profit factor times a ratio of two counts times a ratio of two means of same-signed terms; nothing cancels.",
+        "rtol": 1e-10
+      }
+    },
+    "dynamic_hedge_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 80,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 80,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand scalar Kalman regression started from the same prior, beta ~ N(initial_beta, 1), compared on every element",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "hand-written scalar Kalman regression (one state, no intercept, H_t = x_t) started from the same prior as quantcore, beta ~ N(initial_beta, 1) with initial_beta = 0 unless given, and compared on every element from the first. Both sides do the same predict/update arithmetic, so the measured difference is exactly 0.0; an implementation with different arithmetic (filterpy's matrix filter with the Joseph-form covariance update) differs from quantcore by at most 1e-13 relative on 400 series of 2 to 800 points, the rounding of the innovation y_t - x_t * beta. The tolerance sits between that and the smallest difference of definition it has to catch: a prior mean of y[0] / x[0] instead of 0 moves the first value by R / (x_0^2 * (1 + Q) + R) relative, 2e-5 to 2e-4 for x near 5 and R = 1e-3, and the second by 8e-6 to 5e-5.",
+        "rtol": 1e-06
+      }
+    },
+    "egarch_11_variance": {
+      "by_quantity": {
+        "value": {
+          "cases": 400,
+          "max_abs_error": 2.51e-10,
+          "max_rel_error": 3.01e-09
+        }
+      },
+      "cases": 400,
+      "finding": null,
+      "max_abs_error": 2.51e-10,
+      "max_rel_error": 3.01e-09,
+      "oracle": "arch (conditional variance via arch_model(vol='EGARCH').fix(params))",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "as garch_11_variance, but for the log-variance recursion (an extra log/exp round trip per step vs. plain variance), loosened one order to absorb that; compared after the same burn-in.",
+        "rtol": 1e-06
+      }
+    },
+    "egarch_fit": {
+      "by_quantity": {
+        "log_likelihood": {
+          "cases": 200,
+          "max_abs_error": 19400.0,
+          "max_rel_error": 28.7
+        },
+        "params": {
+          "cases": 200,
+          "max_abs_error": 16.3,
+          "max_rel_error": 9.84e+299
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 19400.0,
+      "max_rel_error": 9.84e+299,
+      "oracle": "arch, evaluated under a shared Gaussian log-likelihood built from egarch_11_variance",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.01,
+        "justification": "as fit_garch_11: EGARCH(1,1) has four free parameters and, per quantcore's own docstring, a 5-8% non-convergence rate on short windows even for a single optimizer, so its `log_likelihood` quantity (evaluated under a shared likelihood built from egarch_11_variance) is disagreement-prone across a wider range of families than GARCH(1,1)/GJR-GARCH(1,1)'s; measured relative difference ~1.7e-6 on a 600-observation well-specified series. `params` is reported, never compared.",
+        "rtol": 0.001
+      }
+    },
+    "engle_granger_test": {
+      "by_quantity": {
+        "p_value": {
+          "cases": 200,
+          "max_abs_error": 7.44e-15,
+          "max_rel_error": 8.91e-14
+        },
+        "statistic": {
+          "cases": 200,
+          "max_abs_error": 4.62e-14,
+          "max_rel_error": 5.66e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 4.62e-14,
+      "max_rel_error": 8.91e-14,
+      "oracle": "statsmodels",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "no loosening: the statistic is a closed-form ADF t-statistic and the p-value is a closed-form MacKinnon-table interpolation, so either quantity disagreeing beyond float noise is a defect to report, not something to tolerate.",
+        "rtol": 1e-10
+      }
+    },
+    "ewma_covariance": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 5.55e-16,
+          "max_rel_error": 1.92e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 5.55e-16,
+      "max_rel_error": 1.92e-13,
+      "oracle": "pandas.DataFrame.ewm(alpha=1-lambda_, adjust=False).mean() of the outer products r_t r_t', lagged one observation, with the sample-covariance seed (no demeaning)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "pandas.DataFrame.ewm(alpha=1-lambda_, adjust=False).mean() of the raw outer products, lagged one observation and re-seeded at the sample covariance -- an independent evaluation of the same zero-mean RiskMetrics recursion. Both sides are sums of at most T positive-weight terms (weights lambda^k*(1-lambda), all non-negative, summing to one) evaluated in a different order, so the accumulated rounding is a few hundred ulps at worst (~T*eps ~ 3e-13 relative for T=1200), inside the closed-form default rtol=1e-10. atol=1e-12 covers off-diagonal entries that cancel to near zero from products of order 1e-4 or smaller.",
+        "rtol": 1e-10
+      }
+    },
+    "ewma_variance": {
+      "by_quantity": {
+        "value": {
+          "cases": 400,
+          "max_abs_error": 2.33e-10,
+          "max_rel_error": 3.63e-16
+        }
+      },
+      "cases": 400,
+      "finding": null,
+      "max_abs_error": 2.33e-10,
+      "max_rel_error": 3.63e-16,
+      "oracle": "hand recursion (RiskMetrics definition, identical seeding)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "hand recursion using the identical closed-form formula and seeding quantcore documents (sigma_0^2 = returns[0]**2); measured max abs/rel error exactly 0.0 on 500 random draws up to n=2000, since both sides perform the same arithmetic in the same order.",
+        "rtol": 1e-10
+      }
+    },
+    "factor_loadings_loadings": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.33e-15,
+          "max_rel_error": 8.48e-15
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.33e-15,
+      "max_rel_error": 8.48e-15,
+      "oracle": "statsmodels (OLS with an intercept column)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed-form OLS coefficients; measured exact agreement (near machine precision) against statsmodels.OLS on the same design matrix, one order looser than the pure closed-form default to absorb lstsq-vs-pinv rounding, as ols_coefficients above.",
+        "rtol": 1e-08
+      }
+    },
+    "factor_loadings_p_values": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 2.44e-15,
+          "max_rel_error": 1.59e-12
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 2.44e-15,
+      "max_rel_error": 1.59e-12,
+      "oracle": "statsmodels (OLS, cov_type='HAC', use_correction=False; two-sided normal p-values)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "two-sided normal survival function of the t-stat; one order looser than t_stats to absorb norm.sf's own rounding, still tight enough to catch a wrong tail convention.",
+        "rtol": 1e-06
+      }
+    },
+    "factor_loadings_r_squared": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 2.22e-16,
+          "max_rel_error": 1.96e-15
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 2.22e-16,
+      "max_rel_error": 1.96e-15,
+      "oracle": "statsmodels (OLS with an intercept column, centred R-squared)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "same lstsq-vs-pinv rounding margin as ols_r_squared.",
+        "rtol": 1e-08
+      }
+    },
+    "factor_loadings_residuals": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 4.44e-15,
+          "max_rel_error": 8.49e-12
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 4.44e-15,
+      "max_rel_error": 8.49e-12,
+      "oracle": "statsmodels (OLS with an intercept column)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "y - X @ coefficients; inherits factor_loadings_loadings' own margin.",
+        "rtol": 1e-08
+      }
+    },
+    "factor_loadings_standard_errors": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 7.22e-16,
+          "max_rel_error": 1.08e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 7.22e-16,
+      "max_rel_error": 1.08e-14,
+      "oracle": "statsmodels (OLS, cov_type='HAC', use_correction=False)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "Newey-West HAC standard errors; inherits newey_west_cov's own summation-order rounding margin (an extra sqrt of a diagonal element on top), one order looser than newey_west_cov's own tolerance to absorb that additional operation.",
+        "rtol": 1e-07
+      }
+    },
+    "factor_loadings_t_stats": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.14e-12,
+          "max_rel_error": 1.04e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.14e-12,
+      "max_rel_error": 1.04e-14,
+      "oracle": "statsmodels (OLS, cov_type='HAC', use_correction=False)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "ratio of two already-tight quantities (loadings, standard_errors); atol guards a near-zero loading's t-stat from an unstable relative comparison.",
+        "rtol": 1e-07
+      }
+    },
+    "fama_macbeth_mean_risk_premia": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "linearmodels.FamaMacBeth(cov_type='unadjusted') (cross-checked, see test module)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "mean of T per-period OLS-on-betas slopes; measured exact agreement against linearmodels.FamaMacBeth(cov_type='unadjusted') in the conformance test, one order looser than the closed-form default for the same lstsq rounding as ols_coefficients.",
+        "rtol": 1e-08
+      }
+    },
+    "fama_macbeth_standard_errors": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 8.67e-19,
+          "max_rel_error": 1.91e-16
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 8.67e-19,
+      "max_rel_error": 1.91e-16,
+      "oracle": "linearmodels.FamaMacBeth(cov_type='unadjusted') (cross-checked, see test module)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "std(lambda_t, ddof=1)/sqrt(T); measured exact agreement against linearmodels.FamaMacBeth(cov_type='unadjusted') in the conformance test -- quantcore's default convention (n_lags_nw=None) is the plain Fama & MacBeth (1973) time-series standard error, the same one linearmodels' 'unadjusted' estimator computes; one order looser than the closed-form default for the extra sqrt/divide.",
+        "rtol": 1e-07
+      }
+    },
+    "fit_garch_11": {
+      "by_quantity": {
+        "log_likelihood": {
+          "cases": 200,
+          "max_abs_error": 1530.0,
+          "max_rel_error": 39.8
+        },
+        "params": {
+          "cases": 200,
+          "max_abs_error": 1.0,
+          "max_rel_error": 4.6e+298
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1530.0,
+      "max_rel_error": 4.6e+298,
+      "oracle": "arch, evaluated under a shared Gaussian log-likelihood built from garch_11_variance",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.01,
+        "justification": "iterative MLE: quantcore's multi-start SLSQP and arch's own optimizer are two different local optimizers of the same (famously flat-near-the-optimum) GARCH log-likelihood surface: an iterative estimator without a unique optimum. This tolerance governs only the `log_likelihood` quantity -- both parameter sets evaluated under one shared Gaussian log-likelihood built from garch_11_variance (itself verified); measured relative difference ~5e-4 on a 1500-observation well-specified simulated series. `params` is reported but never compared against this (or any) tolerance -- see `conformance.compare.DecisiveFloatArrayComparator`.",
+        "rtol": 0.001
+      }
+    },
+    "futures_roll_yield": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 5.82e-11,
+          "max_rel_error": 8.36e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 5.82e-11,
+      "max_rel_error": 8.36e-13,
+      "oracle": "hand-derived closed form",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "closed form: one division, one subtraction, one multiplication.",
+        "rtol": 1e-12
+      }
+    },
+    "gain_to_pain": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "quantstats.stats.gain_to_pain_ratio",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed form: sum(r) over |sum of the negative r|, the same NumPy reductions on both sides. atol covers a ratio near zero, where the numerator cancels and a relative comparison is meaningless: the ratio's absolute error is a few eps times (1 + profit factor).",
+        "rtol": 1e-10
+      }
+    },
+    "garch_11_variance": {
+      "by_quantity": {
+        "value": {
+          "cases": 400,
+          "max_abs_error": 8.42e-13,
+          "max_rel_error": 3.07e-08
+        }
+      },
+      "cases": 400,
+      "finding": null,
+      "max_abs_error": 8.42e-13,
+      "max_rel_error": 3.07e-08,
+      "oracle": "arch (conditional variance via arch_model(...).fix(params))",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed-form recursion, compared against arch's conditional variance after a persistence-dependent burn-in (conformance.targets.risk_models._BurnInArrayComparator) that excludes the transient from quantcore's long-run-variance seeding vs. arch's backcast seeding; after burn-in, measured max abs error ~1e-19, max rel error ~6e-16 on 300 draws up to n=800 with alpha+beta <= 0.9, i.e. the same recursion evaluated by two implementations, not a different definition.",
+        "rtol": 1e-08
+      }
+    },
+    "gjr_garch_11_variance": {
+      "by_quantity": {
+        "value": {
+          "cases": 400,
+          "max_abs_error": 2.01e-15,
+          "max_rel_error": 2.15e-10
+        }
+      },
+      "cases": 400,
+      "finding": null,
+      "max_abs_error": 2.01e-15,
+      "max_rel_error": 2.15e-10,
+      "oracle": "arch (conditional variance via arch_model(vol='GARCH', o=1).fix(params))",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "as garch_11_variance, with the same burn-in-excluded comparison.",
+        "rtol": 1e-06
+      }
+    },
+    "gjr_garch_fit": {
+      "by_quantity": {
+        "log_likelihood": {
+          "cases": 200,
+          "max_abs_error": 73200.0,
+          "max_rel_error": 5.3
+        },
+        "params": {
+          "cases": 200,
+          "max_abs_error": 2.0,
+          "max_rel_error": 1e+300
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 73200.0,
+      "max_rel_error": 1e+300,
+      "oracle": "arch, evaluated under a shared Gaussian log-likelihood built from gjr_garch_11_variance",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.01,
+        "justification": "as fit_garch_11, evaluated under a shared Gaussian log-likelihood built from gjr_garch_11_variance; measured relative difference ~2.9e-6 on a 600-observation well-specified series. `params` is reported, never compared.",
+        "rtol": 0.001
+      }
+    },
+    "granger_causality_test": {
+      "by_quantity": {
+        "p_value": {
+          "cases": 200,
+          "max_abs_error": 1.8e-13,
+          "max_rel_error": 4.4e-13
+        },
+        "statistic": {
+          "cases": 200,
+          "max_abs_error": 3.48e-13,
+          "max_rel_error": 6.19e-12
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 3.48e-13,
+      "max_rel_error": 6.19e-12,
+      "oracle": "statsmodels.tsa.stattools.grangercausalitytests (ssr_ftest)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "closed-form restricted-vs-unrestricted F-statistic and its survival-function p-value against statsmodels.tsa.stattools.grangercausalitytests' ssr_ftest; one order looser than the closed-form default to absorb f.sf's own rounding, as adf_test/ljung_box_test do for their own survival-function evaluations.",
+        "rtol": 1e-06
+      }
+    },
+    "heston_cos_call": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 3.12e-11,
+          "max_rel_error": 0.000662
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 3.12e-11,
+      "max_rel_error": 0.000662,
+      "oracle": "QuantLib AnalyticHestonEngine; Fang & Oosterlee (2008), Table 4/Table 5 published reference values (tests/fixtures/fang_oosterlee_2008.json) are checked in a separate test",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-06,
+        "justification": "quantcore's Fang & Oosterlee (2008) COS series (n_terms=2048 by default, truncation range centred on the log-moneyness and widened by the fourth cumulant) against QuantLib's AnalyticHestonEngine (adaptive quadrature on the Heston characteristic function integral) -- two different numerical methods for the same semi-closed-form price. Measured on whole-day maturities (the QuantLib oracle prices to whole calendar days) across Feller-satisfying/violating, moneyness 1/3 to 3 and expiries from one day to ten years: worst relative error ~3e-10. rtol/atol 1e-6 leaves room for that while staying far tighter than a wrong parameter mapping (e.g. a swapped kappa/theta) or a mis-centred truncation range would produce.",
+        "rtol": 1e-06
+      }
+    },
+    "heston_cos_put": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.22e-11,
+          "max_rel_error": 0.99
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.22e-11,
+      "max_rel_error": 0.99,
+      "oracle": "QuantLib AnalyticHestonEngine",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-06,
+        "justification": "as heston_cos_call: same COS-vs-quadrature method-difference margin; quantcore expands the put directly and derives the call from it by put-call parity.",
+        "rtol": 1e-06
+      }
+    },
+    "hit_rate": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-computed; quantstats.stats.win_rate (second oracle)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed-form ratio of two counts.",
+        "rtol": 1e-10
+      }
+    },
+    "hmm_decode": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hmmlearn.GaussianHMM.predict (Viterbi), given quantcore's own parameters directly",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-06,
+        "justification": "hmmlearn's Viterbi decode, given quantcore's own parameters directly (no independent fit, so no label-permutation ambiguity); measured exact agreement (100%) on well-separated regimes. atol admits only exact-integer-valued disagreement (none observed), not a fractional tolerance -- a genuine one-state disagreement must still be caught.",
+        "rtol": 0.0
+      }
+    },
+    "hmm_filtered_proba": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 2.4e-12,
+          "max_rel_error": 5.86e+105
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 2.4e-12,
+      "max_rel_error": 5.86e+105,
+      "oracle": "hand forward-algorithm implementation (Hamilton 1989)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "hand forward-algorithm implementation (conformance.targets.regime._forward_filtered_proba), independent of quantcore's own (private) forward pass; measured max abs difference ~3e-20 (machine precision).",
+        "rtol": 1e-06
+      }
+    },
+    "hmm_fit_initial_probs": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 2.25e-13,
+          "max_rel_error": 5.59e+261
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 2.25e-13,
+      "max_rel_error": 5.59e+261,
+      "oracle": "hmmlearn.GaussianHMM (independent EM fit, comparably seeded)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.05,
+        "justification": "as hmm_fit_transition_matrix; atol dominates here since initial_probs is a probability, near 0 or 1 on well-separated regimes, where a tiny absolute gap (measured <1e-3) is a huge relative one.",
+        "rtol": 0.05
+      }
+    },
+    "hmm_fit_log_likelihood": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hmmlearn.GaussianHMM.score, loaded with quantcore's own fitted parameters",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "hmmlearn.score, evaluated on quantcore's own fitted parameters, cross-validates the forward-algorithm arithmetic on identical numbers (not a second fit) -- measured exact agreement (0.0 difference) on every case tried.",
+        "rtol": 1e-08
+      }
+    },
+    "hmm_fit_means": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 0.0292,
+          "max_rel_error": 0.00797
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 0.0292,
+      "max_rel_error": 0.00797,
+      "oracle": "hmmlearn.GaussianHMM (independent EM fit, comparably seeded)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.05,
+        "justification": "as hmm_fit_transition_matrix; measured relative difference ~0.2%.",
+        "rtol": 0.05
+      }
+    },
+    "hmm_fit_transition_matrix": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 0.029,
+          "max_rel_error": 6.99e+284
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 0.029,
+      "max_rel_error": 6.99e+284,
+      "oracle": "hmmlearn.GaussianHMM (independent EM fit, comparably seeded)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.05,
+        "justification": "two independent EM fits (quantcore's own Baum-Welch; hmmlearn's, seeded from the same quantile-bucket initialisation, conformance.targets.regime._quantile_bucket_init) of the same non-convex likelihood; measured relative difference ~1.1% on a 400-observation well-separated 2-state series -- hmm_fit_log_likelihood is the tighter, primary criterion (see below).",
+        "rtol": 0.05
+      }
+    },
+    "hmm_fit_variances": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 0.0136,
+          "max_rel_error": 0.146
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 0.0136,
+      "max_rel_error": 0.146,
+      "oracle": "hmmlearn.GaussianHMM (independent EM fit, comparably seeded)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.05,
+        "justification": "as hmm_fit_transition_matrix; measured relative difference ~0.14%.",
+        "rtol": 0.05
+      }
+    },
+    "hmm_predict_proba": {
+      "by_quantity": {
+        "value": {
+          "cases": 30,
+          "max_abs_error": 1.83e-11,
+          "max_rel_error": 3.72e+140
+        }
+      },
+      "cases": 30,
+      "finding": null,
+      "max_abs_error": 1.83e-11,
+      "max_rel_error": 3.72e+140,
+      "oracle": "hmmlearn.GaussianHMM.predict_proba, given quantcore's own parameters directly",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "hmmlearn's forward-backward smoother, given quantcore's own parameters directly; measured max abs difference ~2e-21 (machine precision) since both implement the identical algorithm on identical numbers.",
+        "rtol": 1e-06
+      }
+    },
+    "implied_equilibrium_returns": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-derived from He & Litterman 1999 eq. 4",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed-form Pi = risk_aversion * Sigma @ w_mkt, hand-derived from He & Litterman (1999) eq. 4 -- no library implements this single matrix-vector product, so the reference is anchored by citation plus the two independent cross-checks in conformance/test_tier2_portfolio.py (zero-confidence view recovers the prior; infinite-confidence view recovers the view) that a wrong transcription would break.",
+        "rtol": 1e-10
+      }
+    },
+    "implied_volatility": {
+      "by_quantity": {
+        "value": {
+          "cases": 500,
+          "max_abs_error": 1.52e-12,
+          "max_rel_error": 3.04e-11
+        }
+      },
+      "cases": 500,
+      "finding": null,
+      "max_abs_error": 1.52e-12,
+      "max_rel_error": 3.04e-11,
+      "oracle": "Brent's method (bracket [1e-9, 10], xtol 1e-8) on the Black-Scholes-Merton closed form; second oracle py_vollib.black_scholes_merton.implied_volatility.implied_volatility",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "Brent's method (Brent 1973) inverting the same BSM closed form quantcore inverts, to a requested xtol of 1e-8 on sigma itself (both quantcore's brentq call and the oracle use the identical bracket [1e-9, 10.0] and xtol=1e-8); the price round-trip (price -> implied_volatility -> black_scholes_merton_price) agrees to float64 precision once sigma itself agrees to the requested root-finding tolerance, so rtol/atol are set to that tolerance rather than the closed-form default, which would be tighter than either root-finder promises to achieve. Deep ITM/OTM cases where vega is negligible (no reliably identifiable root) are excluded from the differential sweep -- both quantcore and the oracle raise ValueError there by design (see implied_volatility's docstring), and conformance.harness.check() treats a raising oracle as a build failure, not a recordable case; quantcore's ValueError on negligible vega is instead tested by test_extreme_moneyness_with_negligible_vega_raises in tests/unit/pricing/test_greeks.py.",
+        "rtol": 1e-08
+      }
+    },
+    "impulse_response": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 2.22e-16,
+          "max_rel_error": 4.34e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 2.22e-16,
+      "max_rel_error": 4.34e-13,
+      "oracle": "statsmodels.tsa.vector_ar.var_model.VARProcess.orth_ma_rep (Cholesky-orthogonalized)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "Cholesky-orthogonalized IRF against statsmodels.tsa.vector_ar.var_model.VARProcess.orth_ma_rep on the SAME coefficients and sigma_u; one order looser than the closed-form default for the Cholesky factorisation's own rounding.",
+        "rtol": 1e-08
+      }
+    },
+    "information_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 5.33e-14,
+          "max_rel_error": 8.58e-15
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 5.33e-14,
+      "max_rel_error": 8.58e-15,
+      "oracle": "empyrical-reloaded (excess_sharpe, annualised)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form ratio of a mean and a ddof=1 standard deviation of the active-return series, compared after annualising empyrical's per-period excess_sharpe by sqrt(periods_per_year); one order looser than the pure closed-form default to absorb that extra multiplication's rounding.",
+        "rtol": 1e-09
+      }
+    },
+    "jarque_bera": {
+      "by_quantity": {
+        "p_value": {
+          "cases": 200,
+          "max_abs_error": 6e-15,
+          "max_rel_error": 1.3e-13
+        },
+        "statistic": {
+          "cases": 200,
+          "max_abs_error": 1.49e-08,
+          "max_rel_error": 2.13e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.49e-08,
+      "max_rel_error": 1.3e-13,
+      "oracle": "scipy.stats.jarque_bera",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed form in the second, third and fourth central moments, then exp(-JB/2). Both sides centre the deviations twice, so the moments are good to a few n*eps whatever the ratio of mean to spread. The statistic is less accurate than its moments when the sample is nearly symmetric, because skewness enters squared: its relative error is about eps*n/|S|, 1e-11 at n=5000 and |S|=1e-4, which is why rtol is one order above the closed-form default. The p-value's relative error is half the statistic's absolute error, below 1e-11 wherever p exceeds atol (JB < 55). atol covers a statistic near zero and makes any two p-values below 1e-12 equal.",
+        "rtol": 1e-09
+      }
+    },
+    "kalman_filter_covs": {
+      "by_quantity": {
+        "value": {
+          "cases": 40,
+          "max_abs_error": 1.32e-16,
+          "max_rel_error": 2.85e-15
+        }
+      },
+      "cases": 40,
+      "finding": null,
+      "max_abs_error": 1.32e-16,
+      "max_rel_error": 2.85e-15,
+      "oracle": "pykalman.KalmanFilter (initial state pre-advanced one predict step to match quantcore)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "as kalman_filter_means; measured max abs difference ~1e-17 (machine precision).",
+        "rtol": 1e-08
+      }
+    },
+    "kalman_filter_means": {
+      "by_quantity": {
+        "value": {
+          "cases": 40,
+          "max_abs_error": 7.11e-15,
+          "max_rel_error": 1.6e-12
+        }
+      },
+      "cases": 40,
+      "finding": null,
+      "max_abs_error": 7.11e-15,
+      "max_rel_error": 1.6e-12,
+      "oracle": "pykalman.KalmanFilter (initial state pre-advanced one predict step to match quantcore)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "pykalman, with its initial state pre-advanced by one predict step so its 'step 0' matches quantcore's own indexing convention (conformance.targets.filtering module docstring); measured max abs difference ~3e-16 (machine precision) once that adjustment is made -- without it, the two disagree by ~1e-4, a pure indexing artifact, not a numerical one.",
+        "rtol": 1e-08
+      }
+    },
+    "kalman_smooth_covs": {
+      "by_quantity": {
+        "value": {
+          "cases": 40,
+          "max_abs_error": 1.55e-15,
+          "max_rel_error": 2.44e-12
+        }
+      },
+      "cases": 40,
+      "finding": null,
+      "max_abs_error": 1.55e-15,
+      "max_rel_error": 2.44e-12,
+      "oracle": "pykalman.KalmanFilter.smooth (RTS), same initial-state adjustment as the filter",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "as kalman_filter_means; measured max abs difference ~1e-17 (machine precision).",
+        "rtol": 1e-08
+      }
+    },
+    "kalman_smooth_means": {
+      "by_quantity": {
+        "value": {
+          "cases": 40,
+          "max_abs_error": 1.42e-14,
+          "max_rel_error": 7.81e-13
+        }
+      },
+      "cases": 40,
+      "finding": null,
+      "max_abs_error": 1.42e-14,
+      "max_rel_error": 7.81e-13,
+      "oracle": "pykalman.KalmanFilter.smooth (RTS), same initial-state adjustment as the filter",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "as kalman_filter_means; measured max abs difference ~2e-16 (machine precision).",
+        "rtol": 1e-08
+      }
+    },
+    "kelly_fraction": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand formula (Kelly 1956 / Thorp 2006)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "hand formula f* = expected_return / variance, a single division.",
+        "rtol": 1e-10
+      }
+    },
+    "kpss": {
+      "by_quantity": {
+        "p_value": {
+          "cases": 400,
+          "max_abs_error": 9.23e-16,
+          "max_rel_error": 2.07e-14
+        },
+        "p_value_at_bound": {
+          "cases": 400,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        },
+        "statistic": {
+          "cases": 400,
+          "max_abs_error": 6.39e-14,
+          "max_rel_error": 7.45e-15
+        }
+      },
+      "cases": 400,
+      "finding": null,
+      "max_abs_error": 6.39e-14,
+      "max_rel_error": 2.07e-14,
+      "oracle": "statsmodels.tsa.stattools.kpss",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "statistic = eta/s^2(l): both sides form the same partial sums and lagged cross products of the same residuals, and differ in the order the Bartlett-weighted terms are added and, for the trend case, in the solver that detrends (SVD least squares against a pseudo-inverse of [1, t], whose condition number is ~n). The relative error is up to eps*n*max|x|/spread, 3e-12 for a 5000-point random walk, and larger when s^2(l) is a small difference of large autocovariances. The p-value is linear interpolation in the published four-point table, so its relative error is at most 7 times the statistic's (slope*statistic/p is largest in the 2.5%-1% segment). rtol covers both. atol is zero: neither quantity is ever near zero, and the third, the at-bound flag (1.0 or 0.0), must match exactly. The automatic lag count is an integer truncation; a different count moves the statistic at the percent level and fails this tolerance.",
+        "rtol": 1e-09
+      }
+    },
+    "l1_turnover_penalized_weights": {
+      "by_quantity": {
+        "objective": {
+          "cases": 200,
+          "max_abs_error": 1.32e-08,
+          "max_rel_error": 4.23e-06
+        },
+        "weights": {
+          "cases": 200,
+          "max_abs_error": 0.000253,
+          "max_rel_error": 1.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.000253,
+      "max_rel_error": 1.0,
+      "oracle": "cvxpy (same QP/L1 program quantcore solves via a smooth buy/sell-slack SLSQP)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "as min_variance_weights, but the QP additionally includes a non-smooth L1 turnover penalty; quantcore reformulates it into smooth buy/sell slacks for SLSQP while the oracle's cvxpy program uses the L1 atom directly -- two genuinely different reformulations of the identical convex program, so the tolerance stays the same as the smooth QPs above rather than being loosened further, on the premise that a correctly-solved convex program's objective does not care which reformulation reached it.",
+        "rtol": 1e-06
+      }
+    },
+    "ledoit_wolf_shrinkage": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.77e-13,
+          "max_rel_error": 1.26e-12
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.77e-13,
+      "max_rel_error": 1.26e-12,
+      "oracle": "sklearn.covariance.LedoitWolf(assume_centered=False)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-06,
+        "justification": "matrix quantity: sklearn.covariance.LedoitWolf(assume_centered=False) matches quantcore's population (1/T) normalisation and sample-mean centering exactly (both documented in quantcore.portfolio.covariance's module docstring); measured max abs error ~1.2e-15 on a 200x5 standard-normal panel, well inside the closed-form default. shrinkage quantity: recovered from quantcore's returned matrix by projecting (cov - sample) onto (target - sample) in the Frobenius inner product (see _recovered_shrinkage's docstring); this projection is itself an extra division by a sum of squared matrix entries, so rtol/atol are loosened four orders from the closed-form default to absorb that division's amplification of the matrix comparison's own ~1e-15 noise on a small-k panel, while still catching a shrinkage intensity that is wrong at any practically meaningful scale; measured shrinkage agreement ~1e-13 on the same panel.",
+        "rtol": 1e-06
+      }
+    },
+    "ljung_box_test": {
+      "by_quantity": {
+        "p_value": {
+          "cases": 200,
+          "max_abs_error": 1.33e-15,
+          "max_rel_error": 1.88e-14
+        },
+        "statistic": {
+          "cases": 200,
+          "max_abs_error": 1.14e-13,
+          "max_rel_error": 2.34e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.14e-13,
+      "max_rel_error": 2.34e-14,
+      "oracle": "statsmodels",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form Q-statistic and a chi-squared survival function; one order looser than the closed-form default to absorb the chi2.sf evaluation's own numerical rounding.",
+        "rtol": 1e-09
+      }
+    },
+    "margin_financing_cost": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-derived closed form",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "closed form, three multiplications.",
+        "rtol": 1e-12
+      }
+    },
+    "maximum_drawdown": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.11e-16,
+          "max_rel_error": 1.34e-08
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.11e-16,
+      "max_rel_error": 1.34e-08,
+      "oracle": "empyrical-reloaded",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form cumprod/cummax reduction; atol accommodates a true drawdown of exactly 0 (a never-declining path), where relative error is undefined and the comparison must fall back to the absolute term.",
+        "rtol": 1e-10
+      }
+    },
+    "mean_variance_weights": {
+      "by_quantity": {
+        "objective": {
+          "cases": 200,
+          "max_abs_error": 8.84e-09,
+          "max_rel_error": 0.000187
+        },
+        "weights": {
+          "cases": 200,
+          "max_abs_error": 6.96e-06,
+          "max_rel_error": 1.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 6.96e-06,
+      "max_rel_error": 1.0,
+      "oracle": "cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "as min_variance_weights, for the analogous maximise-utility QP.",
+        "rtol": 1e-06
+      }
+    },
+    "min_variance_weights": {
+      "by_quantity": {
+        "objective": {
+          "cases": 200,
+          "max_abs_error": 1.09e-08,
+          "max_rel_error": 2.58e-06
+        },
+        "weights": {
+          "cases": 200,
+          "max_abs_error": 4.14e-06,
+          "max_rel_error": 1.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 4.14e-06,
+      "max_rel_error": 1.0,
+      "oracle": "cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "convex QP with a unique optimum; quantcore's SLSQP and the oracle's cvxpy/CLARABEL interior-point solver are two different numerical procedures for the identical program (same objective, same sum-to-one/long-only constraints, read directly from quantcore.portfolio.optimization._min_variance_weights), so their attained objectives should coincide far tighter than a generic iterative-estimator gap; measured relative objective gap ~1e-8 to ~1e-10 on 300 well-conditioned random covariances up to k=10.",
+        "rtol": 1e-06
+      }
+    },
+    "monte_carlo_call_price": {
+      "by_quantity": {
+        "value": {
+          "cases": 60,
+          "max_abs_error": 3.87,
+          "max_rel_error": 1.0
+        }
+      },
+      "cases": 60,
+      "finding": null,
+      "max_abs_error": 3.87,
+      "max_rel_error": 1.0,
+      "oracle": "Black-Scholes-Merton closed form (same GBM dynamics), judged within k=4 times the larger of the reported standard error and the estimator's closed-form standard deviation",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "Not a relative/absolute price tolerance: this function's `compare` is `conformance.targets.pricing_extra._MonteCarloComparator`, which accepts the Monte Carlo price when |price - closed_form| <= atol + 4 * max(reported standard error, true standard error). The closed form is the BSM price, the exact expectation of what the simulation estimates. The true standard error is the standard deviation of the estimator itself, returned by the oracle. quantcore's log-price steps are exact for GBM, so each payoff g is a function of one standard normal Z, and with antithetic variates the num_paths payoffs are num_paths // 2 independent mirrored pairs (Z, -Z) plus one unpaired path when num_paths is odd, so Var[price] = exp(-2rT) / num_paths^2 * (2 * (num_paths // 2) * (Var[g] + Cov[g(Z), g(-Z)]) + (num_paths % 2) * Var[g]). E[g], E[g^2] and E[g(Z) g(-Z)] are closed forms, the last because S(Z) * S(-Z) = F^2 * exp(-sigma^2 T) is constant, so this variance is exact and not a bound: it matches numerical quadrature of the moments to 3e-10 relative and the spread of quantcore's estimates over 40,000 seeds to 0.5 percent. Both standard errors are needed. The reported one is exactly 0 when no path finishes in the money, while the closed form is positive; the true one covers that (out of the money, closed_form <= true_se * sqrt(num_paths * p / (1 - 2p)) with p the chance one path pays). With a handful of paying paths the estimate can overshoot by more than 4 true standard errors, and the reported one, about price / sqrt(paying paths) or more, covers that. k = 4 is a two-sided normal tail of 6e-5 per case. `rtol` is unused and kept at 0.0 so it cannot stand in for the k * SE band. `atol` absorbs only the rounding of the closed form: each N() of the erf-based formula carries about 2^-53 absolute error, so the price carries up to about 3 * 2^-53 * (S + K), which is 3.3e-13 for the tested spots and strikes (S, K <= 500; the largest seen on 52,000 cases is 2.9e-16 * (S + K)). 1e-10 is 300 times that and 1e-11 of the smallest tested spot.",
+        "rtol": 0.0
+      }
+    },
+    "monte_carlo_put_price": {
+      "by_quantity": {
+        "value": {
+          "cases": 60,
+          "max_abs_error": 0.334,
+          "max_rel_error": 1.0
+        }
+      },
+      "cases": 60,
+      "finding": null,
+      "max_abs_error": 0.334,
+      "max_rel_error": 1.0,
+      "oracle": "Black-Scholes-Merton closed form, judged within k=4 times the larger of the reported standard error and the estimator's closed-form standard deviation",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "as monte_carlo_call_price: same _MonteCarloComparator, k = 4 and atol, with the true standard error computed from the put payoff's moments.",
+        "rtol": 0.0
+      }
+    },
+    "newey_west_cov": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 9.44e-16,
+          "max_rel_error": 1.85e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 9.44e-16,
+      "max_rel_error": 1.85e-13,
+      "oracle": "statsmodels",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-11,
+        "justification": "closed-form Bartlett-kernel sandwich estimator; quantcore accumulates the kernel sum lag-by-lag while the statsmodels-based reference (bread * S_hac_simple * bread) sums in a different order, so floating-point rounding differs at the last 2-3 significant digits for n up to 5000 and L up to a few dozen lags (measured max relative error ~6e-14 on 500 random regressions up to n=300); rtol stays one order tighter than that margin so a genuinely wrong kernel or scaling constant is still caught.",
+        "rtol": 1e-09
+      }
+    },
+    "newey_west_optimal_lags": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-computed (the rule of thumb itself)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form floor(4*(n/100)^(2/9)); atol covers the lags=0 case exactly.",
+        "rtol": 1e-10
+      }
+    },
+    "ols_coefficients": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 2.66e-15,
+          "max_rel_error": 4.2e-15
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 2.66e-15,
+      "max_rel_error": 4.2e-15,
+      "oracle": "statsmodels",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "quantcore solves via np.linalg.lstsq, statsmodels via a pseudo-inverse/Moore-Penrose path; both are correct least-squares solutions but differ in the last few significant digits on ill-conditioned regressors (measured max relative error ~4e-10 on 500 random regressions up to n=300), one order looser than the closed-form default to absorb that, still far tighter than a definitional mismatch would produce.",
+        "rtol": 1e-08
+      }
+    },
+    "ols_r_squared": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 2.22e-16,
+          "max_rel_error": 5.54e-16
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 2.22e-16,
+      "max_rel_error": 5.54e-16,
+      "oracle": "statsmodels",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "same lstsq-vs-pseudo-inverse rounding margin as ols_coefficients.",
+        "rtol": 1e-08
+      }
+    },
+    "option_expiry_payoff": {
+      "by_quantity": {
+        "value": {
+          "cases": 300,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 300,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-derived intrinsic-value formula",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed form: one max(), one subtraction, two multiplications; quantcore and the hand-derived reference compute the identical arithmetic in the identical order, so disagreement is only ever float64 rounding noise.",
+        "rtol": 1e-12
+      }
+    },
+    "option_position_pnl": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 2.33e-10,
+          "max_rel_error": 8.47e+287
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 2.33e-10,
+      "max_rel_error": 8.47e+287,
+      "oracle": "hand-derived daily BSM repricing",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "per-day BSM closed-form repricing (same formula as black_scholes_merton_price, looped over the path) minus a constant entry price, scaled by contracts*multiplier; one order looser than the pure closed-form default to absorb that per-day BSM evaluation's own rounding (see black_scholes_merton_price's tolerance) propagated through the multiplication by contracts*multiplier.",
+        "rtol": 1e-09
+      }
+    },
+    "option_roll_schedule": {
+      "by_quantity": {
+        "value": {
+          "cases": 201,
+          "max_abs_error": 0.0,
+          "max_rel_error": null
+        }
+      },
+      "cases": 201,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": null,
+      "oracle": "hand-derived nearest-expiry selection",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "returns a date, not a float: `conformance.targets.pricing_extra._DateComparator` requires the two dates to be exactly identical (there is no meaningful notion of 'close' for a discrete choice of listed expiry); rtol/atol are unused by that comparator and kept at 0.0 so they can never be mistaken for a real tolerance.",
+        "rtol": 0.0
+      }
+    },
+    "ou_half_life": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 8.19e-12,
+          "max_rel_error": 3.63e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 8.19e-12,
+      "max_rel_error": 3.63e-14,
+      "oracle": "statsmodels.OLS slope on the lagged series",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form AR(1)-OLS slope through -ln(2)/ln(1+a); the oracle anchors the slope itself to statsmodels.OLS (an independent library, for oracle independence), one order looser than the pure closed-form default for the extra log evaluation and statsmodels' own QR-based solve.",
+        "rtol": 1e-09
+      }
+    },
+    "outlier_loss_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "quantstats.stats.outlier_loss_ratio",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed form: one linearly interpolated quantile over one mean of negative terms; atol covers a 1% quantile at or near zero.",
+        "rtol": 1e-10
+      }
+    },
+    "outlier_win_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "quantstats.stats.outlier_win_ratio",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed form: one linearly interpolated quantile over one mean of non-negative terms; atol covers a 99% quantile at or near zero.",
+        "rtol": 1e-10
+      }
+    },
+    "profit_factor": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-computed; quantstats.stats.profit_factor (second oracle)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form ratio of two sums; one order looser to absorb summation order.",
+        "rtol": 1e-09
+      }
+    },
+    "protective_put_sizing": {
+      "by_quantity": {
+        "breakeven": {
+          "cases": 200,
+          "max_abs_error": 5.68e-14,
+          "max_rel_error": 3.99e-16
+        },
+        "contracts": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        },
+        "premium_cost": {
+          "cases": 200,
+          "max_abs_error": 1.95e-09,
+          "max_rel_error": 6.2
+        },
+        "protection_pct_achieved": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.95e-09,
+      "max_rel_error": 6.2,
+      "oracle": "hand-derived sizing formula",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "sizing arithmetic (ceil/floor of a notional-to-shares-to-contracts conversion, plus a put price from the closed-form BSM formula) around a single BSM put evaluation; one order looser than the closed-form default for that put price's own rounding (see black_scholes_merton_price's tolerance), propagated through the sizing division/multiplication chain. `contracts` (recorded as the tuple's first, integer-valued component) is compared at this same tolerance but is exact in practice: it is a ceil()/floor() of a quantity that agrees between quantcore and the oracle to float64 precision, so an off-by-one contract is still caught (it fails at rtol=1e-8 for any contracts count above single digits).",
+        "rtol": 1e-08
+      }
+    },
+    "risk_of_ruin": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "quantstats.stats.risk_of_ruin",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "closed form: a ratio of two integer counts raised to an integer power. The value lies in [0, 1] and underflows toward 0 as the series lengthens, where only an absolute comparison is meaningful; hence atol.",
+        "rtol": 1e-10
+      }
+    },
+    "risk_parity_weights": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.86e-09,
+          "max_rel_error": 3.25e-08
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.86e-09,
+      "max_rel_error": 3.25e-08,
+      "oracle": "independent Spinu (2013) convex reformulation, solved by L-BFGS-B",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.001,
+        "justification": "compared directly on WEIGHTS, not an objective (see conformance.targets.portfolio's module docstring): Spinu (2013)'s reformulation is strictly convex, so the risk-parity portfolio is unique and two correct solvers must agree on the weight vector itself. Generous relative to the closed-form default because quantcore's SLSQP least-squares-of-contribution-differences formulation and the oracle's independent log-barrier L-BFGS-B solver (conformance.targets.portfolio._spinu_risk_parity_weights) are very different numerical paths to the same point; measured agreement ~1e-7 on well-behaved cases in an empirical 200-case sweep (seed 100, k in 2..10, well_conditioned family), while quantcore's SLSQP failed to reach an equal-risk-contribution solution (or raised RuntimeError on non-convergence) on 13/200 cases, with weight deviations up to 0.39. This tolerance is tight enough that both outcomes are correctly classified: convergent cases pass, divergent ones fail by orders of magnitude.",
+        "rtol": 0.001
+      }
+    },
+    "rolling_sharpe": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 5.96e-08,
+          "max_rel_error": 2.88e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 5.96e-08,
+      "max_rel_error": 2.88e-13,
+      "oracle": "empyrical-reloaded",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "each windowed entry is the same closed-form Sharpe ratio as sharpe_ratio, repeated over many windows; the array comparator's max over all windows inherits sharpe_ratio's own rounding margin.",
+        "rtol": 1e-09
+      }
+    },
+    "sample_covariance": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "numpy.cov(returns, rowvar=False, ddof=1)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form ddof=1 sample covariance; quantcore's own two-pass formula and numpy.cov(returns, rowvar=False, ddof=1) -- an independent library implementation, not a re-derivation of quantcore's own documented formula -- sum in a different order internally, one order looser than the pure closed-form default to absorb that (measured max relative error ~2e-15 on 300 random panels up to k=10, T=2000).",
+        "rtol": 1e-09
+      }
+    },
+    "select_arima_order": {
+      "by_quantity": {
+        "value": {
+          "cases": 25,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 25,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "statsmodels (ARIMA.fit, aic/bic; agreement rate reported, not asserted -- see module docstring)",
+      "reason": "comparator is report-only (conformance.compare.ReportOnlyScalarComparator): agreement with the oracle is recorded for the report but never asserted, so this target is never classified verified whatever the recorded error magnitudes",
+      "status": "unverifiable",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "order selection is inherently ambiguous between correlated models, so agreement rate is reported, not asserted -- this quantity's comparator (edgelab.backend.function.ReportOnlyScalarComparator) never fails a case and build_report.build_resolution_map records it as unverifiable without consulting this tolerance for a pass/fail decision at all, so rtol=atol=0 is the honest value rather than a wide number chosen to never trip: no code path judges 'close' against it any more.",
+        "rtol": 0.0
+      }
+    },
+    "select_hmm_n_states": {
+      "by_quantity": {},
+      "cases": 0,
+      "finding": null,
+      "max_abs_error": null,
+      "max_rel_error": null,
+      "oracle": "none (no independent library implements this selection rule); hand/invariant tests only",
+      "reason": "no independent oracle is registered for this target",
+      "status": "unverifiable",
+      "tolerance": null
+    },
+    "select_var_lag_order": {
+      "by_quantity": {
+        "value": {
+          "cases": 40,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 40,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "statsmodels.tsa.api.VAR.select_order (agreement rate reported, not asserted -- see module docstring)",
+      "reason": "comparator is report-only (conformance.compare.ReportOnlyScalarComparator): agreement with the oracle is recorded for the report but never asserted, so this target is never classified verified whatever the recorded error magnitudes",
+      "status": "unverifiable",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "as select_arima_order: agreement rate reported, not asserted, and not consulted for a pass/fail decision -- see conformance.compare.ReportOnlyScalarComparator.",
+        "rtol": 0.0
+      }
+    },
+    "serenity_index": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 6.91e-06,
+          "max_rel_error": 3.98e-09
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 6.91e-06,
+      "max_rel_error": 3.98e-09,
+      "oracle": "quantstats.stats.serenity_index",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "sum(r) / (UI * CDaR / std(r, ddof=1)), CDaR the mean of the drawdowns beyond the threshold q = mean(D) + 1.645*std(D, ddof=1), or q itself when none is. Same cause as ulcer_performance_index: quantstats' drawdowns carry an absolute rounding error up to d = eps/4 each. It moves UI by at most 0.354*eps/UI relative. It moves a tail mean by at most d, and CDaR >= q >= UI/sqrt(2) (because UI**2 = std(D)**2 + n/(n - 1)*mean(D)**2 <= 2*q**2), so by 0.354*eps/UI relative. When CDaR is q, q moves by at most (1 + 1.645*sqrt(2))*d, 1.18*eps/UI relative. Worst case 1.53*eps/UI: kappa = 1/UI, p = 1, K = 2. Checked on 2989 inputs outside this suite: largest difference 0.31 of 1.53*eps/UI. The bound assumes both sides select the same tail: a drawdown within rounding distance of q that falls on different sides of it changes the tail mean by an amount no tolerance covers, a discontinuity of the definition itself. atol only keeps the comparison defined when the returns sum to zero.",
+        "rtol": 1e-10
+      }
+    },
+    "sharpe_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 8.38e-09,
+          "max_rel_error": 5.91e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 8.38e-09,
+      "max_rel_error": 5.91e-13,
+      "oracle": "empyrical-reloaded",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form ratio of a mean and a ddof=1 standard deviation; atol above the default 1e-10 relative floor only to stay well-defined when the expected value itself is near zero (a near-zero mean excess return), not because the two implementations disagree at any observed scale (measured max relative error ~3e-13 on 2000 random draws up to n=500). Condition-aware: rtol_eff = max(rtol, K*eps*kappa**p) with kappa = max|r - rf_p| / std(r, ddof=1), p = 2 (the sample variance's cancellation error scales with the square of that ratio, see _sharpe_kappa's docstring). Both quantcore and the oracle compute std via a numerically stable two-pass (mean, then sum-of-squared-deviations) algorithm, not the naive one-pass E[x^2]-E[x]^2 formula the worst-case kappa**2 bound assumes, so the realised error constant is well below the O(1) a naive-algorithm bound would need; K = 0.01 reflects that -- still large enough that a genuinely pathological case (near-constant short series, kappa of order 1e15-1e16 from a near-zero sampled std) crosses the 1e-6 ill-conditioned cap by many orders of magnitude regardless, while the milder case of a merely tiny-scale return series with a comparatively large risk-free rate (kappa of order 1e5-1e6, measured on this suite's `tiny_scale` family) stays under the cap, matching that family's realised sub-cap numerical agreement; an ordinary draw's kappa of a few units leaves rtol_eff at the plain 1e-10 floor regardless of K.",
+        "rtol": 1e-10
+      }
+    },
+    "short_borrow_cost": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-derived closed form",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "closed form, three multiplications.",
+        "rtol": 1e-12
+      }
+    },
+    "sortino_ratio": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.58e-10,
+          "max_rel_error": 4.6e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.58e-10,
+      "max_rel_error": 4.6e-14,
+      "oracle": "empyrical-reloaded",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form ratio of a mean and a full-sample downside deviation; atol above the 1e-10 relative floor for the same reason as sharpe_ratio: a near-zero numerator.",
+        "rtol": 1e-10
+      }
+    },
+    "spread_zscore": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 5.22e-15,
+          "max_rel_error": 4.87e-13
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 5.22e-15,
+      "max_rel_error": 4.87e-13,
+      "oracle": "pandas.Series.rolling(window).apply(...) with ddof=1",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form rolling mean/ddof=1-std z-score; the oracle anchors the rolling window itself to pandas.Series.rolling(window) (an independent library, for oracle independence), one order looser than the pure closed-form default for the rolling-window division.",
+        "rtol": 1e-09
+      }
+    },
+    "square_root_market_impact": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-derived closed form",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 0.0,
+        "justification": "closed form, three multiplications.",
+        "rtol": 1e-12
+      }
+    },
+    "ulcer_index": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.11e-16,
+          "max_rel_error": 1.29e-09
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.11e-16,
+      "max_rel_error": 1.29e-09,
+      "oracle": "quantstats.stats.ulcer_index",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-15,
+        "justification": "sqrt(sum(D**2) / (n - 1)) over the drawdowns D of the same wealth path W = cumprod(1 + r) on both sides. rtol is the closed-form default. atol is the absolute error the oracle's drawdown formula leaves on the index, which does not shrink with the index: quantstats computes each drawdown as W/P - 1, rounding the quotient by up to u/2 = eps/4 in absolute terms whatever the size of the drawdown, where quantcore's (P - W)/P subtracts exactly and rounds only in relative terms. Perturbing every non-zero drawdown by at most d moves sum(D**2) by 2*d*sum(D) and the index by d*sum(D)/sqrt((n - 1)*sum(D**2)) <= d*sqrt(n/(n - 1)) <= 1.42*d (Cauchy-Schwarz): 7.9e-17 for d = eps/4. Drawdowns above 50%, where the oracle's 1 + (W - 1) and its W/P - 1 each round once more, and wealth beyond 2**53 raise d to at most 5.25*u, 8.2e-16 on the index. atol = 1e-15 covers that; on returns of order 1e-8 (index of order 1e-8) it is 1e-7 relative, three orders below the 1/(2n) >= 1e-4 by which an n-for-(n - 1) divisor would differ. Checked on 3446 inputs outside this suite: largest absolute difference 1.1e-16, and 5.3e-17 where the index is below 1e-3.",
+        "rtol": 1e-10
+      }
+    },
+    "ulcer_performance_index": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 3.48e-08,
+          "max_rel_error": 7.07e-09
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 3.48e-08,
+      "max_rel_error": 7.07e-09,
+      "oracle": "quantstats.stats.ulcer_performance_index",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-12,
+        "justification": "(prod(1 + r) - 1) / UI. The numerator is the same product on both sides; the Ulcer Index differs by at most 1.42*eps/4 = 0.354*eps in absolute terms because quantstats rounds each drawdown W/P - 1 by up to eps/4 where quantcore's (P - W)/P subtracts exactly (derivation under ulcer_index). Relative to the index that is 0.354*eps/UI, unbounded as UI -> 0, so the tolerance is condition-aware: rtol_eff = max(rtol, K*eps*kappa**p) with kappa = 1/UI, p = 1, K = 0.5 (0.354 rounded up). The bound only exceeds the 1e-10 floor for UI < 1.1e-6, where every drawdown is far below 50% and d = eps/4 applies. Checked on 2994 inputs outside this suite: largest difference 0.67 of 0.354*eps/UI. atol only keeps the comparison defined when the compounded return, and so the ratio, is zero.",
+        "rtol": 1e-10
+      }
+    },
+    "unconstrained_mean_variance_weights": {
+      "by_quantity": {
+        "objective": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        },
+        "weights": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "independent closed-form linear solve (no constraints)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed form on both sides (quantcore and the reference both solve Sigma @ w = mu via np.linalg.solve, no iterative optimiser at all), one order looser than the pure closed-form default only for the extra quadratic-form evaluation building the objective; measured relative gap consistent with 0 (both sides perform the same direct linear solve).",
+        "rtol": 1e-09
+      }
+    },
+    "value_at_risk": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "closed form (scipy.stats.norm)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-10,
+        "justification": "closed form: a mean, a ddof=1 standard deviation, and a normal quantile.",
+        "rtol": 1e-10
+      }
+    },
+    "value_at_risk_cornish_fisher": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "hand-computed (Cornish-Fisher 1938 expansion)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-08,
+        "justification": "closed form (a quartic polynomial in z plus a normal quantile), but with the same order-of-summation freedom as ols; two orders looser than the default to absorb that, still tight enough to catch a wrong coefficient in the expansion.",
+        "rtol": 1e-08
+      }
+    },
+    "var_fit_coef_matrix": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 1.52e-14,
+          "max_rel_error": 1.67e-11
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 1.52e-14,
+      "max_rel_error": 1.67e-11,
+      "oracle": "statsmodels.tsa.api.VAR (params reordered to quantcore's intercept-last layout, finding H -- see module docstring)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form per-equation OLS; measured agreement to ~1e-10 relative against statsmodels.tsa.api.VAR after moving statsmodels' intercept column from first to last, as quantcore lays it out (`_var_layout_from_statsmodels`), one order looser than the closed-form default for lstsq-vs-pinv rounding across k*n_lags+1 regressors, as ols_coefficients above.",
+        "rtol": 1e-07
+      }
+    },
+    "var_fit_sigma_u": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 6.66e-16,
+          "max_rel_error": 4.08e-14
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 6.66e-16,
+      "max_rel_error": 4.08e-14,
+      "oracle": "statsmodels.tsa.api.VAR (sigma_u, the unbiased residual covariance estimator)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "same lstsq-vs-pinv rounding margin as var_fit_coef_matrix, one matrix product further from the raw coefficients.",
+        "rtol": 1e-07
+      }
+    },
+    "var_forecast": {
+      "by_quantity": {
+        "value": {
+          "cases": 200,
+          "max_abs_error": 0.0,
+          "max_rel_error": 0.0
+        }
+      },
+      "cases": 200,
+      "finding": null,
+      "max_abs_error": 0.0,
+      "max_rel_error": 0.0,
+      "oracle": "statsmodels.tsa.vector_ar.var_model.forecast (same coefficients, no re-fit)",
+      "reason": "",
+      "status": "verified",
+      "tolerance": {
+        "atol": 1e-09,
+        "justification": "closed-form recursive application of already-fitted VAR coefficients against statsmodels.tsa.vector_ar.var_model.forecast on the SAME coefficients (no re-fit); measured agreement near machine precision, one order looser than the closed-form default for the recursive matrix-vector product accumulation.",
+        "rtol": 1e-08
+      }
+    }
+  }
+}

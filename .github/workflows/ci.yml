@@ -32,3 +32,34 @@ jobs:
 
       - name: Test (unit + oracle)
         run: uv run pytest
+
+  conformance:
+    runs-on: ubuntu-latest
+    env:
+      QUANTCORE_CONFORMANCE_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies (dev + oracle)
+        run: uv sync --extra dev --extra oracle
+
+      # Runs quantcore and its oracles on every generated case and records the comparisons. A
+      # mismatch does not fail this step; it fails only if an oracle itself raises.
+      - name: Conformance suite (ci profile)
+        run: uv run pytest conformance -q
+
+      # Rebuilds the conformance map in memory and fails if its decisions (the set of targets and
+      # each target's status, tolerance and finding) differ from the committed
+      # conformance/conformance_map.json, if a declared family or bucket recorded no case, or if a
+      # defect has no finding source. The map is compared, never rewritten, so a stale committed
+      # map cannot pass.
+      - name: Check the committed conformance map
+        run: uv run python -m conformance.build_report --check

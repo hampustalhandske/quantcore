@@ -15,7 +15,15 @@ numbers without re-deriving them.
 ## Commands
 
 - `uv sync --extra dev` — install all dependencies
+- `uv sync --extra dev --extra oracle` — also install the pinned reference
+  libraries that `tests/oracle/`, `conformance/` and `benchmarks/` import
 - `uv run pytest` — run tests with coverage
+- `uv run pytest conformance -q` — run the conformance suite (records every
+  comparison under `conformance/results/`; a passing run does not mean the
+  cases are within tolerance)
+- `uv run python -m conformance.build_report --check` — fail if the statuses
+  that run gives differ from the committed `conformance/conformance_map.json`;
+  without `--check` it rewrites the map and `docs/CONFORMANCE.md`
 - `uv run ruff check .` — lint
 - `uv run ruff format .` — format
 - `uv run mypy src/` — type check
@@ -28,8 +36,17 @@ numbers without re-deriving them.
 - `src/quantcore/risk/` — VaR/CVaR, volatility models (GARCH)
 - `src/quantcore/core/` — Numba-optimized numerical kernels (SDE solvers,
   random path generation). Relaxed mypy rules here (see pyproject.toml)
-  because Numba decorators aren't fully typeable yet.
+  because Numba decorators aren't fully typeable yet. `price_paths.py` is the
+  exception: plain NumPy on purpose, because it draws from a caller-supplied
+  `numpy.random.Generator` and guarantees bit-stable output for a given
+  generator state.
 - `tests/` — mirrors src/ structure 1:1
+- `conformance/` — compares each public quantity with an independent oracle
+  on hypothesis-generated inputs. `targets/` holds the quantcore adapter and
+  the oracle per quantity, `tolerances.py` the written tolerance for each,
+  `conformance_map.json` the committed status of every quantity. CI fails
+  when a fresh run's statuses differ from the map. See `conformance/README.md`.
+- `benchmarks/` — wall-clock comparisons against the same reference libraries
 
 ## Conventions
 
@@ -54,6 +71,11 @@ numbers without re-deriving them.
   `core/`).
 - No silent fallbacks: if a Numba-compiled path fails, raise — don't
   transparently fall back to slow Python without telling the caller.
+- A change that moves a public function's numbers, or adds a public function
+  that has an independent oracle, updates its conformance target and
+  regenerates `conformance/conformance_map.json` in the same change. A
+  tolerance in `conformance/tolerances.py` is derived from the numerics of the
+  computation and is never widened to make a quantity pass.
 - This package will be `pip install`-ed by other projects (agentic-trading,
   fraud-detection). Treat the public API in each module's `__init__.py` as a
   contract — don't rename or change signatures without checking downstream use.

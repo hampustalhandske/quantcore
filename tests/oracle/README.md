@@ -1,9 +1,10 @@
 # Oracle tests
 
 Differential tests that compare quantcore's public functions against an
-independent reference implementation, per `QUANTCORE_FIX_PROMPT.md`'s
-mandate: quantcore is trusted for a calculation only once it is proven to
-agree with the industry-standard result, not merely self-consistent.
+independent reference implementation: a reference library, a published
+worked example or a closed form. Their purpose is to show that quantcore
+agrees with the industry-standard result, not merely that it is
+self-consistent.
 
 These tests import reference libraries (`statsmodels`, `arch`,
 `scikit-learn`, `linearmodels`, `empyrical`, `quantstats`, `QuantLib`,
@@ -69,9 +70,32 @@ plausible-looking wrong number. These live alongside the oracle comparison
 in the same test file, under a `Test<Function>Contract` class, so a reader
 sees the correctness check and the robustness check together.
 
-## Status
+## Relation to `conformance/`
 
-This directory currently covers the Workstream B confirmed defects
-(`statistics/cointegration.py`: B1 MacKinnon N-parameterized p-values). The
-full coverage plan — which function, which oracle, and its classification —
-is tracked in `docs/VERIFICATION_PLAN.md`; results feed `docs/CONFORMANCE.md`.
+This directory holds fixed-case oracle tests per module, mirroring
+`src/quantcore/`: each compares a function with a reference on hand-chosen
+inputs and published values. `conformance/` is the other half of the
+verification: generated-input differential tests of registered targets
+against independent oracles, whose recorded comparisons are classified into
+the committed `conformance/conformance_map.json` and `docs/CONFORMANCE.md`
+(see `conformance/README.md`).
+
+## Functions verified only here
+
+These public functions have no conformance target, so their oracle tests in
+this directory are their only comparison with an independent reference:
+
+- `statistics`: `johansen_trace_test`, `johansen_max_eigenvalue_test`
+  (`statistics/test_johansen_oracle.py`).
+- `performance`: `annualized_return`, `cagr` (`performance/test_metrics_oracle.py`;
+  `cagr` is also the numerator of the `calmar_ratio` target),
+  `drawdown_series` (`performance/test_drawdown_oracle.py`), `component_var`
+  (`performance/test_component_var_oracle.py`) and
+  `brinson_fachler_attribution` (`performance/test_brinson_fachler_oracle.py`).
+- `core`: `simulate_gbm_paths`, `simulate_ou_paths`, `simulate_cir_paths`,
+  `simulate_heston_paths` and `euler_maruyama`
+  (`core/test_sde_moments_oracle.py`), and `simulate_gbm_price_paths`,
+  `simulate_heston_price_paths`, `simulate_jump_diffusion_price_paths`,
+  `simulate_regime_switching_price_paths`, `simulate_exp_ou_price_paths` and
+  `simulate_garch_t_price_paths` (`core/test_price_paths_moments_oracle.py`),
+  each compared with the analytic moments of its process.

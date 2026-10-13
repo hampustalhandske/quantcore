@@ -8,6 +8,12 @@ dependencies = [
     "numba>=0.67.0",
     "numpy>=1.26",
     "scipy>=1.13",
+    # Default backends of three functions, each imported on first use:
+    # fit_garch_11 (arch), heston_cos_call / heston_cos_put (QuantLib) and
+    # conditional_value_at_risk(method="historical") (empyrical).
+    "arch>=7.0",
+    "QuantLib>=1.35",
+    "empyrical-reloaded>=0.5.11",
 ]
 
 [project.optional-dependencies]
@@ -18,12 +24,12 @@ dev = [
     "pytest-cov>=5.0",
     "scipy-stubs>=1.13",
 ]
-# Independent oracle implementations used only under tests/oracle/ and
-# conformance/ to verify quantcore's numbers against a reference library.
-# Never imported from src/quantcore — runtime dependencies stay
-# NumPy/SciPy/Numba (see CLAUDE.md). Pinned exactly: the conformance suite's
-# derandomized cases and recorded error bounds are only reproducible against
-# fixed oracle and hypothesis versions.
+# Independent oracle implementations that tests/oracle/ and conformance/
+# verify quantcore's numbers against. Apart from the three default backends
+# listed under `dependencies` (arch, QuantLib, empyrical), none is imported
+# from src/quantcore. Pinned exactly: the conformance suite's derandomized
+# cases and recorded error bounds are only reproducible against fixed oracle
+# and hypothesis versions.
 oracle = [
     "statsmodels==0.15.0",
     "arch==8.0.0",
@@ -94,6 +100,8 @@ ignore = []
 # (used that way in QuantLib's own docs and every downstream project);
 # renaming would make oracle tests harder to cross-reference against them.
 "tests/oracle/**/*.py" = ["N813"]
+"src/quantcore/pricing/heston.py" = ["N813"]
+"tests/unit/pricing/test_heston.py" = ["N813"]
 "conformance/**/*.py" = ["N813"]
 
 [tool.ruff.format]
@@ -117,6 +125,11 @@ plugins = ["numpy.typing.mypy_plugin"]
 # Numba's JIT decorators confuse static analysis; relax there only.
 module = "quantcore.core.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# The default-backend libraries ship no type information.
+module = ["QuantLib", "empyrical"]
+ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
 # Pytest

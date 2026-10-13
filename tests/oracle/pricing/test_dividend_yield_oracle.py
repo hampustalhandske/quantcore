@@ -19,6 +19,8 @@ Oracles:
 
 from __future__ import annotations
 
+from functools import partial
+
 import numpy as np
 import pytest
 
@@ -33,6 +35,7 @@ from vollib.black_scholes_merton.greeks.analytical import rho as vollib_rho
 from vollib.black_scholes_merton.greeks.analytical import theta as vollib_theta
 from vollib.black_scholes_merton.greeks.analytical import vega as vollib_vega
 
+from quantcore.pricing import heston
 from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
 from quantcore.pricing.greeks import (
     bs_delta,
@@ -42,7 +45,11 @@ from quantcore.pricing.greeks import (
     bs_vega,
     implied_volatility,
 )
-from quantcore.pricing.heston import heston_cos_call, heston_cos_put
+
+# The COS expansion is what these tests check against QuantLib, so they pin the
+# "quantcore" backend; with the default backend the price is QuantLib's own.
+heston_cos_call = partial(heston.heston_cos_call, backend="quantcore")
+heston_cos_put = partial(heston.heston_cos_put, backend="quantcore")
 
 pytestmark = pytest.mark.oracle
 

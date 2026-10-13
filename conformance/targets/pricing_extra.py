@@ -291,9 +291,14 @@ def _heston_cos_call_quantcore(
     xi: float,
     rho: float,
 ) -> float:
-    """`quantcore.pricing.heston_cos_call` adapter."""
+    """`quantcore.pricing.heston_cos_call` adapter, pinned to the COS expansion.
+
+    The function's default backend is QuantLib, the oracle itself.
+    """
     return float(
-        _qc_pricing.heston_cos_call(s, k, r, t, v0, kappa, theta, xi, rho, dividend_yield=q)
+        _qc_pricing.heston_cos_call(
+            s, k, r, t, v0, kappa, theta, xi, rho, dividend_yield=q, backend="quantcore"
+        )
     )
 
 
@@ -310,9 +315,14 @@ def _heston_cos_put_quantcore(
     xi: float,
     rho: float,
 ) -> float:
-    """`quantcore.pricing.heston_cos_put` adapter."""
+    """`quantcore.pricing.heston_cos_put` adapter, pinned to the COS expansion.
+
+    The function's default backend is QuantLib, the oracle itself.
+    """
     return float(
-        _qc_pricing.heston_cos_put(s, k, r, t, v0, kappa, theta, xi, rho, dividend_yield=q)
+        _qc_pricing.heston_cos_put(
+            s, k, r, t, v0, kappa, theta, xi, rho, dividend_yield=q, backend="quantcore"
+        )
     )
 
 

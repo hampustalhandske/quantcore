@@ -29,10 +29,17 @@ rather than pinning magic numbers):
 
 from __future__ import annotations
 
+from functools import partial
+
 import numpy as np
 import pytest
 
-from quantcore.risk.volatility import ConvergenceError, fit_garch_11, garch_11_variance
+from quantcore.risk import volatility
+from quantcore.risk.volatility import ConvergenceError, garch_11_variance
+
+# These tests exercise quantcore's own optimizer; the default backend (`arch`)
+# is tested in test_fit_garch_11_arch_backend.py.
+fit_garch_11 = partial(volatility.fit_garch_11, backend="quantcore")
 
 RNG_SEED = 2024
 

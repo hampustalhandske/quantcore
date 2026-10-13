@@ -304,8 +304,9 @@ FitResult = tuple[float, npt.NDArray[np.float64]]
 
 
 def _fit_garch_11_quantcore(returns: npt.NDArray[np.float64]) -> FitResult:
+    """`fit_garch_11` with quantcore's own optimizer; its default backend is `arch`, the oracle."""
     epsilon = returns - returns.mean()
-    omega, alpha, beta = qc_volatility.fit_garch_11(returns)
+    omega, alpha, beta = qc_volatility.fit_garch_11(returns, backend="quantcore")
     log_likelihood = _garch_gaussian_loglik(epsilon, omega, alpha, beta)
     return log_likelihood, np.array([omega, alpha, beta], dtype=np.float64)
 

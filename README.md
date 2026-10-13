@@ -97,7 +97,12 @@ than silently falling back to a slower implementation.
 
 ## Requirements
 
-Python 3.12+. Dependencies: NumPy, SciPy, Numba.
+Python 3.12+. Dependencies: NumPy, SciPy, Numba, plus three libraries that
+are the default backend of one function each and are imported only when that
+backend runs: `arch` (`fit_garch_11`), `QuantLib` (`heston_cos_call`,
+`heston_cos_put`) and `empyrical-reloaded`
+(`conditional_value_at_risk(method="historical")`). Each of those functions
+takes `backend="quantcore"` to use quantcore's own implementation instead.
 
 ## Using it as a library (downstream projects)
 
@@ -161,8 +166,9 @@ Profiles (`ci`, `full`, `explore`) and the rest are in
 are in `benchmarks/bench_quantcore.py` (`uv run python benchmarks/bench_quantcore.py`,
 needs the `oracle` extra).
 
-The oracle libraries are test-only and never imported from `src/quantcore` —
-quantcore's runtime dependencies stay NumPy/SciPy/Numba.
+Apart from the three default backends listed under Requirements (`arch`,
+`QuantLib`, `empyrical-reloaded`), the oracle libraries are test-only and
+never imported from `src/quantcore`.
 
 ### Conventions
 

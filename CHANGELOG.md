@@ -10,6 +10,40 @@ to see exactly what changed and why before upgrading.
 
 ### Changed — default behaviour changed
 
+**Three functions use an external library by default, selected by a new
+keyword-only `backend` argument.** `backend="quantcore"` selects quantcore's
+own implementation, which is what each function ran in 0.2.0. `arch`,
+`QuantLib` and `empyrical-reloaded` are therefore runtime dependencies of the
+package; each is imported inside its function on first use.
+
+- `fit_garch_11(returns, *, backend="arch")` returns the `arch` package's
+  Gaussian GARCH(1,1) fit of the demeaned returns (the residuals are fitted in
+  units of their standard deviation and `omega` converted back, so the result
+  does not depend on the units of `returns`). The parameters differ from
+  0.2.0's: the two optimisers differ and `arch` seeds the variance recursion
+  with its backcast, where the `"quantcore"` backend seeds it at
+  `omega / (1 - alpha - beta)`. Both reach the same likelihood to about 1e-3
+  relative. On 2,000 simulated percent returns (true parameters 0.05, 0.08,
+  0.90): 0.2.0 and `backend="quantcore"` give (0.052542, 0.06296, 0.91242),
+  the default gives (0.053451, 0.06240, 0.91201). Non-convergence of `arch`
+  raises `ConvergenceError`; returns with no variation raise `ValueError`
+  (the `"quantcore"` backend returns (1e-10, 0.0, 0.0) for them).
+- `heston_cos_call` and `heston_cos_put` (`backend="quantlib"`) return
+  QuantLib's `AnalyticHestonEngine` price. A maturity that is not a whole
+  number of days is priced exactly by rescaling the unit of time. The price
+  agrees with the COS expansion (`backend="quantcore"`) to about 1e-6
+  relative; `n_terms` is used by the `"quantcore"` backend only. QuantLib
+  needs `xi > 0`: with `xi = 0` the default raises `ValueError` and
+  `backend="quantcore"` prices the deterministic-variance case.
+- `conditional_value_at_risk(..., method="historical", backend="empyrical")`
+  returns the negated `empyrical.conditional_value_at_risk`: the mean of the
+  `int((n - 1) * (1 - alpha)) + 1` smallest returns. `backend="quantcore"`
+  averages every return at or below the interpolated VaR threshold. The two
+  are equal unless returns tie at the threshold: for
+  `[-0.05, -0.02, -0.02, -0.02, 0.0, 0.01, 0.01, 0.02, 0.03, 0.04]` at 80%
+  the default gives 0.035 and `backend="quantcore"` (and 0.2.0) 0.0275. The
+  other methods have a single implementation and ignore `backend`.
+
 **`arima_fit` estimates by exact Gaussian maximum likelihood by default.** It
 previously minimised a conditional sum of squares (CSS), whose optimum
 attains a lower exact likelihood than the maximum-likelihood estimate on
@@ -230,6 +264,12 @@ before and after (the cost outweighs any gain).
 
 ### Changed — behaviour on invalid input
 
+- `heston_cos_call` and `heston_cos_put` with `backend="quantcore"` raise
+  `ValueError` for a vol-of-vol `0 < xi < 1e-4`. The COS characteristic
+  function loses accuracy there (against QuantLib about 1e-5 relative at
+  `xi = 1e-4`, 1e-2 at `1e-5`, and meaningless prices or NaN below about
+  `1e-7`); 0.2.0 returned those prices. `xi = 0` and the default backend are
+  unaffected.
 - `min_variance_weights`, `mean_variance_weights`,
   `unconstrained_mean_variance_weights`, `l1_turnover_penalized_weights` and
   `risk_parity_weights` raise `ValueError` naming the argument when

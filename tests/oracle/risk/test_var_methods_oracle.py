@@ -63,7 +63,9 @@ class TestHistoricalMethodMatchesEmpyrical:
         rng = np.random.default_rng(RNG_SEED)
         returns = rng.standard_t(df=4, size=2000) * 0.01 + 0.001
 
-        quantcore_cvar = conditional_value_at_risk(returns, confidence_level, method="historical")
+        quantcore_cvar = conditional_value_at_risk(
+            returns, confidence_level, method="historical", backend="quantcore"
+        )
         empyrical_cvar = empyrical.conditional_value_at_risk(returns, cutoff=1.0 - confidence_level)
 
         assert quantcore_cvar == pytest.approx(-empyrical_cvar, rel=1e-9)

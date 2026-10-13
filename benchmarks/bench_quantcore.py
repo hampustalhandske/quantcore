@@ -564,7 +564,10 @@ def _gaussian_garch_loglik(epsilon: FloatArray, omega: float, alpha: float, beta
 
 
 def bench_garch_fit() -> list[Row]:
-    """`fit_garch_11` against `arch` on the same demeaned percent-return series.
+    """`fit_garch_11(backend="quantcore")` against `arch` on the same percent-return series.
+
+    `fit_garch_11`'s default backend is `arch` itself, so the rows time
+    quantcore's own optimizer.
 
     Agreement follows the edgelab conformance rule for this estimator: both
     fitted parameter sets are scored under one shared Gaussian log-likelihood
@@ -578,7 +581,7 @@ def bench_garch_fit() -> list[Row]:
         epsilon = returns - returns.mean()
 
         def fit_quantcore(returns: FloatArray = returns) -> tuple[float, float, float]:
-            return fit_garch_11(returns)
+            return fit_garch_11(returns, backend="quantcore")
 
         def fit_arch(epsilon: FloatArray = epsilon) -> FloatArray:
             model = arch_model(
@@ -593,7 +596,7 @@ def bench_garch_fit() -> list[Row]:
         agree = bool(np.isclose(ll_quantcore, ll_arch, rtol=1e-3, atol=1e-2))
         rows.append(
             Row(
-                "fit_garch_11",
+                'fit_garch_11(backend="quantcore")',
                 f"{n:,} obs",
                 t_quantcore,
                 "arch",
@@ -776,6 +779,7 @@ def _quantcore_heston_calls(contracts: list[tuple[float, int]]) -> npt.NDArray[n
                 HESTON_THETA,
                 HESTON_XI,
                 HESTON_RHO,
+                backend="quantcore",
             )
             for strike, days in contracts
         ]
@@ -792,7 +796,10 @@ def _heston_prices_agree(actual: FloatArray, expected: FloatArray) -> bool:
 
 
 def bench_heston() -> list[Row]:
-    """`heston_cos_call` against `QuantLib.AnalyticHestonEngine`.
+    """`heston_cos_call(backend="quantcore")` against `QuantLib.AnalyticHestonEngine`.
+
+    `heston_cos_call`'s default backend is that engine, so the rows time
+    quantcore's own COS expansion.
 
     QuantLib time includes building the term structures, process, model and
     engine, since quantcore's function starts from the same scalar inputs. On
@@ -829,7 +836,7 @@ def bench_heston() -> list[Row]:
                 )
             rows.append(
                 Row(
-                    "heston_cos_call",
+                    'heston_cos_call(backend="quantcore")',
                     label,
                     t_quantcore,
                     engine_label,
@@ -965,6 +972,10 @@ def bench_engle_granger() -> list[Row]:
 def bench_var_cvar() -> list[Row]:
     """Historical `value_at_risk` / `conditional_value_at_risk` against `empyrical`.
 
+    `conditional_value_at_risk`'s default backend for the historical method is
+    `empyrical` itself, so its rows time quantcore's own tail mean
+    (`backend="quantcore"`).
+
     `skfolio.measures` is added when installed. Its VaR is an order statistic
     where quantcore and empyrical interpolate the empirical quantile linearly,
     so that row is flagged as not comparable. Its CVaR is the
@@ -987,7 +998,9 @@ def bench_var_cvar() -> list[Row]:
             return value_at_risk(returns, confidence, method="historical")
 
         def cvar_quantcore(returns: FloatArray = returns) -> float:
-            return conditional_value_at_risk(returns, confidence, method="historical")
+            return conditional_value_at_risk(
+                returns, confidence, method="historical", backend="quantcore"
+            )
 
         def var_empyrical(returns: FloatArray = returns) -> float:
             return -float(empyrical.value_at_risk(returns, cutoff=1.0 - confidence))
@@ -1004,7 +1017,7 @@ def bench_var_cvar() -> list[Row]:
                 "yes: linearly interpolated empirical quantile",
             ),
             (
-                "conditional_value_at_risk (historical)",
+                'conditional_value_at_risk (historical, backend="quantcore")',
                 cvar_quantcore,
                 "empyrical",
                 cvar_empyrical,
@@ -1028,7 +1041,7 @@ def bench_var_cvar() -> list[Row]:
                     "NOT COMPARABLE: skfolio returns an order statistic, no interpolation",
                 ),
                 (
-                    "conditional_value_at_risk (historical)",
+                    'conditional_value_at_risk (historical, backend="quantcore")',
                     cvar_quantcore,
                     "skfolio",
                     cvar_skfolio,

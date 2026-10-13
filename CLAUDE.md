@@ -10,6 +10,10 @@ numbers without re-deriving them.
 
 - Python 3.12, managed with `uv` (not pip/poetry directly)
 - NumPy + SciPy for reference implementations
+- Runtime dependencies: NumPy, SciPy, Numba, and three libraries that are the
+  default backend of one function each (`arch` for `fit_garch_11`, `QuantLib`
+  for `heston_cos_call`/`heston_cos_put`, `empyrical-reloaded` for
+  `conditional_value_at_risk(method="historical")`)
 - ruff (lint + format), mypy (strict), pytest
 
 ## Commands
@@ -71,6 +75,13 @@ numbers without re-deriving them.
   `core/`).
 - No silent fallbacks: if a Numba-compiled path fails, raise — don't
   transparently fall back to slow Python without telling the caller.
+- A function that delegates to an external library does so through an explicit
+  keyword-only `backend` argument that names the library, with
+  `backend="quantcore"` selecting quantcore's own implementation. The library
+  is imported inside the function, on first use. Tests, oracle tests,
+  conformance adapters and benchmark rows that check quantcore's own
+  implementation pass `backend="quantcore"`; no other library may be imported
+  from `src/quantcore`.
 - A change that moves a public function's numbers, or adds a public function
   that has an independent oracle, updates its conformance target and
   regenerates `conformance/conformance_map.json` in the same change. A

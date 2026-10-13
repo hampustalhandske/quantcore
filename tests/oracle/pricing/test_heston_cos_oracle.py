@@ -12,6 +12,7 @@ below the tolerance applied here.
 from __future__ import annotations
 
 import itertools
+from functools import partial
 
 import pytest
 
@@ -19,7 +20,12 @@ pytest.importorskip("QuantLib")
 
 import QuantLib as ql
 
-from quantcore.pricing.heston import heston_cos_call, heston_cos_put
+from quantcore.pricing import heston
+
+# The COS expansion is what these tests check against QuantLib, so they pin the
+# "quantcore" backend; with the default backend the price is QuantLib's own.
+heston_cos_call = partial(heston.heston_cos_call, backend="quantcore")
+heston_cos_put = partial(heston.heston_cos_put, backend="quantcore")
 
 pytestmark = pytest.mark.oracle
 

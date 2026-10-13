@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+from functools import partial
+from types import MappingProxyType
+
 import numpy as np
 import pytest
+import QuantLib as ql
 
+from quantcore import pricing
 from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
-from quantcore.pricing.heston import (
-    _heston_char_func,
-    _heston_cumulants,
-    heston_cos_call,
-    heston_cos_put,
-)
+from quantcore.pricing.heston import _heston_char_func, _heston_cumulants
+
+# `TestHestonCosCall`, `TestHestonCumulants` and `TestHestonCosPut` test the
+# COS expansion, which is the "quantcore" backend. `TestQuantLibBackend` and
+# `TestBackendDomains` call the public functions with their default backend.
+heston_cos_call = partial(pricing.heston_cos_call, backend="quantcore")
+heston_cos_put = partial(pricing.heston_cos_put, backend="quantcore")
 
 BASE_KWARGS = dict(
     spot=100.0,
@@ -208,3 +214,158 @@ class TestHestonCosPut:
             rho=0.0,
         )
         assert price == pytest.approx(expected, abs=1e-8)
+
+
+def _quantlib_heston_price(
+    option_type: int,
+    spot: float,
+    strike: float,
+    rate: float,
+    days: int,
+    v0: float,
+    kappa: float,
+    theta: float,
+    xi: float,
+    rho: float,
+    dividend_yield: float,
+) -> float:
+    """`AnalyticHestonEngine` price for a maturity of a whole number of days (Actual/365)."""
+    today = ql.Settings.instance().evaluationDate
+    day_count = ql.Actual365Fixed()
+    process = ql.HestonProcess(
+        ql.YieldTermStructureHandle(ql.FlatForward(today, rate, day_count)),
+        ql.YieldTermStructureHandle(ql.FlatForward(today, dividend_yield, day_count)),
+        ql.QuoteHandle(ql.SimpleQuote(spot)),
+        v0,
+        kappa,
+        theta,
+        xi,
+        rho,
+    )
+    option = ql.EuropeanOption(
+        ql.PlainVanillaPayoff(option_type, strike), ql.EuropeanExercise(today + days)
+    )
+    option.setPricingEngine(ql.AnalyticHestonEngine(ql.HestonModel(process)))
+    return float(option.NPV())
+
+
+class TestQuantLibBackend:
+    """The default backend: QuantLib's `AnalyticHestonEngine`."""
+
+    PARAMS = MappingProxyType({"v0": 0.04, "kappa": 1.5, "theta": 0.05, "xi": 0.4, "rho": -0.6})
+
+    def test_is_the_default(self) -> None:
+        args = (100.0, 110.0, 0.03, 0.5)
+        assert pricing.heston_cos_call(*args, **self.PARAMS) == pricing.heston_cos_call(
+            *args, **self.PARAMS, backend="quantlib"
+        )
+        assert pricing.heston_cos_put(*args, **self.PARAMS) == pricing.heston_cos_put(
+            *args, **self.PARAMS, backend="quantlib"
+        )
+
+    @pytest.mark.parametrize("days", [7, 30, 183, 365, 730])
+    @pytest.mark.parametrize("strike", [70.0, 100.0, 140.0])
+    def test_whole_day_maturity_is_the_engine_price(self, days: int, strike: float) -> None:
+        maturity = days / 365.0
+        call = pricing.heston_cos_call(
+            100.0, strike, 0.03, maturity, **self.PARAMS, dividend_yield=0.01
+        )
+        put = pricing.heston_cos_put(
+            100.0, strike, 0.03, maturity, **self.PARAMS, dividend_yield=0.01
+        )
+        expected_call = _quantlib_heston_price(
+            ql.Option.Call, 100.0, strike, 0.03, days, 0.04, 1.5, 0.05, 0.4, -0.6, 0.01
+        )
+        expected_put = _quantlib_heston_price(
+            ql.Option.Put, 100.0, strike, 0.03, days, 0.04, 1.5, 0.05, 0.4, -0.6, 0.01
+        )
+        assert call == pytest.approx(expected_call, rel=1e-12, abs=1e-14)
+        assert put == pytest.approx(expected_put, rel=1e-12, abs=1e-14)
+
+    @pytest.mark.parametrize("maturity", [0.0137, 0.1, 0.37, 1.6181657, 2.5])
+    @pytest.mark.parametrize("strike", [60.0, 100.0, 180.0])
+    def test_any_maturity_agrees_with_the_cos_backend(self, maturity: float, strike: float) -> None:
+        for price in (pricing.heston_cos_call, pricing.heston_cos_put):
+            from_quantlib = price(100.0, strike, 0.02, maturity, **self.PARAMS, dividend_yield=0.01)
+            from_cos = price(
+                100.0,
+                strike,
+                0.02,
+                maturity,
+                **self.PARAMS,
+                dividend_yield=0.01,
+                backend="quantcore",
+            )
+            assert from_quantlib == pytest.approx(from_cos, rel=1e-6, abs=1e-8)
+
+    def test_put_call_parity(self) -> None:
+        spot, strike, rate, maturity, dividend_yield = 100.0, 110.0, 0.03, 0.37, 0.01
+        call = pricing.heston_cos_call(
+            spot, strike, rate, maturity, **self.PARAMS, dividend_yield=dividend_yield
+        )
+        put = pricing.heston_cos_put(
+            spot, strike, rate, maturity, **self.PARAMS, dividend_yield=dividend_yield
+        )
+        forward_value = spot * np.exp(-dividend_yield * maturity) - strike * np.exp(
+            -rate * maturity
+        )
+        assert call - put == pytest.approx(forward_value, abs=1e-10)
+
+    def test_leaves_the_quantlib_evaluation_date_alone_and_does_not_depend_on_it(self) -> None:
+        settings = ql.Settings.instance()
+        original = settings.evaluationDate
+        args = (100.0, 95.0, 0.03, 0.41)
+        try:
+            baseline = pricing.heston_cos_call(*args, **self.PARAMS)
+            settings.evaluationDate = ql.Date(15, 6, 2031)
+            shifted = pricing.heston_cos_call(*args, **self.PARAMS)
+            assert settings.evaluationDate == ql.Date(15, 6, 2031)
+        finally:
+            settings.evaluationDate = original
+        assert shifted == pytest.approx(baseline, rel=1e-12)
+
+    def test_returns_a_python_float(self) -> None:
+        assert type(pricing.heston_cos_call(100.0, 100.0, 0.03, 1.0, **self.PARAMS)) is float
+
+    @pytest.mark.parametrize("price", [pricing.heston_cos_call, pricing.heston_cos_put])
+    def test_unknown_backend_raises(self, price) -> None:
+        with pytest.raises(ValueError, match="backend"):
+            price(100.0, 100.0, 0.03, 1.0, **self.PARAMS, backend="cos")
+
+    def test_invalid_inputs_raise_before_quantlib_is_called(self) -> None:
+        with pytest.raises(ValueError):
+            pricing.heston_cos_call(-100.0, 100.0, 0.03, 1.0, **self.PARAMS)
+
+
+class TestBackendDomains:
+    """Inputs one backend prices and the other cannot."""
+
+    PARAMS = MappingProxyType({"v0": 0.04, "kappa": 1.5, "theta": 0.05, "rho": -0.6})
+
+    @pytest.mark.parametrize("price", [pricing.heston_cos_call, pricing.heston_cos_put])
+    def test_quantlib_backend_rejects_zero_vol_of_vol(self, price) -> None:
+        with pytest.raises(ValueError, match='backend="quantcore"'):
+            price(100.0, 105.0, 0.03, 0.5, xi=0.0, **self.PARAMS)
+
+    def test_quantlib_backend_prices_a_tiny_vol_of_vol_at_its_deterministic_limit(self) -> None:
+        tiny = pricing.heston_cos_call(100.0, 105.0, 0.03, 0.5, xi=1e-9, **self.PARAMS)
+        limit = pricing.heston_cos_call(
+            100.0, 105.0, 0.03, 0.5, xi=0.0, **self.PARAMS, backend="quantcore"
+        )
+        assert tiny == pytest.approx(limit, rel=1e-7)
+
+    @pytest.mark.parametrize("xi", [1e-12, 1e-8, 1e-6, 9.9e-5])
+    @pytest.mark.parametrize("price", [pricing.heston_cos_call, pricing.heston_cos_put])
+    def test_quantcore_backend_rejects_a_vol_of_vol_too_small_for_its_arithmetic(
+        self, price, xi: float
+    ) -> None:
+        with pytest.raises(ValueError, match='backend="quantlib"'):
+            price(100.0, 105.0, 0.03, 0.5, xi=xi, **self.PARAMS, backend="quantcore")
+
+    @pytest.mark.parametrize("backend", ["quantlib", "quantcore"])
+    def test_zero_maturity_is_the_intrinsic_value(self, backend: str) -> None:
+        params = {**self.PARAMS, "xi": 0.4, "backend": backend}
+        assert pricing.heston_cos_call(100.0, 90.0, 0.03, 0.0, **params) == 10.0
+        assert pricing.heston_cos_put(100.0, 90.0, 0.03, 0.0, **params) == 0.0
+        assert pricing.heston_cos_call(100.0, 120.0, 0.03, 0.0, **params) == 0.0
+        assert pricing.heston_cos_put(100.0, 120.0, 0.03, 0.0, **params) == 20.0

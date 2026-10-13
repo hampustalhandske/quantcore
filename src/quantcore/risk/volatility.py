@@ -30,10 +30,15 @@ References:
 
 from __future__ import annotations
 
+import warnings
+from typing import Literal
+
 import numba
 import numpy as np
 import numpy.typing as npt
 from scipy.optimize import NonlinearConstraint, minimize
+
+GarchBackend = Literal["arch", "quantcore"]
 
 
 class ConvergenceError(RuntimeError):
@@ -231,8 +236,17 @@ def _validate_fit_garch_inputs(returns: npt.NDArray[np.float64]) -> None:
         raise ValueError("returns must be non-empty")
 
 
-def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]:
+def fit_garch_11(
+    returns: npt.NDArray[np.float64], *, backend: GarchBackend = "arch"
+) -> tuple[float, float, float]:
     """Estimate GARCH(1,1) parameters (omega, alpha, beta) via Gaussian MLE.
+
+    `backend="arch"` (default) fits with the `arch` package;
+    `backend="quantcore"` fits with this module's own optimizer. Both
+    maximize the same Gaussian likelihood of the same model on the same
+    demeaned series and reach the same likelihood to about 1e-3 relative;
+    the parameters differ slightly, because the optimizers differ and the
+    two treat the first variance differently (below).
 
     `returns` is the raw (not pre-mean-adjusted) return series. It is
     demeaned internally with the sample mean, `mu_hat = returns.mean()`,
@@ -241,8 +255,7 @@ def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]
 
         sigma_t^2 = omega + alpha * epsilon_{t-1}^2 + beta * sigma_{t-1}^2
 
-    seeded at `sigma_0^2 = omega / (1 - alpha - beta)`, matching
-    `garch_11_variance`'s convention. Parameters are estimated by maximizing
+    Parameters are estimated by maximizing
     the Gaussian log-likelihood
 
         log L = -0.5 * sum_t [ log(2*pi) + log(sigma_t^2) + epsilon_t^2 / sigma_t^2 ]
@@ -250,18 +263,31 @@ def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]
     subject to the covariance-stationarity constraints omega > 0, alpha >=
     0, beta >= 0, alpha + beta < 1.
 
+    The `"quantcore"` backend seeds the recursion at the unconditional
+    variance `sigma_0^2 = omega / (1 - alpha - beta)`, matching
+    `garch_11_variance`'s convention, and runs SLSQP from several starting
+    points. The `"arch"` backend seeds it with `arch`'s backcast (an
+    exponentially weighted average of the first squared residuals) and runs
+    one SLSQP solve; the residuals are divided by their standard deviation
+    before the fit and `omega` is converted back afterwards, so the result
+    does not depend on the units of `returns`.
+
     Args:
         returns: Raw (not mean-adjusted) return series.
+        backend: `"arch"` (default) or `"quantcore"`.
 
     Returns:
         Tuple (omega_hat, alpha_hat, beta_hat) of fitted GARCH(1,1)
         parameters.
 
     Raises:
-        ValueError: If `returns` is empty.
+        ValueError: If `returns` is empty, `backend` is not one of the two
+            documented values, or (`"arch"` backend) the returns have no
+            variation.
         ConvergenceError: If maximum-likelihood optimization fails to
-            converge to a feasible solution from any of several starting
-            points (a `RuntimeError` subclass — see `ConvergenceError`).
+            converge to a feasible solution, from any of its starting
+            points for the `"quantcore"` backend (a `RuntimeError`
+            subclass — see `ConvergenceError`).
             No silent fallback and no partial result is returned in this
             case; catch `ConvergenceError` and read its `params` if you
             need the best attempt anyway. `egarch_fit`/`gjr_garch_fit`
@@ -276,7 +302,54 @@ def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]
         REFERENCES.md.
     """
     _validate_fit_garch_inputs(returns)
+    if backend not in ("arch", "quantcore"):
+        raise ValueError('backend must be "arch" or "quantcore"')
+    if backend == "arch":
+        return _fit_garch_11_arch(returns)
     return _fit_garch_11(returns)
+
+
+def _fit_garch_11_arch(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]:
+    """Gaussian GARCH(1,1) fit of the demeaned returns by the `arch` package.
+
+    The residuals are fitted in units of their standard deviation, where
+    `arch`'s optimizer is well scaled, and `omega` is returned in the units
+    of `returns` squared. `arch` is imported on first use, so importing
+    `quantcore.risk` does not load it (and statsmodels and pandas with it).
+
+    Raises:
+        ValueError: The demeaned returns are all zero.
+        ConvergenceError: `arch`'s optimizer did not report convergence.
+    """
+    import arch
+    from arch.utility.exceptions import ConvergenceWarning
+
+    epsilon = returns - returns.mean()
+    spread = float(np.std(epsilon))
+    if not spread > 0.0:
+        raise ValueError("returns have no variation; a GARCH(1,1) model cannot be fit to them")
+
+    model = arch.arch_model(
+        epsilon / spread, mean="Zero", vol="GARCH", p=1, q=1, dist="normal", rescale=False
+    )
+    with warnings.catch_warnings():
+        # Non-convergence is reported below by raising, not by a warning.
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        fitted = model.fit(disp="off")
+
+    omega, alpha, beta = (float(value) for value in np.asarray(fitted.params, dtype=np.float64))
+    params = (omega * spread * spread, alpha, beta)
+    if fitted.convergence_flag != 0:
+        raise ConvergenceError(
+            "fit_garch_11: arch's GARCH(1,1) maximum-likelihood optimization did not converge",
+            params=params,
+            # Likelihood of the residuals in their own units: the fit is on
+            # residuals divided by `spread`, which shifts the log-density of
+            # each observation by log(spread).
+            log_likelihood=float(fitted.loglikelihood) - epsilon.size * float(np.log(spread)),
+            optimizer_message=str(fitted.optimization_result.message),
+        )
+    return params
 
 
 # Several starting points spanning low/typical/high persistence, so a poor

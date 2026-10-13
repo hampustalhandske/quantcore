@@ -52,8 +52,24 @@ References:
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 import numpy.typing as npt
+
+HestonBackend = Literal["quantlib", "quantcore"]
+
+# QuantLib measures time in whole days. A maturity of T years is priced as
+# this many days per year, with the model's rates rescaled to match (see
+# `_heston_price_quantlib`).
+_QUANTLIB_DAYS_PER_YEAR = 365.0
+
+# The COS characteristic function divides differences of nearly equal terms by
+# xi^2. Against QuantLib the price is good to about 1e-7 relative at
+# xi = 1e-2, 1e-5 at 1e-4 and 1e-2 at 1e-5, and meaningless below about 1e-7;
+# xi = 0 itself has its own closed form. Positive values below this bound are
+# refused.
+_COS_MIN_VOL_OF_VOL = 1e-4
 
 
 def _validate_heston_cos_call(
@@ -100,8 +116,14 @@ def heston_cos_call(
     rho: float,
     n_terms: int = 2048,
     dividend_yield: float = 0.0,
+    *,
+    backend: HestonBackend = "quantlib",
 ) -> float:
-    """Price a European call under the Heston model via the COS method.
+    """Price a European call under the Heston model.
+
+    `backend="quantlib"` (default) prices with QuantLib's semi-analytic
+    `AnalyticHestonEngine`; `backend="quantcore"` prices with this module's
+    Fourier-cosine (COS) expansion. The two agree to about 1e-6 relative.
 
     Args:
         spot: Current price of the underlying asset (S0).
@@ -111,9 +133,12 @@ def heston_cos_call(
         v0: Initial variance.
         kappa: Mean-reversion speed of variance.
         theta: Long-run variance.
-        xi: Vol-of-vol.
+        xi: Vol-of-vol. The `"quantlib"` backend needs `xi > 0`; the
+            `"quantcore"` backend needs `xi = 0` (deterministic variance)
+            or `xi >= 1e-4`.
         rho: Correlation between the spot and variance Brownian motions.
-        n_terms: Number of cosine-series terms. The default (2048) resolves
+        n_terms: Number of cosine-series terms, used by the `"quantcore"`
+            backend only. The default (2048) resolves
             the tail-adaptive truncation range to ~1e-8 relative across
             moneyness 0.5-3, maturities 0.02-2y and vol-of-vol up to 1.0;
             fewer than ~1024 terms loses accuracy on short-dated or
@@ -122,16 +147,31 @@ def heston_cos_call(
         dividend_yield: Continuously compounded dividend yield / cost-of-
             carry adjustment (q). 0.0 (default) is plain Heston, drift r.
 
+        backend: `"quantlib"` (default) or `"quantcore"`. See
+            `_heston_price_quantlib` for how a maturity that is not a whole
+            number of days is priced with QuantLib.
+
     Returns:
-        The Heston call price, obtained from the COS put price by put-call
-        parity `put + spot*exp(-q*T) - strike*exp(-r*T)`.
+        The Heston call price. With `backend="quantcore"` it is obtained
+        from the COS put price by put-call parity
+        `put + spot*exp(-q*T) - strike*exp(-r*T)`.
+
+    Raises:
+        ValueError: If an input is outside its domain or `backend` is not
+            one of the two documented values.
 
     References:
-        Heston (1993); Fang & Oosterlee (2008). See docs/REFERENCES.md.
+        Heston (1993); Fang & Oosterlee (2008) for the COS expansion. See
+        docs/REFERENCES.md.
     """
     _validate_heston_cos_call(
         spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms
     )
+    _validate_heston_backend(backend, xi)
+    if backend == "quantlib":
+        return _heston_price_quantlib(
+            True, spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, dividend_yield
+        )
     return _heston_cos_call(
         spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms, dividend_yield
     )
@@ -149,26 +189,117 @@ def heston_cos_put(
     rho: float,
     n_terms: int = 2048,
     dividend_yield: float = 0.0,
+    *,
+    backend: HestonBackend = "quantlib",
 ) -> float:
-    """Price a European put under the Heston model via the COS method.
+    """Price a European put under the Heston model.
+
+    `backend="quantlib"` (default) prices with QuantLib's semi-analytic
+    `AnalyticHestonEngine`; `backend="quantcore"` prices with this module's
+    Fourier-cosine (COS) expansion. The two agree to about 1e-6 relative.
 
     Args: see `heston_cos_call`.
 
     Returns:
-        The Heston put price. This is the quantity the cosine expansion
-        computes directly; `heston_cos_call` is derived from it by put-call
-        parity, so `call - put == spot*exp(-q*T) - strike*exp(-r*T)` holds
-        to round-off.
+        The Heston put price. With `backend="quantcore"` this is the
+        quantity the cosine expansion computes directly and
+        `heston_cos_call` is derived from it by put-call parity, so
+        `call - put == spot*exp(-q*T) - strike*exp(-r*T)` holds to
+        round-off. With `backend="quantlib"` both prices come from the
+        engine and parity holds to the engine's integration accuracy.
+
+    Raises:
+        ValueError: If an input is outside its domain or `backend` is not
+            one of the two documented values.
 
     References:
-        Heston (1993); Fang & Oosterlee (2008). See docs/REFERENCES.md.
+        Heston (1993); Fang & Oosterlee (2008) for the COS expansion. See
+        docs/REFERENCES.md.
     """
     _validate_heston_cos_call(
         spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms
     )
+    _validate_heston_backend(backend, xi)
+    if backend == "quantlib":
+        return _heston_price_quantlib(
+            False, spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, dividend_yield
+        )
     return _heston_cos_put(
         spot, strike, rate, time_to_maturity, v0, kappa, theta, xi, rho, n_terms, dividend_yield
     )
+
+
+def _validate_heston_backend(backend: str, xi: float) -> None:
+    if backend not in ("quantlib", "quantcore"):
+        raise ValueError('backend must be "quantlib" or "quantcore"')
+    if backend == "quantcore" and 0.0 < xi < _COS_MIN_VOL_OF_VOL:
+        raise ValueError(
+            f"xi must be 0 or at least {_COS_MIN_VOL_OF_VOL:g} for the COS expansion, which "
+            'loses accuracy for a smaller vol-of-vol; use backend="quantlib"'
+        )
+    if backend == "quantlib" and xi == 0.0:
+        raise ValueError(
+            "QuantLib's Heston engine needs xi > 0; the deterministic-variance case xi = 0 "
+            'is priced by backend="quantcore"'
+        )
+
+
+def _heston_price_quantlib(
+    is_call: bool,
+    spot: float,
+    strike: float,
+    rate: float,
+    time_to_maturity: float,
+    v0: float,
+    kappa: float,
+    theta: float,
+    xi: float,
+    rho: float,
+    dividend_yield: float,
+) -> float:
+    """European option price under Heston from QuantLib's `AnalyticHestonEngine`.
+
+    QuantLib prices to an exercise date, so the maturity it sees is a whole
+    number of days. The Heston model is invariant under a change of the unit
+    of time: with `c > 0`, the price for maturity `T` and parameters
+    `(r, q, v0, kappa, theta, xi)` equals the price for maturity `c*T` and
+    parameters `(r, q, v0, kappa, theta, xi) / c`, with `rho` unchanged. Here
+    `c` is chosen so that `c*T` is `max(1, round(365*T))` days under
+    Actual/365 (Fixed), which makes the engine price exactly the requested
+    `T` and leaves `c` within one part in `365*T` of 1.
+
+    The term structures are flat, continuously compounded, and anchored at
+    QuantLib's current evaluation date, which is read and not modified. The
+    price does not depend on that date. QuantLib is imported on first use.
+
+    At `time_to_maturity = 0` the price is the option's intrinsic value and
+    QuantLib is not called.
+    """
+    if time_to_maturity == 0.0:
+        intrinsic = spot - strike if is_call else strike - spot
+        return float(max(intrinsic, 0.0))
+
+    import QuantLib as ql
+
+    days = max(1, round(_QUANTLIB_DAYS_PER_YEAR * time_to_maturity))
+    time_scale = (days / _QUANTLIB_DAYS_PER_YEAR) / time_to_maturity
+
+    today = ql.Settings.instance().evaluationDate
+    day_count = ql.Actual365Fixed()
+    process = ql.HestonProcess(
+        ql.YieldTermStructureHandle(ql.FlatForward(today, rate / time_scale, day_count)),
+        ql.YieldTermStructureHandle(ql.FlatForward(today, dividend_yield / time_scale, day_count)),
+        ql.QuoteHandle(ql.SimpleQuote(spot)),
+        v0 / time_scale,
+        kappa / time_scale,
+        theta / time_scale,
+        xi / time_scale,
+        rho,
+    )
+    payoff = ql.PlainVanillaPayoff(ql.Option.Call if is_call else ql.Option.Put, strike)
+    option = ql.EuropeanOption(payoff, ql.EuropeanExercise(today + days))
+    option.setPricingEngine(ql.AnalyticHestonEngine(ql.HestonModel(process)))
+    return float(option.NPV())
 
 
 def _heston_char_func(

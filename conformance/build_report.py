@@ -1570,7 +1570,9 @@ REPRO_CONFIGS: dict[str, ReproCallConfig] = {
             "    v = qc.garch_11_variance(eps, omega, alpha, beta)\n"
             "    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(v) + eps**2 / v))"
         ),
-        quantcore_call="_ll(returns - returns.mean(), *qc.fit_garch_11(returns))",
+        quantcore_call=(
+            '_ll(returns - returns.mean(), *qc.fit_garch_11(returns, backend="quantcore"))'
+        ),
         oracle_import="from arch.univariate import arch_model",
         oracle_call=(
             "_ll(returns - returns.mean(), *[float(arch_model(returns - returns.mean(), "

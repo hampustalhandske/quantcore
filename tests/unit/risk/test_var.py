@@ -25,6 +25,7 @@ the ambiguity no longer applies once that convention is spelled out.
 
 from __future__ import annotations
 
+import empyrical
 import numpy as np
 import pytest
 from scipy.stats import norm
@@ -426,3 +427,58 @@ class TestValueAtRiskMethods:
         cf = conditional_value_at_risk(returns, 0.95, method="cornish_fisher")
         gaussian = conditional_value_at_risk(returns, 0.95, method="gaussian")
         assert cf == pytest.approx(gaussian, rel=1e-2)
+
+
+class TestHistoricalCvarBackend:
+    """Historical CVaR: empyrical's implementation by default, quantcore's on request."""
+
+    RETURNS = np.random.default_rng(1).standard_t(df=4, size=2520) * 0.01
+
+    def test_empyrical_is_the_default(self) -> None:
+        default = conditional_value_at_risk(self.RETURNS, 0.95, method="historical")
+        explicit = conditional_value_at_risk(
+            self.RETURNS, 0.95, method="historical", backend="empyrical"
+        )
+        assert default == explicit
+
+    @pytest.mark.parametrize("confidence_level", [0.9, 0.95, 0.99])
+    def test_default_is_the_negated_empyrical_value(self, confidence_level: float) -> None:
+        expected = -float(
+            empyrical.conditional_value_at_risk(self.RETURNS, cutoff=1.0 - confidence_level)
+        )
+        actual = conditional_value_at_risk(self.RETURNS, confidence_level, method="historical")
+        assert actual == expected
+        assert type(actual) is float
+
+    @pytest.mark.parametrize("confidence_level", [0.9, 0.95, 0.99])
+    def test_backends_agree_without_ties(self, confidence_level: float) -> None:
+        from_empyrical = conditional_value_at_risk(
+            self.RETURNS, confidence_level, method="historical"
+        )
+        own = conditional_value_at_risk(
+            self.RETURNS, confidence_level, method="historical", backend="quantcore"
+        )
+        assert from_empyrical == pytest.approx(own, rel=1e-12)
+
+    def test_backends_differ_when_returns_tie_at_the_threshold(self) -> None:
+        # Sorted: -0.05, then three returns of -0.02. At 80% the tail of the
+        # empyrical backend is the two smallest returns; the quantcore
+        # backend's tail is every return at or below the interpolated
+        # quantile (-0.02), which takes in all three tied values.
+        returns = np.array([-0.05, -0.02, -0.02, -0.02, 0.0, 0.01, 0.01, 0.02, 0.03, 0.04])
+        from_empyrical = conditional_value_at_risk(returns, 0.8, method="historical")
+        own = conditional_value_at_risk(returns, 0.8, method="historical", backend="quantcore")
+        assert from_empyrical == pytest.approx((0.05 + 0.02) / 2.0)
+        assert own == pytest.approx((0.05 + 3 * 0.02) / 4.0)
+
+    @pytest.mark.parametrize("method", ["gaussian", "cornish_fisher"])
+    def test_backend_does_not_affect_the_parametric_methods(self, method: str) -> None:
+        with_empyrical = conditional_value_at_risk(self.RETURNS, 0.95, method=method)
+        with_quantcore = conditional_value_at_risk(
+            self.RETURNS, 0.95, method=method, backend="quantcore"
+        )
+        assert with_empyrical == with_quantcore
+
+    def test_unknown_backend_raises(self) -> None:
+        with pytest.raises(ValueError, match="backend"):
+            conditional_value_at_risk(self.RETURNS, 0.95, method="historical", backend="numpy")

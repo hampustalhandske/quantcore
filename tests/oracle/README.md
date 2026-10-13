@@ -9,9 +9,11 @@ self-consistent.
 These tests import reference libraries (`statsmodels`, `arch`,
 `scikit-learn`, `linearmodels`, `empyrical`, `quantstats`, `QuantLib`,
 `vollib`/`py_vollib`, `hmmlearn`, `filterpy`, `cvxpy`, `hypothesis`) from the
-`oracle` extra. They are the only place in this repo those libraries are
-imported — quantcore's runtime dependencies stay NumPy/SciPy/Numba (see
-`CLAUDE.md`).
+`oracle` extra. `arch`, `QuantLib` and `empyrical` are also the default
+backend of one quantcore function each (see `CLAUDE.md`); the tests here
+check quantcore's own implementation of those functions, so they pass
+`backend="quantcore"`. No other reference library is imported from
+`src/quantcore`.
 
 ## Running
 

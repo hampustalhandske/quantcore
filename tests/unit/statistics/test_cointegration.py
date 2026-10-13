@@ -109,17 +109,65 @@ class TestAdfTest:
         p_values = [_mackinnon_pvalue(t, n_series=1) for t in t_stats]
         assert all(a <= b for a, b in pairwise(p_values))
 
-    def test_mackinnon_pvalue_clamped_within_unit_interval_at_extremes(self) -> None:
+    @pytest.mark.parametrize("regression", ["n", "c", "ct"])
+    def test_mackinnon_pvalue_is_exactly_zero_or_one_beyond_tabulated_range(
+        self, regression: str
+    ) -> None:
         from quantcore.statistics.cointegration import _mackinnon_pvalue
 
-        very_negative = _mackinnon_pvalue(-100.0, n_series=1)
-        very_positive = _mackinnon_pvalue(100.0, n_series=1)
-        assert 0.0 <= very_negative <= 1.0
-        assert 0.0 <= very_positive <= 1.0
-        assert not np.isnan(very_negative)
-        assert not np.isnan(very_positive)
-        assert very_negative == pytest.approx(0.0001)
-        assert very_positive == pytest.approx(0.9999)
+        assert _mackinnon_pvalue(-100.0, n_series=1, regression=regression) == 0.0
+        assert _mackinnon_pvalue(100.0, n_series=1, regression=regression) == 1.0
+
+    @pytest.mark.parametrize(
+        ("regression", "t_stat"),
+        [("n", -5.0), ("c", -6.0), ("ct", -6.5)],
+    )
+    def test_mackinnon_pvalue_has_no_floor_inside_tabulated_range(
+        self, regression: str, t_stat: float
+    ) -> None:
+        # Each statistic lies well inside MacKinnon's tabulated range, where
+        # the small-p response surface gives a p-value below 1e-4.
+        from quantcore.statistics.cointegration import _mackinnon_pvalue
+
+        p_value = _mackinnon_pvalue(t_stat, n_series=1, regression=regression)
+        assert 0.0 < p_value < 1e-5
+
+    @pytest.mark.parametrize(
+        ("regression", "tau_max", "cubic"),
+        [
+            ("c", 2.74, (1.7339, 0.93202, -0.12745, -0.010368)),
+            ("ct", 0.70, (2.5261, 0.61654, -0.37956, -0.060285)),
+        ],
+    )
+    def test_mackinnon_pvalue_at_the_tabulated_maximum_is_the_surface_value(
+        self, regression: str, tau_max: float, cubic: tuple[float, float, float, float]
+    ) -> None:
+        # The tabulated range includes its end points: exactly at the
+        # maximum the N=1 cubic still applies (0.99909 for "c", 0.99703 for
+        # "ct"), and only beyond it is the p-value 1.0.
+        from scipy.stats import norm
+
+        from quantcore.statistics.cointegration import _mackinnon_pvalue
+
+        c0, c1, c2, c3 = cubic
+        surface = float(norm.cdf(c0 + c1 * tau_max + c2 * tau_max**2 + c3 * tau_max**3))
+        at_maximum = _mackinnon_pvalue(tau_max, n_series=1, regression=regression)
+        assert at_maximum == pytest.approx(surface, rel=1e-12)
+        assert at_maximum < 0.9995
+        beyond = _mackinnon_pvalue(np.nextafter(tau_max, np.inf), n_series=1, regression=regression)
+        assert beyond == 1.0
+
+    def test_adf_pvalue_of_strongly_stationary_series_is_below_one_in_ten_thousand(self) -> None:
+        series = _stationary_ar1(500, phi=0.2)
+        _, p_value = adf_test(series, max_lags=1)
+        assert 0.0 <= p_value < 1e-4
+
+    def test_adf_pvalue_of_explosive_series_is_exactly_one(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        series = 1.05 ** np.arange(60) + rng.normal(0.0, 0.01, size=60)
+        statistic, p_value = adf_test(series, max_lags=1)
+        assert statistic > 2.74
+        assert p_value == 1.0
 
     def test_mackinnon_pvalue_rejects_n_series_outside_tabulated_range(self) -> None:
         from quantcore.statistics.cointegration import _mackinnon_pvalue
@@ -206,8 +254,7 @@ class TestEngleGrangerTest:
 
     def test_pvalue_is_not_floored_for_strongly_cointegrated_pairs(self) -> None:
         # A near-white-noise spread gives a statistic far past MacKinnon's
-        # tabulated minimum; the p-value must saturate at exactly 0.0, not
-        # at `adf_test`'s 0.0001 floor.
+        # tabulated minimum, where the p-value is exactly 0.0.
         x = _random_walk(2000, seed=RNG_SEED)
         spread = _stationary_ar1(2000, phi=0.0, seed=RNG_SEED + 1)
         y = 2.0 * x + spread

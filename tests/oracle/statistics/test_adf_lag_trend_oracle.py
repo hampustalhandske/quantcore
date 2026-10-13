@@ -50,7 +50,10 @@ class TestTrendOptionMatchesStatsmodels:
             series, maxlag=1, regression=trend, autolag=None, result_object=False
         )
         assert quantcore_stat == pytest.approx(sm_stat, rel=1e-6)
-        assert quantcore_p == pytest.approx(sm_p, abs=1e-3)
+        # Relative with no absolute term: the p-value is the same closed
+        # form of the statistic on both sides, and the stationary series
+        # puts it far below 1e-4, where an absolute tolerance sees nothing.
+        assert quantcore_p == pytest.approx(sm_p, rel=1e-8, abs=0.0)
 
 
 class TestAutolagMatchesStatsmodels:
@@ -64,4 +67,7 @@ class TestAutolagMatchesStatsmodels:
             series, maxlag=10, regression=trend, autolag=autolag, result_object=False
         )
         assert quantcore_stat == pytest.approx(sm_stat, rel=1e-6)
-        assert quantcore_p == pytest.approx(sm_p, abs=1e-3)
+        # Relative with no absolute term: the p-value is the same closed
+        # form of the statistic on both sides, and the stationary series
+        # puts it far below 1e-4, where an absolute tolerance sees nothing.
+        assert quantcore_p == pytest.approx(sm_p, rel=1e-8, abs=0.0)

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from quantcore.portfolio.covariance import (
+    _ledoit_wolf_shrinkage,
     ewma_covariance,
     ledoit_wolf_shrinkage,
     sample_covariance,
@@ -84,6 +85,55 @@ class TestLedoitWolfShrinkage:
         sample_cond = sample_eigs[-1] / sample_eigs[0]
         shrunk_cond = shrunk_eigs[-1] / shrunk_eigs[0]
         assert shrunk_cond <= sample_cond + 1e-9
+
+
+def _looped_ledoit_wolf(returns: np.ndarray) -> np.ndarray:
+    """Ledoit-Wolf (2004) Theorem 1 with the dispersion sum formed observation by observation."""
+    num_obs, num_assets = returns.shape
+    demeaned = returns - returns.mean(axis=0)
+    sample = (demeaned.T @ demeaned) / num_obs
+    target = float(np.trace(sample)) / num_assets * np.eye(num_assets)
+    d_squared = float(np.sum((sample - target) ** 2)) / num_assets
+    b_bar_squared = 0.0
+    for t in range(num_obs):
+        outer_t = np.outer(demeaned[t], demeaned[t])
+        b_bar_squared += float(np.sum((outer_t - sample) ** 2)) / num_assets
+    b_bar_squared /= num_obs**2
+    alpha = 0.0 if d_squared == 0.0 else min(b_bar_squared, d_squared) / d_squared
+    return alpha * target + (1.0 - alpha) * sample
+
+
+class TestLedoitWolfClosedFormDispersion:
+    @pytest.mark.parametrize(
+        ("num_obs", "num_assets"),
+        [(2, 1), (2, 5), (3, 8), (5, 20), (30, 4), (252, 10), (400, 60)],
+    )
+    def test_matches_looped_computation(self, num_obs: int, num_assets: int) -> None:
+        rng = np.random.default_rng(num_obs * 1000 + num_assets)
+        returns = rng.normal(scale=0.01, size=(num_obs, num_assets))
+        np.testing.assert_allclose(
+            _ledoit_wolf_shrinkage(returns),
+            _looped_ledoit_wolf(returns),
+            rtol=1e-10,
+            atol=1e-14,
+        )
+
+    def test_matches_looped_computation_with_constant_column(self) -> None:
+        rng = np.random.default_rng(7)
+        returns = rng.normal(scale=0.01, size=(50, 4))
+        returns[:, 2] = 0.003
+        np.testing.assert_allclose(
+            _ledoit_wolf_shrinkage(returns),
+            _looped_ledoit_wolf(returns),
+            rtol=1e-10,
+            atol=1e-14,
+        )
+
+    def test_two_observations_give_finite_positive_semidefinite_result(self) -> None:
+        returns = np.array([[0.01, -0.02, 0.005], [-0.01, 0.03, 0.0]])
+        result = _ledoit_wolf_shrinkage(returns)
+        assert np.all(np.isfinite(result))
+        assert np.linalg.eigvalsh(result).min() >= -1e-15
 
 
 class TestSampleCovariance:

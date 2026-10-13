@@ -40,8 +40,9 @@ class ConvergenceError(RuntimeError):
     """Maximum-likelihood optimization failed to converge to a fully
     feasible solution from any starting point.
 
-    `fit_garch_11`, `egarch_fit`, and `gjr_garch_fit` all raise this in the
-    analogous case (see each function's docstring) — no silent fallback
+    `fit_garch_11`, `egarch_fit`, `gjr_garch_fit` and
+    `quantcore.time_series.arima_fit` all raise this in the analogous case
+    (see each function's docstring) — no silent fallback
     and no partial-result return value; the fit is not trustworthy enough
     to hand back as if it were a normal answer. Unlike a plain
     `RuntimeError`, it carries the best attempt actually found across all

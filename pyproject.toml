@@ -1,6 +1,6 @@
 [project]
 name = "quantcore"
-version = "0.2.0"
+version = "0.3.0"
 description = "Optimized numerical backend for derivative pricing, SDE simulation, and risk metrics"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,22 +18,27 @@ dev = [
     "pytest-cov>=5.0",
     "scipy-stubs>=1.13",
 ]
-# Independent oracle implementations used only under tests/oracle/ to verify
-# quantcore's numbers against a reference library. Never imported from
-# src/quantcore — runtime dependencies stay NumPy/SciPy/Numba (see CLAUDE.md).
+# Independent oracle implementations used only under tests/oracle/ and
+# conformance/ to verify quantcore's numbers against a reference library.
+# Never imported from src/quantcore — runtime dependencies stay
+# NumPy/SciPy/Numba (see CLAUDE.md). Pinned exactly: the conformance suite's
+# derandomized cases and recorded error bounds are only reproducible against
+# fixed oracle and hypothesis versions.
 oracle = [
-    "statsmodels>=0.14",
-    "arch>=7.0",
-    "scikit-learn>=1.5",
-    "linearmodels>=6.0",
-    "empyrical-reloaded>=0.5.11",
-    "quantstats>=0.0.64",
-    "QuantLib>=1.35",
-    "py_vollib>=1.0.12",
-    "hmmlearn>=0.3.2",
-    "filterpy>=1.4.5",
-    "cvxpy>=1.5",
-    "hypothesis>=6.100",
+    "statsmodels==0.15.0",
+    "arch==8.0.0",
+    "scikit-learn==1.9.1",
+    "linearmodels==7.0",
+    "empyrical-reloaded==0.5.12",
+    "quantstats==0.0.81",
+    "QuantLib==1.43",
+    "py_vollib==1.0.12",
+    "hmmlearn==0.3.3",
+    "filterpy==1.4.5",
+    "pykalman==0.11.2",
+    "cvxpy==1.9.3",
+    "pandas==3.0.6",
+    "hypothesis==6.168.0",
 ]
 
 [build-system]
@@ -52,7 +57,10 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "conformance"]
+# Finding write-ups quote repro scripts and their printed output verbatim in
+# code fences; they are prose records, not source to reformat.
+extend-exclude = ["conformance/findings_src", "conformance/findings"]
 
 [tool.ruff.lint]
 select = [
@@ -86,6 +94,7 @@ ignore = []
 # (used that way in QuantLib's own docs and every downstream project);
 # renaming would make oracle tests harder to cross-reference against them.
 "tests/oracle/**/*.py" = ["N813"]
+"conformance/**/*.py" = ["N813"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -114,6 +123,10 @@ disallow_untyped_defs = false
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# conformance/ is a plain directory at the repo root, not part of the installed
+# package; this makes it importable as `conformance.*` both for
+# `uv run pytest conformance` and for tests/unit/conformance/.
+pythonpath = ["."]
 markers = [
     "oracle: differential test against an independent reference implementation (requires the 'oracle' extra); see tests/oracle/README.md",
 ]

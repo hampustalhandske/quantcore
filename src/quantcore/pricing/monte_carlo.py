@@ -119,7 +119,11 @@ def _price_via_monte_carlo(
         # reduction from the negative correlation induced by antithetic
         # pairing (Boyle, Broadie & Glasserman 1997).
         pair_averages = (discounted_payoffs[:n_pairs] + discounted_payoffs[n_pairs:]) / 2.0
-        std_error = float(np.std(pair_averages, ddof=1) / np.sqrt(n_pairs))
+        if n_pairs == 1:
+            # One pair has no sample standard deviation (ddof=1).
+            std_error = 0.0
+        else:
+            std_error = float(np.std(pair_averages, ddof=1) / np.sqrt(n_pairs))
     else:
         # Odd num_paths: one path has no mirror, so fall back to the naive
         # (unpaired) standard error estimate. For a single path, the sample
@@ -162,6 +166,25 @@ def monte_carlo_call_price(
 
     Returns:
         Tuple of (price estimate, standard error of the estimate).
+
+        The standard error is a sample estimate, computed from the same
+        simulated payoffs as the price: the sample standard deviation of
+        the discounted payoffs divided by sqrt(num_paths). With
+        ``antithetic`` and an even ``num_paths`` it is the sample standard
+        deviation of the per-pair averages (each path averaged with its
+        mirror) divided by the square root of the number of pairs, which
+        accounts for the correlation within a pair. With ``antithetic`` and
+        an odd ``num_paths`` one path has no mirror and the unpaired
+        formula is used, which overstates the standard error. For a single
+        path, and for a single antithetic pair (``num_paths=2``), there is
+        no sample standard deviation and it is 0.0.
+
+        Because it is estimated from the paths, it tends to understate the
+        true standard error of the price when only a few simulated paths
+        finish in the money, and it is exactly 0.0, together with the
+        price, when none do. A returned (0.0, 0.0) for a deep
+        out-of-the-money option means that no simulated path paid, not
+        that the price is known to be zero.
 
     References:
         Boyle (1977); Boyle, Broadie & Glasserman (1997) for antithetic
@@ -245,6 +268,25 @@ def monte_carlo_put_price(
 
     Returns:
         Tuple of (price estimate, standard error of the estimate).
+
+        The standard error is a sample estimate, computed from the same
+        simulated payoffs as the price: the sample standard deviation of
+        the discounted payoffs divided by sqrt(num_paths). With
+        ``antithetic`` and an even ``num_paths`` it is the sample standard
+        deviation of the per-pair averages (each path averaged with its
+        mirror) divided by the square root of the number of pairs, which
+        accounts for the correlation within a pair. With ``antithetic`` and
+        an odd ``num_paths`` one path has no mirror and the unpaired
+        formula is used, which overstates the standard error. For a single
+        path, and for a single antithetic pair (``num_paths=2``), there is
+        no sample standard deviation and it is 0.0.
+
+        Because it is estimated from the paths, it tends to understate the
+        true standard error of the price when only a few simulated paths
+        finish in the money, and it is exactly 0.0, together with the
+        price, when none do. A returned (0.0, 0.0) for a deep
+        out-of-the-money option means that no simulated path paid, not
+        that the price is known to be zero.
 
     References:
         Boyle (1977); Boyle, Broadie & Glasserman (1997) for antithetic

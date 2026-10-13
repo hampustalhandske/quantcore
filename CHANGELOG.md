@@ -2,10 +2,502 @@
 
 All notable changes to quantcore are recorded here. Entries follow
 [Keep a Changelog](https://keepachangelog.com/) conventions. Numerical
-results that changed carry a before/after example, per `CLAUDE.md` /
-`QUANTCORE_FIX_PROMPT.md`'s ground rules — other projects install this
-package and must be able to see exactly what changed and why before
-upgrading.
+results that changed carry a before/after example, as the project's
+ground rules require — other projects install this package and must be able
+to see exactly what changed and why before upgrading.
+
+## [0.3.0] — Unreleased
+
+### Changed — default behaviour changed
+
+**`arima_fit` estimates by exact Gaussian maximum likelihood by default.** It
+previously minimised a conditional sum of squares (CSS), whose optimum
+attains a lower exact likelihood than the maximum-likelihood estimate on
+every finite sample. The exact likelihood of the differenced series is now
+evaluated by a Kalman filter started from the stationary state distribution
+(Gardner, Harvey and Phillips 1980; Harvey 1989), the AR part is kept
+stationary and the MA part invertible through partial autocorrelations
+(Jones 1980), and L-BFGS-B runs from the Hannan-Rissanen (1982) estimate,
+from white noise and from the fits of orders (p - 1, q) and (p, q - 1)
+(themselves fitted this way), each extended by a zero coefficient. `sigma2_hat` is the maximum-likelihood variance (divisor
+`n - d`), not `SSE / (n - d - max(p, q))`. The positional signature and the
+return shape are unchanged; the new keyword-only `method="css"` returns the
+earlier estimator bit for bit.
+
+```python
+# AR(1), phi = 0.6, 300 observations: x[0] = e[0], x[t] = 0.6*x[t-1] + e[t],
+# e = numpy.random.default_rng(7).normal(0, 1, 300)
+arima_fit(x, p=1, d=0, q=0)
+# before (now method="css"): ar 0.6365242614746099, sigma2_hat 0.8689611975116575, exact log-lik -404.3727735336
+# after  (method="mle"):     ar 0.6344189870378044, sigma2_hat 0.8660711163423243, exact log-lik -404.3708119624
+
+# ARMA(1,1), phi = 0.5, theta = 0.3, 300 observations, default_rng(7)
+arima_fit(y, p=1, d=0, q=1)  # (ar, ma, sigma2_hat)
+# before: (0.5513010759, 0.2676818335, 0.8693152182), log-lik -404.5281430698
+# after:  (0.5495632753, 0.2666657917, 0.8664134957), log-lik -404.5260312419
+```
+
+The median coefficient shift is about 1e-3 (worst seen 0.064) and
+`sigma2_hat` is about 0.1% lower. The default fit always returns a stationary
+AR part and an invertible MA part; CSS does not (an MA coefficient of -1.074
+occurred on one test case), and on a series with a unit root in levels the
+estimate now stops at the edge of the region (0.999999) instead of at or
+beyond 1. `arima_residuals` is unchanged and still returns conditional (CSS)
+residuals, so with the default fit's coefficients
+`sum(residuals**2) / residuals.size` is close to, but no longer equal to,
+`sigma2_hat`.
+
+The likelihood of a mixed model can have several local maxima, so a fit
+returned by the default method is never below the fit of an order nested in
+it. Started from the Hannan-Rissanen and white-noise points alone, L-BFGS-B
+can converge to a lower local maximum:
+
+```python
+# n = 300 from phi = (0.3, 0.4), theta = (0.2, -0.6), default_rng(75)
+arima_fit(w, 2, 0, 2)
+# from the two starts alone: exact log-lik -410.3065, below ARMA(2,1)'s -409.9786
+# as released:               exact log-lik -409.9638
+```
+
+Fitting order (p, q) fits every order (i, j) with i <= p and j <= q, so mixed
+fits take longer: 2.3 / 5.4 / 15.3 / 27.1 ms warm for (1,1) / (2,1) / (2,2) /
+(3,2) at n = 300 (one machine). Pure AR(1) and MA(1) fits are unaffected. The
+starts do not guarantee the global maximum: against the best of 20 random
+starts, 13 of 400 ARMA(2,2) and 3 of 400 ARMA(2,1) fits on the test seeds
+were still lower, by up to 4.3 and 0.46 log-likelihood units.
+
+**`select_arima_order` scores every candidate on its maximised exact
+log-likelihood** over the `n - d` differenced observations, with
+`k = p + q + 1`. It previously rebuilt a likelihood from the CSS variance on
+`n - d - max(p, q)` observations, a sample size that differed between the
+candidates being compared and favoured large orders. Candidates whose fit
+does not converge are skipped, so the order returned can always be fit.
+Signature and return shape are unchanged. Across different `d` the choice is
+still a heuristic (under AIC it can over-difference). A `d` whose
+differenced series has no variation (all values equal) is skipped for every
+candidate; it used to score an infinite or near-infinite likelihood and always
+won. Each fitted order is reused as a starting point for the larger ones.
+The test is exact equality, so a series constant only up to rounding noise is
+still fitted.
+
+```python
+# AR(1), phi = 0.7, 400 observations, default_rng(7)
+select_arima_order(x, max_p=3, max_d=1, max_q=2, criterion="bic")
+# before: (2, 0, 1)    after: (1, 0, 0)  (the true order)
+
+select_arima_order(np.full(40, 2.0), 2, 1, 2)  # before: (0, 1, 1)  after: ValueError
+select_arima_order(np.arange(40.0), 2, 2, 2)  # before: (0, 2, 1)  after: (2, 0, 2)
+```
+
+**`dynamic_hedge_ratio` starts from a data-independent prior mean of 0.** The
+filter's state was seeded with the first observed ratio `y[0] / x[0]` (or
+1.0 when `x[0] == 0`). That seed is unbounded: `x[0] = 1e-12` put the first
+value at 2e12 and the filter needed dozens of observations to forget it, and
+a subnormal `x[0]` overflowed the division and turned every returned value
+into NaN. The filter now starts from the prior `beta ~ N(initial_beta, 1)`
+with `initial_beta=0.0`, and runs the same predict/update step for every
+observation including the first. The recursion itself is unchanged. The
+keyword-only `initial_beta` sets the prior mean; `initial_beta=y[0] / x[0]`
+reproduces the old values (the caller guards `x[0] == 0`).
+
+```python
+y = np.array([2.1, 3.9, 6.2, 7.9, 10.1, 12.2])
+x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+dynamic_hedge_ratio(y, x)[:4]
+# before: [2.1,                1.979785520212058,  2.036637415302432, 2.001529957159298]
+# after:  [2.0979021188599516, 1.9793689436713953, 2.036493431455965, 2.0014679836768012]
+dynamic_hedge_ratio(y, x, initial_beta=y[0] / x[0])[:4]  # the old values
+```
+
+With `|x|` of order 5 and the default variances the change is about 4e-5
+relative at t = 0 and below 1e-9 after 25 points. `beta[0]` is no longer
+exactly `y[0] / x[0]`: it is that ratio shrunk towards 0 by
+`obs_var / (x[0]**2 * (1 + proc_var) + obs_var)`. Where `|x|` is small
+against `sqrt(obs_var)` (about 0.03 at the default), for example cumulative
+log returns, the zero-mean prior keeps early values near 0 for longer. Edge
+cases, 40-point series with a true ratio of 1.5 and `y[0] = 2.0`:
+
+| `x[0]` | before: `beta[0]`, `beta[1]` | after: `beta[0]`, `beta[1]` |
+|---|---|---|
+| `0.0` | 1.0, 1.50119 | 0.0, 1.50115 |
+| `1e-12` | 2e12, 7.1e7 | 2e-09, 1.50115 |
+| `5e-324` | nan, nan (plus `RuntimeWarning`s) | 9.9e-321, 1.50115 |
+
+Verified against `filterpy.kalman.KalmanFilter` started from the same prior
+on every element from the first, to 1e-10.
+
+### Fixed — numerical results changed
+
+**`arima_forecast` ignored the in-sample innovations.** It dropped the MA
+terms altogether, treating the innovations inside the sample as zero, so every
+forecast from a model with an MA part was wrong. It now returns the exact
+Gaussian conditional mean of the next `h` values given the whole series; the
+conditional means of the last `q` innovations come from the same Kalman filter
+the fit uses. Forecasts with no MA part (`ma_coefs` empty or all zero) are
+unchanged bit for bit.
+
+```python
+# y: ARMA(1,1), phi = 0.5, theta = 0.3, 300 observations, default_rng(7)
+arima_forecast(y, np.array([0.5]), np.array([0.3]), d=0, h=3)
+# before: [-0.04154350411754, -0.02077175205877, -0.01038587602939]
+# after:  [-0.02525242060343, -0.01262621030172, -0.00631310515086]
+```
+
+Verified against statsmodels' state-space ARIMA filtered at the same
+coefficients (worst absolute error 6.7e-16 over 200 cases).
+
+**`adf_test` clipped its p-value to [0.0001, 0.9999].** The p-value is
+`Phi(polynomial(statistic))` on MacKinnon's (1994) response surface, valid
+from the tabulated minimum statistic (-19.04, -18.83, -16.18 for trend `"n"`,
+`"c"`, `"ct"`) to the tabulated maximum (none, 2.74, 0.70). Inside that range
+the surface goes down to about 1e-30, but every p-value below 0.0001 was
+reported as 0.0001 and every one above 0.9999 as 0.9999. `adf_test` now
+returns the surface value as computed, exactly 0.0 below the tabulated
+minimum and exactly 1.0 above the tabulated maximum (the convention
+`engle_granger_test` already used and the p-value `statsmodels`'
+`adfuller` reports). The statistic is unchanged, and so is every
+reject/accept decision at a significance level of 0.0001 or more. A caller
+that takes `log(p)` or divides by `p` must now handle 0.0.
+
+```python
+# stationary AR(1), phi = 0.5, 200 observations, default_rng(0)
+adf_test(series, max_lags=1)  # before: (-6.2489, 0.0001)
+adf_test(
+    series, max_lags=1
+)  # after:  (-6.2489, 4.5045e-08) == adfuller(series, maxlag=1, autolag=None)[:2]
+
+# explosive: 1.05 ** np.arange(40) + default_rng(0).normal(0.0, 0.01, 40)
+adf_test(series, max_lags=1)  # before: (9.3764, 0.9999)
+adf_test(series, max_lags=1)  # after:  (9.3764, 1.0)
+```
+
+`engle_granger_test` changes only at a statistic exactly equal to a tabulated
+bound (the surface value is used there instead of the out-of-range value).
+Verified against `adfuller` for trends `"n"`, `"c"` and `"ct"` in both tails.
+
+**`mean_variance_weights`, `l1_turnover_penalized_weights` and
+`min_variance_weights` solve their quadratic programs exactly** (primal
+active-set method; Nocedal and Wright 2006, Algorithm 16.3, with Bland's 1977
+rule against cycling) instead of calling SLSQP. Results are the optimum to
+round-off and no longer depend on the units of the inputs. SLSQP's default
+`ftol=1e-6` is absolute and the objective was unscaled, so on
+daily-return-scale covariances (variances around 1e-4) the solver stopped at
+its equal-weight starting point and reported success. Assets excluded by
+`w >= 0` are now exactly 0.0 (previously about 1e-15, sometimes slightly
+negative). A zero-variance asset (cash) is solved exactly when shorting is
+allowed:
+
+```python
+# one cash asset (zero row and column) plus [[.04,.01,0],[.01,.09,.02],[0,.02,.16]]
+min_variance_weights(cov, allow_short=True)
+# before: [1.00018, -0.00097, 0.00077, 0.00002]   after: [1, 0, 0, 0]
+min_variance_weights(np.diag([0, 4, 0, 4.0]), allow_short=True)
+# before: [0.5, -3.7e-9, 0.5, -3.7e-9]            after: [0.5, 0, 0.5, 0]
+```
+
+Rescaling the covariance by 1e-300 to 1e308 gives the unscaled weights to
+2.2e-16.
+
+```python
+# daily-scale inputs, risk_aversion=3.0
+mu = np.array([0.0004, 0.0006, 0.0003, 0.0008])
+sd = np.array([0.010, 0.015, 0.008, 0.020])
+corr = np.array([[1, 0.3, 0.1, 0.2], [0.3, 1, 0.4, 0.1], [0.1, 0.4, 1, 0.3], [0.2, 0.1, 0.3, 1]])
+mean_variance_weights(mu, corr * np.outer(sd, sd), 3.0)
+# before: [0.25, 0.25, 0.25, 0.25]                      utility 4.0997e-4 (the starting point)
+# after:  [0.14809068, 0.43858288, 0.0, 0.41332644]     utility 4.4991e-4
+
+min_variance_weights(np.diag([0.01, 0.02, 0.03]) ** 2)
+# before: [1/3, 1/3, 1/3]   after: [0.7346939, 0.1836735, 0.0816327]
+
+# well-scaled
+cov = np.array([[0.04, 0.006, 0.002], [0.006, 0.09, 0.012], [0.002, 0.012, 0.16]])
+min_variance_weights(cov)
+# before: [0.62387083, 0.23557235, 0.14055682]  variance 0.02663310655
+# after:  [0.62344281, 0.23556059, 0.14099660]  variance 0.02663306908
+
+# annualised inputs (mu*252, cov*252), cost_bps=20, risk_aversion=3
+l1_turnover_penalized_weights(
+    mu * 252, (corr * np.outer(sd, sd)) * 252, np.array([0.5, 0.3, 0.1, 0.1]), 20, 3.0
+)
+# before: [0.17812164, 0.41731905, 0.0, 0.40455931]  objective 0.111630099967
+# after:  [0.17901303, 0.41805920, 0.0, 0.40292777]  objective 0.111630530154
+```
+
+On well-scaled inputs the weights move by 1e-4 to 1e-3. With the daily-scale
+inputs above, `l1_turnover_penalized_weights` returns `previous_weights` both
+before and after (the cost outweighs any gain).
+
+### Changed — behaviour on invalid input
+
+- `min_variance_weights`, `mean_variance_weights`,
+  `unconstrained_mean_variance_weights`, `l1_turnover_penalized_weights` and
+  `risk_parity_weights` raise `ValueError` naming the argument when
+  `cov_matrix`, `expected_returns`, `previous_weights`, `risk_aversion` or
+  `cost_bps` contains a NaN or infinite value, before any solve. Before, the
+  SLSQP-based optimisers and `risk_parity_weights` raised `RuntimeError`
+  (non-convergence), `unconstrained_mean_variance_weights` returned NaN
+  weights and `l1_turnover_penalized_weights` accepted a NaN in
+  `previous_weights`.
+- `min_variance_weights`, `mean_variance_weights` and
+  `l1_turnover_penalized_weights` raise `ValueError: cov_matrix must be positive
+  semi-definite (its smallest eigenvalue is ...)` for a covariance matrix that
+  is not positive semi-definite, for either value of `allow_short`, before any
+  solve. Before, `allow_short=False` returned a weight vector
+  (`min_variance_weights([[1,2,2],[2,5,-10],[2,-10,5]])` gave `[0, 0.5, 0.5]`, a
+  "variance" of -2.5) and `allow_short=True` returned the maximiser along the
+  budget line (`min_variance_weights([[1,2],[2,1]], allow_short=True)` gave
+  `[0.5, 0.5]`) or raised `RuntimeError: SLSQP optimization did not converge`.
+  The test is on the symmetric part: an eigenvalue below -1e-12 times the
+  largest absolute row sum counts as negative. Rank-deficient covariances (zero
+  eigenvalues, an all-zero matrix, `factors @ factors.T`) are accepted.
+  `unconstrained_mean_variance_weights` and `risk_parity_weights` do not run
+  the check.
+- `mean_variance_weights` with `risk_aversion=0` and `allow_short=True` used to
+  raise `RuntimeError: SLSQP optimization did not converge`; it still raises
+  `RuntimeError`, now saying the problem is unbounded. The same holds for
+  `mean_variance_weights` and `l1_turnover_penalized_weights` whenever the
+  curvature of the objective along a free direction is below 1e-12 times the
+  largest absolute row sum of `risk_aversion * cov_matrix`. An unbounded
+  `l1_turnover_penalized_weights` problem (zero covariance,
+  `allow_short=True`, differing `expected_returns`) used to return
+  meaningless weights (`[-1.47e8, 0.32, 1.47e8]`) and now raises
+  `RuntimeError`.
+- `min_variance_weights(np.eye(3) * 1e308)` and
+  `mean_variance_weights([.1, .2, .3], np.eye(3) * 1e-320, 1.0, True)` raise
+  `RuntimeError` naming a non-finite objective or solution ("the objective is
+  not finite (its coefficients overflow double precision)", "the solution is
+  not finite (...)"); both used to raise an SLSQP non-convergence
+  `RuntimeError`.
+- `kelly_fraction` raises `ValueError` ("expected_return must be finite" /
+  "variance must be finite") for a NaN or infinite input. Before,
+  `kelly_fraction(nan, 0.04)` returned `nan`, `kelly_fraction(inf, 0.04)`
+  returned `1.0` (`inf` with `clip=False`) and `kelly_fraction(0.05, inf)`
+  returned `0.0`.
+- `arima_fit` (both methods) raises `ValueError` for a series that is not 1-D
+  or contains NaN or infinity; the CSS estimator previously returned NaN for
+  NaN input.
+- `arima_fit` with the default method raises `quantcore.risk.ConvergenceError`
+  when the exact-likelihood optimisation does not converge from either
+  starting point, carrying the best attempt as `(*ar, *ma, sigma2)`, its exact
+  log-likelihood and the optimiser message. No
+  occurrence in 2,160 well-specified fits with n >= 100; it occurs on samples
+  with about as many observations as coefficients, on series whose squares
+  overflow or underflow (magnitudes near 1e200 or 1e-200), and where the
+  likelihood peaks with three or more partial autocorrelations on their bound.
+- `arima_fit(..., method="css")` raises `ConvergenceError` when Nelder-Mead
+  stops on its iteration or evaluation limit, with the point it stopped at in
+  `params` and the conditional Gaussian log-likelihood there; 0.2.0 returned
+  that point as if it were the estimate. Converged CSS fits keep their numbers
+  bit for bit. It did not occur at the true order (0 of 2,100 fits) but does on
+  over-parameterised orders: on AR(1) samples of 200 observations, 2% of
+  (2,0,1), 5% of (2,0,2), 10% of (2,1,1) and 25% of (3,0,3) fits exhaust the
+  5,000 evaluations (for example `(2, 1, 1)` on a phi = 0.5 sample, whose
+  stopping point has an MA coefficient of -1.074).
+- `select_arima_order` raises `ValueError` naming the problem for an empty,
+  non-finite or 2-D series, and for a constant series (no `d` leaves variation
+  to fit) instead of returning `(0, 1, 1)`.
+- `arima_forecast` raises `ValueError` if `ma_coefs` has a non-zero entry and
+  `ar_coefs` is not stationary (the exact conditional mean needs the
+  stationary initial state), and for non-finite inputs or non-1-D coefficient
+  arrays; a `series` that is not 1-D also raises `ValueError`. Without an MA
+  part any `ar_coefs` is accepted, as before.
+- `monte_carlo_call_price` and `monte_carlo_put_price` with `antithetic=True`
+  and `num_paths=2` (one mirrored pair) return a standard error of `0.0`; it was
+  `nan` with a NumPy `RuntimeWarning`. The price is unchanged:
+  `monte_carlo_call_price(100.0, 100.0, 0.05, 0.2, 1.0, 2, 10, seed=1)` returned
+  `(8.94..., nan)` and returns `(8.94..., 0.0)`.
+- Importing `quantcore.time_series` now imports `quantcore.risk` (for
+  `ConvergenceError`). The first `arima_fit` call in a new environment
+  compiles the exact-likelihood kernels; later processes load them from
+  Numba's cache.
+- `dynamic_hedge_ratio` raises `ValueError("initial_beta must be finite")`,
+  and `ValueError` when `y` or `x` contains a NaN or infinite value or when
+  `obs_var` or `proc_var` is NaN or infinite (a NaN variance passed the
+  positivity check and gave all-NaN output; an infinite `obs_var` gave zeros).
+  A tiny or subnormal `x[0]` no longer produces a huge or NaN output or an
+  overflow `RuntimeWarning`.
+- The six `simulate_*_price_paths` functions raise `ValueError` naming the
+  parameter before the first draw (generator untouched) for a non-positive
+  `n_paths`/`n_steps`, an invalid `dt`, `s0` or scale parameter, or a
+  non-finite real-valued parameter; `simulate_jump_diffusion_price_paths` also
+  raises `ValueError` when `exp(jump_mean_log + 0.5*jump_std_log**2)` exceeds
+  float64. They raise `FloatingPointError` after all draws (so the generator has
+  advanced) when a simulated log-price is not finite because a drift or
+  variance term overflowed (for example `sigma=1e160` in
+  `simulate_gbm_price_paths`), or when a price is non-finite because
+  `exp` of the log-price overflowed. Before the log-price check such cases
+  could return prices of exactly 0.0. A finite log-price that underflows
+  returns 0.0.
+- The nine ratios in `quantcore.performance.ratios` raise `ValueError` for
+  input that is not 1-D, is empty, or contains NaN or infinity (the older
+  functions in `metrics.py` reject only empty input).
+- `jarque_bera_test`, `arch_lm_test` and `kpss_test` raise `ValueError` for
+  degenerate input, listed under Added.
+
+### Added
+
+- `quantcore.performance.ratios` (exported from `quantcore.performance`), nine
+  functions `(returns: npt.NDArray[np.float64]) -> float` on periodic simple
+  returns:
+  - `ulcer_index`: `sqrt(sum(drawdown**2) / (n - 1))`, drawdowns as fractions.
+  - `ulcer_performance_index`: `(prod(1 + r) - 1) / ulcer_index`; `inf` when
+    the Ulcer Index is 0.
+  - `serenity_index`: `sum(r) / (ulcer_index * CDaR / std(r, ddof=1))`, `CDaR`
+    the mean of the drawdowns above `mean(D) + 1.645 * std(D, ddof=1)`; `nan`
+    for constant returns or a constant drawdown series.
+  - `gain_to_pain_ratio`: `sum(r) / |sum of negative r|`; `inf` with no loss.
+  - `common_sense_ratio`: `profit_factor * |Q(0.95) / Q(0.05)|`; `inf` with no
+    loss and a positive lower quantile, `nan` when the lower quantile is
+    exactly 0, `0.0` with no gain.
+  - `cpc_index`: `profit_factor * win rate * payoff ratio`; `nan` with no
+    winning or no losing period.
+  - `outlier_win_ratio`: `Q(0.99) / mean(r[r >= 0])`; `nan` when that mean is
+    missing or 0.
+  - `outlier_loss_ratio`: `Q(0.01) / mean(r[r < 0])`; `nan` with no loss.
+  - `risk_of_ruin`: `((1 - w) / (1 + w)) ** n`, `w` the winning share of the
+    non-zero periods.
+
+  All nine compute the definitions of quantstats 0.0.81 and are `verified`
+  against it in the conformance suite. Where that definition differs from the
+  statistic's source, the docstring says so (the Ulcer Index divides by `n - 1`;
+  the Ulcer Performance Index and Serenity index are not annualised and subtract
+  no risk-free rate; gain-to-pain is not resampled to months). A caller moving
+  from quantstats sees: `inf` where quantstats gives `nan` for a zero risk
+  denominator; `nan` for `serenity_index` of constant returns (quantstats
+  returns rounding residue); and inputs are always read as returns, whereas
+  quantstats reads some series as prices. Returns below -1 are accepted, as in
+  `drawdown_series`. Finite returns whose compounded wealth, sum or squared
+  deviations exceed float64 give `inf` or `nan` with NumPy's `RuntimeWarning`.
+  `ulcer_index`, `ulcer_performance_index` and `serenity_index` also reject a
+  single observation.
+- `quantcore.statistics.diagnostics` (exported from `quantcore.statistics`).
+  Inputs are 1-D float64 arrays of finite values; pandas objects are not
+  converted.
+  - `jarque_bera_test(series) -> (statistic, p_value)`: `n/6 * (S^2 + K^2/4)`
+    from population moments, p-value `exp(-statistic/2)`; independent of the
+    units of the input up to the ends of float64 (values of order 1e300 or
+    1e-300 give the statistic of order one). Agrees with
+    `scipy.stats.jarque_bera`, except that a constant series raises
+    `ValueError` (scipy returns NaN).
+  - `arch_lm_test(residuals, n_lags=None) -> (statistic, p_value)`: Engle's
+    ARCH-LM test, `(n - n_lags) * R^2` of the squared series on its own lags;
+    `n_lags=None` means `min(10, n // 5)`. Agrees with
+    `statsmodels.stats.diagnostic.het_arch` and, unlike it, does not depend on
+    the scale of the input: on a GARCH(1,1) series of 1,000 points with 5 lags
+    the statistic is 16.3969 from both at unit scale, and after multiplying
+    the series by 1e-6 `het_arch` returns 0.0 and quantcore 16.3969. Needs
+    `n >= 2 * n_lags + 2`; raises `ValueError` when the squares are constant
+    over the regression sample (`het_arch` returns `(-inf, 1.0)`); the
+    statistic is clipped at 0.0.
+  - `kpss_test(series, n_lags=None, trend="c") -> (statistic, p_value,
+    p_value_at_bound)`: KPSS stationarity test for the level (`"c"`) or trend
+    (`"ct"`) null; `n_lags=None` selects the lag count from the data; the
+    statistic is independent of the units of the input in the same way and the
+    long-run variance is computed directly from the Bartlett weights; the
+    p-value is interpolated in the paper's four-point table and
+    `p_value_at_bound` (a `bool`) says when it sits at an end of it. Agrees
+    with `statsmodels.tsa.stattools.kpss(nlags="auto")`, including the lag
+    count. Needs 3 observations for `"c"` and 4 for `"ct"`; raises `ValueError`
+    when no residual exceeds rounding error (a constant series, or an exactly
+    linear one under `"ct"`) or when the automatic lag count divides by zero.
+- `quantcore.core.price_paths` (exported from `quantcore.core`), six functions
+  taking the caller's `numpy.random.Generator` first and returning float64
+  prices of shape `(n_paths, n_steps + 1)`:
+  - `simulate_gbm_price_paths(rng, n_paths, n_steps, dt, *, s0, mu, sigma)`:
+    geometric Brownian motion, exact log-normal step.
+  - `simulate_exp_ou_price_paths(rng, n_paths, n_steps, dt, *, s0, kappa,
+    theta, sigma)`: Ornstein-Uhlenbeck process on the log-price (exact Gaussian
+    transition); `theta=None` uses `log(s0)`.
+  - `simulate_heston_price_paths(rng, n_paths, n_steps, dt, *, s0, mu, v0,
+    kappa, theta, xi, rho)`: Heston stochastic volatility, full-truncation
+    Euler.
+  - `simulate_garch_t_price_paths(rng, n_paths, n_steps, dt, *, s0, mu, omega,
+    alpha, beta, nu)`: GARCH(1,1) with standardised Student-t innovations;
+    `omega`, `alpha`, `beta` are per-step and `dt` scales the drift only.
+  - `simulate_regime_switching_price_paths(rng, n_paths, n_steps, dt, *, s0,
+    mu0, sigma0, mu1, sigma1, p01, p10)`: two-state Markov regime-switching
+    GBM; regime probabilities are per step.
+  - `simulate_jump_diffusion_price_paths(rng, n_paths, n_steps, dt, *, s0, mu,
+    sigma, jump_intensity, jump_mean_log, jump_std_log)`: Merton jump diffusion
+    with compensated drift, exact transition on the grid.
+
+  Unlike the seed-taking `simulate_*_paths` in `sde_solver.py` and
+  `stochastic.py`, these advance the caller's generator, so a second call
+  continues the stream. The variate order and amount drawn, and the grouping of
+  every floating-point product and sum, are part of the contract: for a given
+  generator state the output and the final generator state are fixed (bit
+  identical to a downstream implementation on 12,512 cases on macOS arm64 with
+  NumPy 2.5.3; NumPy does not promise identical rounding on other platforms).
+  They use plain NumPy rather than Numba because Numba's `standard_t`/`normal`
+  and C `exp` do not match NumPy's bits.
+- `arima_fit(..., *, method="mle")`: keyword-only `method`, `"mle"` (default)
+  or `"css"`.
+- `dynamic_hedge_ratio(y, x, obs_var=1e-3, proc_var=1e-5, *, initial_beta=0.0)`:
+  keyword-only `initial_beta`, the prior mean of beta before the first
+  observation; the prior variance stays fixed at 1.
+
+### Performance
+
+- `ledoit_wolf_shrinkage` computes the dispersion term in closed form
+  (`sum_t ||x_t||^4 - T*||S||_F^2`) in place of a per-observation loop of
+  outer products. Values are unchanged to round-off (largest difference to
+  the previous implementation 3e-20 on 252x10, 2520x100 and 2520x500). Time
+  per call for 252x10 / 2520x100 / 2520x500: before 1.59 ms / 94.5 ms /
+  3823 ms; after 0.04 ms / 0.66 ms / 17.3 ms (scikit-learn's
+  `LedoitWolf().fit`: 0.35 ms / 2.77 ms / 233 ms).
+
+- `min_variance_weights`, `mean_variance_weights` and
+  `l1_turnover_penalized_weights` at several hundred assets. The long-only
+  `min_variance_weights` and `mean_variance_weights` start the exact solver
+  from the budget-only solution with negative weights dropped, so the number
+  of iterations does not grow with the number of assets the optimum holds.
+  Milliseconds per long-only call on one machine (Apple Silicon, Accelerate;
+  best of three), on a daily-scale 5-factor covariance / the sample
+  covariance of 2k x k normal returns, with the number of assets held in
+  brackets:
+
+  | k | `min_variance_weights` | `mean_variance_weights` | `l1_turnover_penalized_weights` |
+  |---|---|---|---|
+  | 200 | 0.8 (200) / 4.0 (171) | 1.3 / 1.5 | 27 / 29 |
+  | 600 | 8.1 (600) / 41 (504) | 8.7 / 9.0 | 107 / 110 |
+  | 1000 | 27 (1000) / 139 (855) | 30 / 30 | 204 / 217 |
+
+  Times depend on the machine and BLAS.
+
+### Documentation only
+
+- `ewma_covariance`: the docstring states that returns are not demeaned (each
+  update uses the raw outer product, the RiskMetrics zero-mean definition), so
+  the estimate differs from a mean-centred exponentially weighted covariance
+  such as pandas' `ewm().cov()` by the contribution of the mean. No numerical
+  change.
+- `monte_carlo_call_price` and `monte_carlo_put_price`: the `Returns:` section
+  says what the returned standard error is (a sample estimate from the same
+  payoffs as the price; per-pair averages for antithetic variates with an even
+  path count; the unpaired formula, which overstates, for an odd one; 0.0 for a
+  single path), that it tends to understate the true standard error when few
+  paths finish in the money, and that it is exactly 0.0, together with the
+  price, when none do.
+- `dynamic_hedge_ratio`: the docstring states the model (one state, no
+  intercept, random-walk slope), the prior `N(initial_beta, 1)`, the recursion
+  and its sources.
+- `ConvergenceError`: the docstring lists `arima_fit` among the functions that
+  raise it.
+
+### Verification
+
+The conformance suite lives in `conformance/`. For each covered quantity,
+hypothesis draws inputs and compares quantcore with an independent oracle
+(a reference library, a closed form or a hand recursion from the primary
+source) under a written tolerance. `conformance/conformance_map.json` is the
+committed record of every target's status, oracle and tolerance. The CI job
+`conformance` fails when a fresh run's statuses differ from it, and a weekly
+exploratory run draws fresh random inputs and opens an issue when a `verified`
+target disagrees with its oracle. See `conformance/README.md` for how to run
+and extend it; `docs/CONFORMANCE.md` is the generated report. The conformance
+suite is not part of the installed package, and no library numbers change
+because of it.
 
 ## [0.2.0] — Unreleased
 

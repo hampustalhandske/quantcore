@@ -8,12 +8,12 @@ regression="n")`), and its p-value comes from MacKinnon's (1994) N=2
 response surface for the "c" case (the cointegrating regression's
 deterministic term), unclamped (`mackinnonp(stat, "c", N=2)`).
 
-`adf_test` (N=1) is checked against `adfuller` directly. Both draw on the
-same MacKinnon (1994) response surface quantcore implements independently
-from the paper's published Table II coefficients (reproduced in
-`cointegration.py`; cross-checked against `statsmodels` here since it is
-the standard implementation, per the ground rule that oracle tests
-validate agreement, not that one side is copied from the other).
+`adf_test` (N=1) is checked against `adfuller` directly, for every
+deterministic case and from the far left tail of the response surface
+(p-values of 1e-9 and below, and exactly 0.0 beyond the tabulated minimum
+statistic) to its right end (exactly 1.0 beyond the tabulated maximum).
+Both sides evaluate MacKinnon's (1994) response surface, whose
+coefficients `cointegration.py` tabulates.
 """
 
 from __future__ import annotations
@@ -27,6 +27,9 @@ from statsmodels.tsa.adfvalues import mackinnonp
 from statsmodels.tsa.stattools import adfuller, coint
 
 from quantcore.statistics.cointegration import (
+    _MACKINNON_TAU_MAX,
+    _MACKINNON_TAU_MIN,
+    _MACKINNON_TAU_STAR,
     _mackinnon_pvalue,
     adf_test,
     engle_granger_test,
@@ -53,32 +56,98 @@ def _stationary_ar1(n: int, phi: float, seed: int) -> np.ndarray:
 
 
 class TestMackinnonPvalueMatchesStatsmodels:
-    """The response-surface table itself, N=1 and N=2, across its domain."""
+    """The response surface itself: every deterministic case and N, from
+    below the tabulated minimum statistic to above the tabulated maximum."""
 
-    @pytest.mark.parametrize("n_series", [1, 2, 3, 4])
-    @pytest.mark.parametrize("t_stat", [-6.0, -4.5, -3.5, -3.0, -2.5, -1.5, -0.5, 0.5])
-    def test_pvalue_matches_statsmodels_mackinnonp(self, t_stat: float, n_series: int) -> None:
-        expected = mackinnonp(t_stat, regression="c", N=n_series)
-        actual = _mackinnon_pvalue(t_stat, n_series=n_series)
-        # Both sides clamp to [1e-4, 1 - 1e-4] near the tabulated boundary,
-        # but statsmodels clamps to exactly [0.0, 1.0] there instead — only
-        # compare where neither side is at its own floor/ceiling.
-        if 1e-4 < expected < 1 - 1e-4:
-            assert actual == pytest.approx(expected, abs=1e-4)
+    @pytest.mark.parametrize("regression", ["n", "c", "ct"])
+    @pytest.mark.parametrize("n_series", [1, 2, 3, 4, 5, 6])
+    def test_pvalue_matches_statsmodels_mackinnonp(self, regression: str, n_series: int) -> None:
+        for t_stat in np.linspace(-35.0, 15.0, 2001):
+            expected = mackinnonp(float(t_stat), regression=regression, N=n_series)
+            actual = _mackinnon_pvalue(float(t_stat), n_series=n_series, regression=regression)
+            # Relative with no absolute term, so a p-value of 1e-20 is held
+            # to the same standard as one of 0.5, and an exact 0.0 or 1.0
+            # must be matched exactly. Both sides evaluate the same
+            # polynomial and normal CDF, hence 1e-10 rather than the 1e-3 a
+            # table lookup is given by default.
+            assert actual == pytest.approx(expected, rel=1e-10, abs=0.0)
+
+    @pytest.mark.parametrize("regression", ["n", "c", "ct"])
+    @pytest.mark.parametrize("n_series", [1, 2, 3, 4, 5, 6])
+    def test_pvalue_matches_at_the_tabulated_boundaries(
+        self, regression: str, n_series: int
+    ) -> None:
+        for table in (_MACKINNON_TAU_MIN, _MACKINNON_TAU_STAR, _MACKINNON_TAU_MAX):
+            boundary = float(table[regression][n_series - 1])
+            if not np.isfinite(boundary):
+                continue
+            for t_stat in (
+                np.nextafter(boundary, -np.inf),
+                boundary,
+                np.nextafter(boundary, np.inf),
+            ):
+                expected = mackinnonp(float(t_stat), regression=regression, N=n_series)
+                actual = _mackinnon_pvalue(float(t_stat), n_series=n_series, regression=regression)
+                assert actual == pytest.approx(expected, rel=1e-10, abs=0.0)
+
+
+def _adf_series(family: str, seed: int) -> tuple[np.ndarray, int]:
+    """One series of the named family and the lag count to test it with.
+
+    The families place the ADF statistic in four regions of the response
+    surface: below the tabulated minimum, inside the range where the
+    p-value is under 1e-4, in the body of the distribution, and, for the
+    explosive series, above 3.2. That is beyond the tabulated maximum of
+    the "c" and "ct" surfaces and, on the "n" surface (which has no
+    maximum), where the p-value exceeds 0.9999.
+    """
+    if family == "below_tabulated_minimum":
+        return _stationary_ar1(2000, phi=0.0, seed=seed), 0
+    if family == "small_p_tail":
+        return _stationary_ar1(200, phi=0.5, seed=seed), 1
+    if family == "unit_root":
+        return _random_walk(400, seed=seed), 1
+    rng = np.random.default_rng(seed)
+    return 1.05 ** np.arange(60) + rng.normal(0.0, 0.01, size=60), 1
 
 
 class TestAdfTestMatchesStatsmodelsAdfuller:
-    """adf_test (N=1) end to end against statsmodels' adfuller, case='c'."""
+    """adf_test (N=1) end to end against statsmodels' adfuller, for every
+    deterministic case and in both tails of the response surface."""
 
-    @pytest.mark.parametrize("seed", range(5))
-    def test_statistic_and_pvalue_match(self, seed: int) -> None:
-        series = _stationary_ar1(400, phi=0.6, seed=seed)
-        quantcore_stat, quantcore_p = adf_test(series, max_lags=1)
-        sm_stat, sm_p, *_ = adfuller(
-            series, maxlag=1, regression="c", autolag=None, result_object=False
-        )
-        assert quantcore_stat == pytest.approx(sm_stat, rel=1e-6)
-        assert quantcore_p == pytest.approx(sm_p, abs=1e-3)
+    @pytest.mark.parametrize("trend", ["n", "c", "ct"])
+    @pytest.mark.parametrize(
+        "family",
+        ["below_tabulated_minimum", "small_p_tail", "unit_root", "explosive"],
+    )
+    def test_statistic_and_pvalue_match(self, trend: str, family: str) -> None:
+        for seed in range(5):
+            series, n_lags = _adf_series(family, RNG_SEED + seed)
+            quantcore_stat, quantcore_p = adf_test(series, max_lags=n_lags, trend=trend)
+            sm_stat, sm_p, *_ = adfuller(
+                series, maxlag=n_lags, regression=trend, autolag=None, result_object=False
+            )
+
+            # Each family must land where its name says, or the comparison
+            # below would stop exercising that part of the surface.
+            if family == "below_tabulated_minimum":
+                assert sm_stat < _MACKINNON_TAU_MIN[trend][0]
+                assert sm_p == 0.0
+            elif family == "small_p_tail":
+                assert sm_stat > _MACKINNON_TAU_MIN[trend][0]
+                assert 0.0 < sm_p < 1e-4
+            elif family == "unit_root":
+                assert 1e-3 < sm_p < 1.0
+            else:
+                assert sm_stat > 3.2
+                assert sm_p == 1.0
+
+            assert quantcore_stat == pytest.approx(sm_stat, rel=1e-9, abs=0.0)
+            # The two p-values are the same closed-form function of
+            # statistics that agree to 1e-9, so they are compared
+            # relatively, with no absolute term that would let any two
+            # p-values below it pass.
+            assert quantcore_p == pytest.approx(sm_p, rel=1e-8, abs=0.0)
 
 
 class TestEngleGrangerMatchesStatsmodelsCoint:

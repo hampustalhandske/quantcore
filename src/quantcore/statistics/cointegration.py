@@ -18,8 +18,8 @@ ADF test statistic (Dickey & Fuller 1979):
     distribution); the Engle-Granger residual-based test (`engle_granger_test`)
     uses N=2, since its residuals come from a 2-variable cointegrating
     regression and their null distribution lies further left than N=1's. See
-    `_mackinnon_pvalue` for the response-surface coefficients and
-    tail-clamping behavior.
+    `_mackinnon_pvalue` for the response-surface coefficients and the
+    p-value of a statistic outside their tabulated range.
 
 Johansen trace and maximum-eigenvalue tests (Johansen 1988): reduced-rank
 regression of Delta(Y_t) and Y_{t-1} on lagged differences, then
@@ -68,7 +68,7 @@ from scipy.stats import norm
 # ADF / Engle-Granger unit-root p-values (MacKinnon 1994 response surface)
 # ---------------------------------------------------------------------------
 
-# MacKinnon (1994), Table II: response-surface approximation to the
+# MacKinnon (1994): response-surface approximation to the
 # asymptotic distribution of the (A)DF tau statistic, indexed by N = the
 # number of I(1) variables in the regression the residuals came from (N=1
 # for a plain unit-root test on a single series; N=2, 3, ... for the
@@ -84,6 +84,13 @@ from scipy.stats import norm
 #
 # Index 0 below is N=1, index 1 is N=2, etc. (N=1..6, the range MacKinnon
 # tabulated coefficients for).
+#
+# Every table equals its counterpart in `statsmodels.tsa.adfvalues`
+# (`tests/oracle/statistics/test_cointegration_oracle.py` compares the two
+# surfaces on a grid of statistics). The small-p coefficients and minimum
+# statistics for "c" and "ct" also equal Table 4 of the article's
+# working-paper version (Queen's Economics Department Working Paper 861) to
+# the digits printed there.
 _MACKINNON_TAU_MAX: dict[str, npt.NDArray[np.float64]] = {
     "n": np.array([np.inf, 1.51, 0.86, 0.88, 1.05, 1.24]),
     "c": np.array([2.74, 0.92, 0.55, 0.61, 0.79, 1.00]),
@@ -172,9 +179,7 @@ _MACKINNON_LARGE_P_COEF: dict[str, npt.NDArray[np.float64]] = {
 _ADF_REGRESSION_CASES = ("n", "c", "ct")
 
 
-def _mackinnon_pvalue(
-    t_stat: float, n_series: int, regression: str = "c", clamp: bool = True
-) -> float:
+def _mackinnon_pvalue(t_stat: float, n_series: int, regression: str = "c") -> float:
     """MacKinnon (1994) response-surface p-value for the (A)DF tau statistic.
 
     Args:
@@ -185,20 +190,18 @@ def _mackinnon_pvalue(
         regression: Deterministic case the ADF regression included: "n"
             (no constant, no trend), "c" (constant only), or "ct" (constant
             and linear trend).
-        clamp: If True, the returned p-value is clipped to
-            [0.0001, 0.9999] (the `adf_test` convention). If False, the
-            raw response-surface value is returned, saturating at exactly
-            0.0 / 1.0 beyond the tabulated statistic range -- the
-            `statsmodels.tsa.adfvalues.mackinnonp` convention, used by
-            `engle_granger_test` so strongly cointegrated pairs report a
-            p-value as small as the surface actually gives.
 
     Returns:
-        Approximate right-tail-inclusive p-value under the null of a unit
-        root. MacKinnon's response surface is only fit over the tabulated
-        statistic range, so a statistic beyond the tabulated min/max
-        saturates at the nearest tail probability rather than reporting an
-        unbounded, unvalidated p-value.
+        Approximate p-value under the null of a unit root,
+        `Phi(c0 + c1*tau + c2*tau^2 [+ c3*tau^3])`, in [0, 1]. The
+        polynomials are monotone only between the tabulated minimum and
+        maximum statistic, both of which belong to the range: a statistic
+        below the minimum returns exactly 0.0 and one above the maximum
+        exactly 1.0, where the approximation says no more than that the
+        p-value is close to 0 or 1. Inside the range the value is returned
+        as computed, however small (between 1e-22 and 1e-63 at the
+        minimum, depending on the case and N). Convention and values are
+        those of `statsmodels.tsa.adfvalues.mackinnonp`.
     """
     if regression not in _ADF_REGRESSION_CASES:
         raise ValueError(f"regression must be one of {_ADF_REGRESSION_CASES}")
@@ -209,18 +212,17 @@ def _mackinnon_pvalue(
             f"(MacKinnon's tabulated range), got {n_series}"
         )
     idx = n_series - 1
-    lower, upper = (0.0001, 0.9999) if clamp else (0.0, 1.0)
-    if t_stat >= tau_max[idx]:
-        return upper
-    if t_stat <= _MACKINNON_TAU_MIN[regression][idx]:
-        return lower
+    if t_stat > tau_max[idx]:
+        return 1.0
+    if t_stat < _MACKINNON_TAU_MIN[regression][idx]:
+        return 0.0
     coefs = (
         _MACKINNON_SMALL_P_COEF[regression][idx]
         if t_stat <= _MACKINNON_TAU_STAR[regression][idx]
         else _MACKINNON_LARGE_P_COEF[regression][idx]
     )
     poly_value = float(np.polynomial.polynomial.polyval(t_stat, coefs))
-    return float(np.clip(norm.cdf(poly_value), lower, upper))
+    return float(norm.cdf(poly_value))
 
 
 def _validate_adf_inputs(series: npt.NDArray[np.float64], max_lags: int, trend: str) -> None:
@@ -269,8 +271,23 @@ def adf_test(
         (1994) response-surface approximation to the Dickey-Fuller
         distribution for the given `trend` case (N=1: `series` is tested
         directly, not a residual from an estimated cointegrating
-        regression), clamped to [0.0001, 0.9999] for statistics outside the
-        tabulated range.
+        regression). It lies in [0, 1] and equals the p-value
+        `statsmodels.tsa.stattools.adfuller` reports for the same
+        statistic: many orders of magnitude below 1e-4 for a strongly
+        stationary series, exactly 0.0 for a statistic below the range
+        MacKinnon tabulated (-19.04, -18.83 and -16.18 for "n", "c" and
+        "ct"), and exactly 1.0 for one above it (2.74 for "c", 0.70 for
+        "ct"; the "n" surface has no upper limit). Guard against 0.0
+        before taking its logarithm or dividing by it.
+
+    References:
+        Dickey, D.A. and Fuller, W.A. (1979). "Distribution of the
+        Estimators for Autoregressive Time Series with a Unit Root."
+        *Journal of the American Statistical Association*, 74(366),
+        427-431. MacKinnon, J.G. (1994). "Approximate Asymptotic
+        Distribution Functions for Unit-Root and Cointegration Tests."
+        *Journal of Business & Economic Statistics*, 12(2), 167-176.
+        See docs/REFERENCES.md.
     """
     _validate_adf_inputs(series, max_lags, trend)
     return _adf_test(series, max_lags, n_series=1, trend=trend, autolag=autolag)
@@ -454,8 +471,8 @@ def engle_granger_test(
 
         The step-2 ADF regression uses one lagged difference and no
         constant (the residuals are mean-zero by construction of step 1),
-        and the p-value is *not* clamped: it saturates at exactly 0.0 / 1.0
-        beyond MacKinnon's tabulated range. Both conventions match
+        and the p-value is exactly 0.0 / 1.0 for a statistic beyond
+        MacKinnon's tabulated range. Both conventions match
         `statsmodels.tsa.stattools.coint(y, x, trend="c", maxlag=1,
         autolag=None)`, whose statistic and p-value this function
         reproduces to ~1e-10.
@@ -484,7 +501,7 @@ def _engle_granger_test(
     level = residuals[:-1]
     n_lags = 1
     adf_stat, _, _ = _adf_regression(dy, level, n_lags, dy.size, n_lags, trend="n")
-    p_value = _mackinnon_pvalue(adf_stat, n_series=2, regression="c", clamp=False)
+    p_value = _mackinnon_pvalue(adf_stat, n_series=2, regression="c")
     return beta, adf_stat, p_value
 
 

@@ -20,29 +20,31 @@ each module cites its entry in its own docstring). At a high level:
 | Domain | Examples |
 |---|---|
 | Option pricing | Black-Scholes closed-form, Monte Carlo (antithetic/control variates), Heston stochastic-vol via COS method, analytical Greeks, Brent's-method implied vol |
-| SDE simulation | Euler-Maruyama solver, GBM, Ornstein-Uhlenbeck / Vasicek, CIR, Heston paths |
+| SDE simulation | Euler-Maruyama solver, GBM, Ornstein-Uhlenbeck / Vasicek, CIR, Heston paths; generator-driven price paths (GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion) |
 | Risk | Value at Risk, Conditional VaR (Expected Shortfall), GARCH(1,1) (+ MLE fit), EGARCH(1,1), GJR-GARCH, EWMA volatility |
 | Portfolio | Mean-variance / min-variance / risk-parity weights, Kelly fraction, Black-Litterman, Ledoit-Wolf shrinkage, EWMA covariance |
-| Time series | ARIMA(p,d,q), VAR(p) + impulse response + Granger causality, ADF unit-root test, Ljung-Box test |
-| Statistics | OLS, Fama-MacBeth, Newey-West HAC errors, factor loadings, Engle-Granger & Johansen cointegration, OU half-life/z-score |
+| Time series | ARIMA(p,d,q) by exact Gaussian maximum likelihood (conditional sum of squares optional) with exact conditional-mean forecasts and order selection, VAR(p) + impulse response + Granger causality, Ljung-Box test |
+| Statistics | OLS, Fama-MacBeth, Newey-West HAC errors, factor loadings, ADF unit-root and KPSS stationarity tests, Jarque-Bera normality and ARCH-LM tests, Engle-Granger & Johansen cointegration, OU half-life/z-score |
 | Regime detection | Gaussian HMM (Baum-Welch fit, Viterbi decode, forward-filter predict) |
 | Filtering | Kalman filter/smoother (RTS), dynamic hedge ratio estimation |
-| Performance | Sharpe, Sortino, Calmar, information ratio, max drawdown, hit rate, profit factor, component VaR |
+| Performance | Sharpe, Sortino, Calmar, information ratio, max drawdown, hit rate, profit factor, component VaR, Ulcer Index / Ulcer Performance Index, Serenity index, gain-to-pain, common sense ratio, CPC index, outlier win/loss ratios, risk of ruin |
 
 ## Structure
 
 ```
 src/quantcore/
-├── core/          # Numba-optimized kernels: SDE solvers, path simulation
+├── core/          # Numba-optimized kernels: SDE solvers, path simulation; generator-driven price paths
 ├── pricing/       # Black-Scholes, Monte Carlo, Heston, Greeks, implied vol
 ├── risk/          # VaR/CVaR, GARCH/EGARCH/GJR-GARCH volatility models
 ├── portfolio/      # Mean-variance/risk-parity optimization, Black-Litterman, covariance estimation
 ├── time_series/   # ARIMA, VAR, causality/unit-root/autocorrelation tests
-├── statistics/    # OLS, factor regressions, cointegration tests
+├── statistics/    # OLS, factor regressions, cointegration, unit-root and diagnostic tests
 ├── regime/        # Gaussian HMM regime detection
 ├── filtering/     # Kalman filter/smoother
-└── performance/   # Risk-adjusted return metrics
-tests/             # mirrors src/ 1:1 (unit/ + integration/)
+└── performance/   # Risk-adjusted return metrics, drawdown/payoff/tail ratios, attribution
+tests/             # mirrors src/ 1:1 (unit/ + integration/ + oracle/)
+conformance/       # differential tests against independent oracles on generated inputs, and the builder of docs/CONFORMANCE.md
+benchmarks/        # wall-clock benchmarks: Numba kernels and comparisons with external libraries
 docs/REFERENCES.md # source-of-truth bibliography for every calculation
 ```
 
@@ -51,15 +53,29 @@ subpackage — see "Using it as a library" below.
 
 ## Verification status & changelog
 
-Every public function is independently checked against a reference
-implementation or a published closed-form/worked example (not just
-internal unit tests):
+Public functions are checked against an independent reference
+implementation or a published closed-form/worked example, not only by
+internal unit tests. Two layers do this:
 
-- [`docs/VERIFICATION_PLAN.md`](docs/VERIFICATION_PLAN.md) — the plan and
-  per-function status (done / in progress / not started).
-- [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) — per-function verdict
+- `tests/oracle/` holds fixed-case oracle tests: hand-picked inputs
+  compared with a reference library (`statsmodels`, `arch`, `QuantLib`,
+  ...) or a published worked example.
+- `conformance/` holds the conformance suite: each covered quantity is
+  registered once with an independent oracle and a written tolerance,
+  hypothesis draws inputs, and the builder turns the recorded comparisons
+  into one status per quantity. `conformance/conformance_map.json` is the
+  committed record; CI fails when a fresh run's statuses differ from it, and
+  a weekly run on fresh random inputs opens an issue when a `verified`
+  function disagrees with its oracle. How to run and extend it:
+  [`conformance/README.md`](conformance/README.md).
+
+Documents:
+
+- [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) — generated report of the
+  conformance suite (do not edit by hand): every covered function's status
   (`verified` / `non-standard` / `defect` / `unverifiable`) against its
-  oracle, with the oracle library and version used.
+  oracle, with case counts, worst errors, tolerances and the oracle library
+  versions.
 - [`docs/VERIFICATION_REPORT.md`](docs/VERIFICATION_REPORT.md) —
   owner-facing summary of what's been found and fixed, pass by pass.
 - [`CHANGELOG.md`](CHANGELOG.md) — every numerical result that changed,
@@ -99,7 +115,7 @@ re-exports its public functions:
 ```python
 from quantcore.pricing import black_scholes_call, monte_carlo_call_price
 from quantcore.risk import value_at_risk, conditional_value_at_risk, garch_11_variance
-from quantcore.core import simulate_gbm_paths
+from quantcore.core import simulate_gbm_paths, simulate_gbm_price_paths
 from quantcore.portfolio import mean_variance_weights, black_litterman
 
 price = black_scholes_call(spot=100, strike=105, rate=0.03, vol=0.2, maturity=1.0)
@@ -120,16 +136,32 @@ uv run mypy src/            # type check (strict outside core/)
 ```
 
 `tests/unit/` and `tests/integration/` run by default. `tests/oracle/`
-(differential tests against reference libraries — `statsmodels`, `arch`,
-`scikit-learn`, `QuantLib`, etc. — see "Verification status" above) needs
-the `oracle` extra and is marked with `@pytest.mark.oracle`:
+(fixed-case differential tests against reference libraries — `statsmodels`,
+`arch`, `scikit-learn`, `QuantLib`, etc. — see "Verification status" above)
+needs the `oracle` extra and is marked with `@pytest.mark.oracle`:
 
 ```bash
 uv sync --extra dev --extra oracle
 uv run pytest tests/oracle -m oracle
 ```
 
-These libraries are test-only and never imported from `src/quantcore` —
+The conformance suite lives outside `tests/` and needs the same extra:
+
+```bash
+uv run pytest conformance -q                       # quantcore vs. independent oracles (ci profile, ~90 s)
+uv run python -m conformance.build_report          # rebuild conformance_map.json, docs/CONFORMANCE.md and the findings
+uv run python -m conformance.build_report --check  # fail if the committed map is stale (what CI runs)
+```
+
+A passing `pytest conformance` run is not a verdict: the status of each
+function is what the builder writes. `conformance/conformance_map.json` and
+`docs/CONFORMANCE.md` are generated and committed; never edit them by hand.
+Profiles (`ci`, `full`, `explore`) and the rest are in
+`conformance/README.md`. The Numba-versus-NumPy and external-library timings
+are in `benchmarks/bench_quantcore.py` (`uv run python benchmarks/bench_quantcore.py`,
+needs the `oracle` extra).
+
+The oracle libraries are test-only and never imported from `src/quantcore` —
 quantcore's runtime dependencies stay NumPy/SciPy/Numba.
 
 ### Conventions
@@ -154,11 +186,13 @@ quantcore's runtime dependencies stay NumPy/SciPy/Numba.
 - [x] Monte Carlo option pricer (variance reduction)
 - [x] Heston stochastic-volatility pricing (COS method)
 - [x] Euler-Maruyama SDE solver; GBM, OU/Vasicek, CIR, Heston path simulation
+- [x] Generator-driven price paths: GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion
 - [x] VaR / CVaR, component VaR
 - [x] GARCH(1,1), EGARCH(1,1), GJR-GARCH(1,1), EWMA volatility
 - [x] Portfolio optimization (mean-variance, min-variance, risk parity, Kelly), Black-Litterman, covariance shrinkage
-- [x] ARIMA, VAR models, Granger causality, ADF/Ljung-Box tests
-- [x] OLS, Fama-MacBeth, Newey-West, cointegration tests
+- [x] ARIMA (exact maximum likelihood), VAR models, Granger causality, Ljung-Box test
+- [x] OLS, Fama-MacBeth, Newey-West, cointegration, ADF/KPSS/Jarque-Bera/ARCH-LM tests
 - [x] Gaussian HMM regime detection
 - [x] Kalman filter/smoother, dynamic hedge ratio
-- [x] Performance metrics (Sharpe, Sortino, Calmar, drawdown, etc.)
+- [x] Performance metrics (Sharpe, Sortino, Calmar, drawdown, Ulcer/Serenity/gain-to-pain ratios, etc.)
+- [x] Conformance suite against independent oracles

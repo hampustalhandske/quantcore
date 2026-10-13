@@ -18,6 +18,17 @@ from quantcore.performance.metrics import (
     sortino_ratio,
     time_under_water,
 )
+from quantcore.performance.ratios import (
+    common_sense_ratio,
+    cpc_index,
+    gain_to_pain_ratio,
+    outlier_loss_ratio,
+    outlier_win_ratio,
+    risk_of_ruin,
+    serenity_index,
+    ulcer_index,
+    ulcer_performance_index,
+)
 
 __all__ = [
     "BrinsonFachlerAttribution",
@@ -25,15 +36,24 @@ __all__ = [
     "brinson_fachler_attribution",
     "cagr",
     "calmar_ratio",
+    "common_sense_ratio",
     "component_var",
+    "cpc_index",
     "drawdown_series",
+    "gain_to_pain_ratio",
     "hit_rate",
     "information_ratio",
     "max_drawdown_duration",
     "maximum_drawdown",
+    "outlier_loss_ratio",
+    "outlier_win_ratio",
     "profit_factor",
+    "risk_of_ruin",
     "rolling_sharpe",
+    "serenity_index",
     "sharpe_ratio",
     "sortino_ratio",
     "time_under_water",
+    "ulcer_index",
+    "ulcer_performance_index",
 ]

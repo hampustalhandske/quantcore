@@ -71,6 +71,12 @@ def ewma_covariance(
 ) -> npt.NDArray[np.float64]:
     """Compute the terminal EWMA covariance matrix (RiskMetrics).
 
+    Returns are not demeaned: each update uses the raw outer product
+    r r^T, as in the RiskMetrics zero-mean definition. The estimate therefore
+    differs from a mean-centred exponentially weighted covariance (for
+    example pandas' `ewm().cov()`) by the contribution of the mean, which
+    does not vanish as the series grows.
+
     Args:
         returns: Asset returns, shape (T, k).
         lambda_: Decay factor, 0 < lambda_ < 1 (e.g. 0.94 for daily data).
@@ -126,11 +132,12 @@ def _ledoit_wolf_shrinkage(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.f
 
     d_squared = float(np.sum((sample - target) ** 2)) / num_assets
 
-    b_bar_squared = 0.0
-    for t in range(num_obs):
-        outer_t = np.outer(demeaned[t], demeaned[t])
-        b_bar_squared += float(np.sum((outer_t - sample) ** 2)) / num_assets
-    b_bar_squared /= num_obs**2
+    # sum_t ||x_t x_t' - S||_F^2 = sum_t ||x_t||^4 - T*||S||_F^2, because
+    # sum_t x_t' S x_t = T*||S||_F^2 for S = (1/T) sum_t x_t x_t'. Rounding can
+    # leave a tiny negative value where the exact sum is zero.
+    row_norms_squared = np.einsum("ij,ij->i", demeaned, demeaned)
+    dispersion_sum = float(np.sum(row_norms_squared**2)) - num_obs * float(np.sum(sample**2))
+    b_bar_squared = max(dispersion_sum, 0.0) / num_assets / num_obs**2
 
     b_squared = min(b_bar_squared, d_squared)
     if d_squared == 0.0:

@@ -402,7 +402,7 @@ cite the relevant entry in their docstrings.
   Attribution*, 2nd ed. Wiley.
   → `performance/metrics.py` (drawdown measured against the running maximum
   of the wealth path *including* its starting capital, so a loss before the
-  first new high is a drawdown; `maximum_drawdown`, `drawdown_series`)
+  first new high is a drawdown; `maximum_drawdown`, `_drawdown_series`)
 
 - Martin, P.G. and McCann, B.B. (1989). *The Investor's Guide to Fidelity
   Funds: Winning Strategies for Mutual Fund Investors*. Wiley. Details not
@@ -436,18 +436,6 @@ cite the relevant entry in their docstrings.
   `risk_of_ruin`). The outlier win and loss ratios and the tail ratio have
   no published source.
   → `performance/ratios.py`
-
-## Performance attribution
-
-- Brinson, G.P., Hood, L.R., and Beebower, G.L. (1986). "Determinants of
-  Portfolio Performance." *Financial Analysts Journal*, 42(4), 39–44.
-  → `performance/attribution.py` (allocation/selection/interaction
-  decomposition of active return)
-
-- Brinson, G.P. and Fachler, N. (1985). "Measuring Non-U.S. Equity Portfolio
-  Performance." *Journal of Portfolio Management*, 11(3), 73–76.
-  → `performance/attribution.py` (Brinson-Fachler refinement: allocation
-  effect measured against benchmark total return, `brinson_fachler_attribution`)
 
 ## Market impact and execution
 

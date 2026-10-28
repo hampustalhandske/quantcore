@@ -89,11 +89,9 @@ this directory are their only comparison with an independent reference:
 
 - `statistics`: `johansen_trace_test`, `johansen_max_eigenvalue_test`
   (`statistics/test_johansen_oracle.py`).
-- `performance`: `annualized_return`, `cagr` (`performance/test_metrics_oracle.py`;
-  `cagr` is also the numerator of the `calmar_ratio` target),
-  `drawdown_series` (`performance/test_drawdown_oracle.py`), `component_var`
-  (`performance/test_component_var_oracle.py`) and
-  `brinson_fachler_attribution` (`performance/test_brinson_fachler_oracle.py`).
+- `performance`: the drawdown path behind `maximum_drawdown` and the Ulcer and Serenity
+  ratios (`performance/test_drawdown_oracle.py`) and `component_var`
+  (`performance/test_component_var_oracle.py`).
 - `core`: `simulate_gbm_paths`, `simulate_ou_paths`, `simulate_cir_paths`,
   `simulate_heston_paths` and `euler_maruyama`
   (`core/test_sde_moments_oracle.py`), and `simulate_gbm_price_paths`,

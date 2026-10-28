@@ -200,11 +200,6 @@ TOLERANCES: dict[str, Tolerance] = {
         atol=0.0,
         justification="closed form, three multiplications.",
     ),
-    "futures_roll_yield": Tolerance(
-        rtol=1e-12,
-        atol=0.0,
-        justification="closed form: one division, one subtraction, one multiplication.",
-    ),
     "sortino_ratio": Tolerance(
         rtol=1e-10,
         atol=1e-9,
@@ -289,15 +284,6 @@ TOLERANCES: dict[str, Tolerance] = {
         rtol=1e-9,
         atol=1e-9,
         justification="closed-form ratio of two sums; one order looser to absorb summation order.",
-    ),
-    "rolling_sharpe": Tolerance(
-        rtol=1e-9,
-        atol=1e-8,
-        justification=(
-            "each windowed entry is the same closed-form Sharpe ratio as sharpe_ratio, repeated "
-            "over many windows; the array comparator's max over all windows inherits sharpe_"
-            "ratio's own rounding margin."
-        ),
     ),
     "ulcer_index": Tolerance(
         rtol=1e-10,

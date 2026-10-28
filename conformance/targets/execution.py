@@ -2,10 +2,9 @@
 
 `impact_bps = coefficient * daily_vol * sqrt(|trade_size| / adv) * 10_000`, an unsigned
 magnitude. Borrow and financing are simple annual carry on ACT/365:
-`cost = notional * rate_annual * days_held / 365`. The annualised futures roll yield is
-`(near_price / far_price - 1) * (365 / days_to_roll)`.
+`cost = notional * rate_annual * days_held / 365`.
 
-The four functions named in `__all__` are conformance-side input validators, not part of
+The three functions named in `__all__` are conformance-side input validators, not part of
 quantcore's API: each checks that its arguments are finite and correctly signed, raising
 `ValueError` otherwise, and then calls the matching quantcore adapter.
 `conformance/test_tier1_execution.py` uses them to pin down which inputs are contract
@@ -18,7 +17,6 @@ import quantcore.execution as qc_execution
 from conformance.compare import ConformanceTarget, ScalarComparator
 
 __all__ = [
-    "futures_roll_yield",
     "margin_financing_cost",
     "short_borrow_cost",
     "square_root_market_impact",
@@ -207,56 +205,3 @@ def margin_financing_cost(notional: float, financing_rate_annual: float, days_he
     _validate_non_negative("financing_rate_annual", financing_rate_annual)
     _validate_non_negative("days_held", days_held)
     return _margin_financing_cost_quantcore(notional, financing_rate_annual, days_held)
-
-
-def _futures_roll_yield_quantcore(near_price: float, far_price: float, days_to_roll: int) -> float:
-    return float(qc_execution.futures_roll_yield(near_price, far_price, days_to_roll))
-
-
-def _futures_roll_yield_reference(near_price: float, far_price: float, days_to_roll: int) -> float:
-    return (near_price / far_price - 1.0) * (_DAYS_PER_YEAR / days_to_roll)
-
-
-_FUTURES_ROLL_YIELD = ConformanceTarget(
-    name="futures_roll_yield",
-    tier=1,
-    oracle="hand-derived closed form",
-    citation=(
-        "Annualised roll yield from the near/far futures term structure; positive under "
-        "backwardation, negative under contango. Standard futures curve carry decomposition, "
-        "see e.g. Gorton, G. and Rouwenhorst, K. (2006), 'Facts and Fantasies about Commodity "
-        "Futures,' Financial Analysts Journal 62(2)."
-    ),
-    compare=ScalarComparator(),
-    quantcore=_futures_roll_yield_quantcore,
-    reference=_futures_roll_yield_reference,
-)
-
-
-def futures_roll_yield(near_price: float, far_price: float, days_to_roll: int) -> float:
-    """Annualised roll yield implied by the near/far futures term structure.
-
-    ``roll_yield = (near_price / far_price - 1) * (365 / days_to_roll)``. Positive when the curve
-    is in backwardation (`near_price > far_price`), negative when in contango. Used to decompose a
-    futures root's realised P&L into a spot-move component and a roll/carry component.
-
-    Args:
-        near_price: Price of the near-dated (expiring) futures contract. Must be positive.
-        far_price: Price of the far-dated (roll target) futures contract. Must be positive.
-        days_to_roll: Calendar days between the near and far contract expiries. Must be positive.
-
-    Returns:
-        Annualised roll yield as a fraction, e.g. `0.05` for 5%.
-
-    Raises:
-        ValueError: `near_price` or `far_price` is not positive and finite, or `days_to_roll` is
-            not a positive, finite number of days.
-
-    References:
-        Gorton, G. and Rouwenhorst, K. (2006), "Facts and Fantasies about Commodity Futures,"
-        Financial Analysts Journal 62(2).
-    """
-    _validate_positive("near_price", near_price)
-    _validate_positive("far_price", far_price)
-    _validate_positive("days_to_roll", float(days_to_roll))
-    return _futures_roll_yield_quantcore(near_price, far_price, days_to_roll)

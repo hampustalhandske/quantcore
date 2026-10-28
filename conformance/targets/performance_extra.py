@@ -1,10 +1,9 @@
-"""Tier-1 performance metrics: Sortino, Calmar, information ratio, hit rate, rolling Sharpe.
+"""Tier-1 performance metrics: Sortino, Calmar, information ratio, hit rate.
 
 Sortino divides by the downside deviation taken over every observation (gains count as zero),
 with `rf` de-annualised to the series' periodicity. Calmar is `CAGR / |max drawdown|`. The
 information ratio is `mean(r - b) / std(r - b, ddof=1) * sqrt(ppy)`. Hit rate and profit factor
-use trade net P&L (zero-P&L trades excluded from the hit rate). Rolling Sharpe drops the
-unfilled first `window - 1` periods.
+use trade net P&L (zero-P&L trades excluded from the hit rate).
 
 Nine drawdown, payoff and tail ratios (Ulcer Index, Ulcer Performance Index, Serenity index,
 gain-to-pain, common sense ratio, CPC index, outlier win and loss ratios, risk of ruin) are checked
@@ -23,11 +22,10 @@ import quantstats.stats as qs_stats
 from empyrical import calmar_ratio as _empyrical_calmar_ratio
 from empyrical import excess_sharpe as _empyrical_excess_sharpe
 from empyrical import max_drawdown as _empyrical_max_drawdown
-from empyrical import roll_sharpe_ratio as _empyrical_roll_sharpe_ratio
 from empyrical import sortino_ratio as _empyrical_sortino_ratio
 
 import quantcore.performance as qc_performance
-from conformance.compare import ArrayComparator, ConformanceTarget, ScalarComparator
+from conformance.compare import ConformanceTarget, ScalarComparator
 
 # --- Sortino ratio ----------------------------------------------------------------------------
 
@@ -194,49 +192,6 @@ _PROFIT_FACTOR = ConformanceTarget(
     compare=ScalarComparator(),
     quantcore=_profit_factor_quantcore,
     reference=_profit_factor_reference,
-)
-
-
-# --- Rolling Sharpe -----------------------------------------------------------------------------
-
-
-def _rolling_sharpe_quantcore(
-    returns: npt.NDArray[np.float64],
-    window: int,
-    risk_free_per_period: float,
-    periods_per_year: int,
-) -> npt.NDArray[np.float64]:
-    full = qc_performance.rolling_sharpe(returns, window, risk_free_per_period, periods_per_year)
-    result: npt.NDArray[np.float64] = full[window - 1 :]
-    return result
-
-
-def _rolling_sharpe_reference(
-    returns: npt.NDArray[np.float64],
-    window: int,
-    risk_free_per_period: float,
-    periods_per_year: int,
-) -> npt.NDArray[np.float64]:
-    result: npt.NDArray[np.float64] = np.asarray(
-        _empyrical_roll_sharpe_ratio(
-            returns,
-            window,
-            risk_free=risk_free_per_period,
-            annualization=periods_per_year,
-        ),
-        dtype=np.float64,
-    )
-    return result
-
-
-_ROLLING_SHARPE = ConformanceTarget(
-    name="rolling_sharpe",
-    tier=1,
-    oracle="empyrical-reloaded",
-    citation="Sharpe, W.F. (1966), 'Mutual Fund Performance.' Journal of Business, 39(1), 119-138.",
-    compare=ArrayComparator(),
-    quantcore=_rolling_sharpe_quantcore,
-    reference=_rolling_sharpe_reference,
 )
 
 

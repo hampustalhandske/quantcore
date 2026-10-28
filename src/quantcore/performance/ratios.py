@@ -12,7 +12,7 @@ Notation:
     W_t = prod_{s<=t} (1 + r_s)             wealth, starting capital 1
     P_t = max(1, W_1, ..., W_t)             running peak, starting capital included
     D_t = (P_t - W_t) / P_t                 drawdown, a positive fraction
-                                            (`drawdown_series`)
+                                            (`_drawdown_series`)
     G   = sum of the positive returns
     L   = |sum of the negative returns|
     Q_p = p-quantile of the returns, interpolated linearly between the two
@@ -82,7 +82,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm
 
-from quantcore.performance.metrics import drawdown_series, hit_rate, profit_factor
+from quantcore.performance.metrics import _drawdown_series, hit_rate, profit_factor
 
 _TAIL_QUANTILE = 0.95
 _OUTLIER_WIN_QUANTILE = 0.99
@@ -110,7 +110,7 @@ def ulcer_index(returns: npt.NDArray[np.float64]) -> float:
     """Ulcer Index: root of the sum of squared drawdowns over `n - 1`.
 
     UI = sqrt(sum_t D_t^2 / (n - 1)), with D_t the drawdown from the running
-    peak of the wealth path (see `drawdown_series`). The drawdowns are
+    peak of the wealth path (see `_drawdown_series`). The drawdowns are
     fractions, so a path that sits 50% below its peak throughout has an
     index near 0.5, not 50.
 
@@ -135,7 +135,7 @@ def ulcer_index(returns: npt.NDArray[np.float64]) -> float:
         Fidelity Funds*, Wiley.
     """
     _validate_returns(returns, min_observations=2)
-    return _ulcer_index(drawdown_series(returns))
+    return _ulcer_index(_drawdown_series(returns))
 
 
 def _ulcer_index(drawdowns: npt.NDArray[np.float64]) -> float:
@@ -176,7 +176,7 @@ def ulcer_performance_index(returns: npt.NDArray[np.float64]) -> float:
 
 
 def _ulcer_performance_index(returns: npt.NDArray[np.float64]) -> float:
-    ulcer = _ulcer_index(drawdown_series(returns))
+    ulcer = _ulcer_index(_drawdown_series(returns))
     if ulcer == 0.0:
         return float(np.inf)
     return (float(np.prod(1.0 + returns)) - 1.0) / ulcer
@@ -241,7 +241,7 @@ def _serenity_index(returns: npt.NDArray[np.float64]) -> float:
     # leaves a standard deviation of rounding residue instead of zero.
     if np.ptp(returns) == 0.0:
         return float("nan")
-    drawdowns = drawdown_series(returns)
+    drawdowns = _drawdown_series(returns)
     if np.ptp(drawdowns) == 0.0:
         return float("nan")
     threshold = float(np.mean(drawdowns)) + _DRAWDOWN_AT_RISK_Z * float(np.std(drawdowns, ddof=1))

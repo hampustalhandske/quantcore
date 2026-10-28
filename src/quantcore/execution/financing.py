@@ -67,37 +67,3 @@ def margin_financing_cost(notional: float, financing_rate_annual: float, days_he
     """
     _validate_simple_annual_carry(notional, financing_rate_annual, days_held)
     return _simple_annual_carry(notional, financing_rate_annual, days_held)
-
-
-def _validate_futures_roll_yield(near_price: float, far_price: float, days_to_roll: int) -> None:
-    if near_price <= 0.0:
-        raise ValueError("near_price must be strictly positive")
-    if far_price <= 0.0:
-        raise ValueError("far_price must be strictly positive")
-    if days_to_roll <= 0:
-        raise ValueError("days_to_roll must be strictly positive")
-
-
-def futures_roll_yield(near_price: float, far_price: float, days_to_roll: int) -> float:
-    """Annualized roll yield implied by the near/far futures term structure.
-
-    Positive when the curve is in backwardation (near_price > far_price),
-    negative when in contango (near_price < far_price).
-
-    Args:
-        near_price: Price of the near-dated (expiring) futures contract
-            (must be strictly positive).
-        far_price: Price of the far-dated (roll target) futures contract
-            (must be strictly positive).
-        days_to_roll: Calendar days between the near and far contract
-            expiries (must be strictly positive).
-
-    Returns:
-        Annualized roll yield as a fraction (e.g. 0.05 for 5%).
-    """
-    _validate_futures_roll_yield(near_price, far_price, days_to_roll)
-    return _futures_roll_yield(near_price, far_price, days_to_roll)
-
-
-def _futures_roll_yield(near_price: float, far_price: float, days_to_roll: int) -> float:
-    return ((near_price - far_price) / far_price) * (365.0 / days_to_roll)

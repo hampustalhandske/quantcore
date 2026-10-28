@@ -1,4 +1,4 @@
-"""Oracle tests for `drawdown_series` / `maximum_drawdown` vs quantstats and empyrical.
+"""Oracle tests for `_drawdown_series` / `maximum_drawdown` vs quantstats and empyrical.
 
 Both oracles seed the running peak with the starting capital before the
 first return is applied (`empyrical.stats.drawdown_series` prepends the
@@ -21,7 +21,7 @@ pytest.importorskip("empyrical")
 import empyrical
 import quantstats.stats as qs
 
-from quantcore.performance.metrics import drawdown_series, maximum_drawdown
+from quantcore.performance.metrics import _drawdown_series, maximum_drawdown
 
 pytestmark = pytest.mark.oracle
 
@@ -41,14 +41,14 @@ class TestDrawdownSeriesMatchesQuantstats:
         for returns in _random_paths(200):
             index = pd.date_range("2020-01-01", periods=returns.size, freq="D")
             quantstats_dd = qs.to_drawdown_series(pd.Series(returns, index=index)).to_numpy()
-            np.testing.assert_allclose(quantstats_dd, -drawdown_series(returns), atol=1e-10)
+            np.testing.assert_allclose(quantstats_dd, -_drawdown_series(returns), atol=1e-10)
 
     def test_negative_first_return_is_underwater(self) -> None:
         returns = np.array([-0.05, 0.01, 0.02])
         index = pd.date_range("2020-01-01", periods=returns.size, freq="D")
         quantstats_dd = qs.to_drawdown_series(pd.Series(returns, index=index)).to_numpy()
-        np.testing.assert_allclose(quantstats_dd, -drawdown_series(returns), atol=1e-10)
-        assert drawdown_series(returns)[0] == pytest.approx(0.05)
+        np.testing.assert_allclose(quantstats_dd, -_drawdown_series(returns), atol=1e-10)
+        assert _drawdown_series(returns)[0] == pytest.approx(0.05)
 
 
 class TestMaximumDrawdownMatchesEmpyrical:

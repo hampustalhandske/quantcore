@@ -1,11 +1,10 @@
-"""Tests for carry/financing cost formulas: borrow cost, roll yield, margin financing."""
+"""Tests for carry/financing cost formulas: borrow cost, margin financing."""
 
 from __future__ import annotations
 
 import pytest
 
 from quantcore.execution.financing import (
-    futures_roll_yield,
     margin_financing_cost,
     short_borrow_cost,
 )
@@ -62,37 +61,3 @@ class TestMarginFinancingCost:
     ) -> None:
         with pytest.raises(ValueError):
             margin_financing_cost(notional, financing_rate_annual, days_held)
-
-
-class TestFuturesRollYield:
-    def test_known_answer(self) -> None:
-        actual = futures_roll_yield(near_price=102.0, far_price=100.0, days_to_roll=30)
-        expected = ((102.0 - 100.0) / 100.0) * (365.0 / 30)
-        assert actual == pytest.approx(expected, rel=1e-12)
-
-    def test_backwardation_is_positive(self) -> None:
-        actual = futures_roll_yield(near_price=105.0, far_price=100.0, days_to_roll=60)
-        assert actual > 0.0
-
-    def test_contango_is_negative(self) -> None:
-        actual = futures_roll_yield(near_price=98.0, far_price=100.0, days_to_roll=60)
-        assert actual < 0.0
-
-    def test_equal_prices_is_zero(self) -> None:
-        actual = futures_roll_yield(near_price=100.0, far_price=100.0, days_to_roll=30)
-        assert actual == pytest.approx(0.0, abs=1e-12)
-
-    @pytest.mark.parametrize(
-        ("near_price", "far_price", "days_to_roll"),
-        [
-            (0.0, 100.0, 30),
-            (-1.0, 100.0, 30),
-            (100.0, 0.0, 30),
-            (100.0, -1.0, 30),
-            (100.0, 100.0, 0),
-            (100.0, 100.0, -1),
-        ],
-    )
-    def test_invalid_inputs(self, near_price: float, far_price: float, days_to_roll: int) -> None:
-        with pytest.raises(ValueError):
-            futures_roll_yield(near_price, far_price, days_to_roll)

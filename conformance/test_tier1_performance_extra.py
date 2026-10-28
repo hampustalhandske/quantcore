@@ -1,8 +1,7 @@
 """Tier-1 differential tests for Sortino, Calmar, information ratio, hit rate, profit factor.
 
-Also covers rolling Sharpe -- against `empyrical-reloaded` and, for the trade statistics, a
-`quantstats` second-oracle cross-check -- and the nine drawdown, payoff and tail ratios of
-`quantcore.performance.ratios` against `quantstats`.
+Also covers, for the trade statistics, a `quantstats` second-oracle cross-check, and the nine
+drawdown, payoff and tail ratios of `quantcore.performance.ratios` against `quantstats`.
 """
 
 import numpy as np
@@ -29,7 +28,6 @@ _CALMAR_RATIO_ARITHMETIC = registry()["calmar_ratio_arithmetic"]
 _INFORMATION_RATIO = registry()["information_ratio"]
 _HIT_RATE = registry()["hit_rate"]
 _PROFIT_FACTOR = registry()["profit_factor"]
-_ROLLING_SHARPE = registry()["rolling_sharpe"]
 _ULCER_INDEX = registry()["ulcer_index"]
 _ULCER_PERFORMANCE_INDEX = registry()["ulcer_performance_index"]
 _SERENITY_INDEX = registry()["serenity_index"]
@@ -76,9 +74,6 @@ PROFIT_FACTOR_FAMILIES: tuple[str, ...] = tuple(
 )
 PROFIT_FACTOR_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
-ROLLING_SHARPE_MIN_LEN = 3
-ROLLING_SHARPE_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
-ROLLING_SHARPE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
 # The nine ratios below are drawn only from the families in which the ratio is defined, so every
 # declared family is one the test can record a case for.
@@ -304,37 +299,6 @@ def test_profit_factor_quantstats_cross_check(tagged: TaggedReturns) -> None:
         oracle_name="quantstats",
         oracle_callable=quantstats.stats.profit_factor,
         quantity="profit_factor",
-        seed=tagged.seed,
-    )
-
-
-@given(
-    tagged=returns_series(min_len=ROLLING_SHARPE_MIN_LEN),
-    window=st.integers(min_value=2, max_value=10),
-    periods_per_year=st.sampled_from([12, 52, 252]),
-)
-def test_rolling_sharpe_matches_empyrical(
-    tagged: TaggedReturns, window: int, periods_per_year: int
-) -> None:
-    """Quantcore's `rolling_sharpe` (trimmed to its finite tail) vs `empyrical.roll_sharpe_ratio`.
-
-    Excludes any input with a zero-variance trailing window (undefined Sharpe in both
-    quantcore and the oracle), the same exclusion `sharpe_ratio` itself makes.
-    """
-    assume(window <= tagged.n)
-    windows_have_variance = all(
-        float(np.std(tagged.values[i - window + 1 : i + 1], ddof=1)) != 0.0
-        for i in range(window - 1, tagged.n)
-    )
-    assume(windows_have_variance)
-    check(
-        _ROLLING_SHARPE,
-        tagged.values,
-        window,
-        0.0,
-        periods_per_year,
-        family=tagged.family,
-        length_bucket=length_bucket_for(tagged.n),
         seed=tagged.seed,
     )
 

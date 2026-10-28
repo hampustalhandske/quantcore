@@ -41,7 +41,7 @@ src/quantcore/
 ├── statistics/    # OLS, factor regressions, cointegration, unit-root and diagnostic tests
 ├── regime/        # Gaussian HMM regime detection
 ├── filtering/     # Kalman filter/smoother
-└── performance/   # Risk-adjusted return metrics, drawdown/payoff/tail ratios, attribution
+└── performance/   # Risk-adjusted return metrics, drawdown/payoff/tail ratios
 tests/             # mirrors src/ 1:1 (unit/ + integration/ + oracle/)
 conformance/       # differential tests against independent oracles on generated inputs, and the builder of docs/CONFORMANCE.md
 benchmarks/        # wall-clock benchmarks: Numba kernels and comparisons with external libraries

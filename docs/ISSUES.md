@@ -13,9 +13,10 @@ Status values: `open`, `in progress`, `done`.
 their tests, conformance targets, tolerances and benchmark rows. QuantLib leaves the runtime
 dependencies and stays an oracle in the `oracle` extra.
 
-### QC-2: Remove unused performance, risk and execution helpers — open
-`brinson_fachler_attribution`, `rolling_sharpe`, `futures_roll_yield`, `drawdown_series`,
-`time_under_water`, `max_drawdown_duration`, `cagr`, `annualized_return`.
+### QC-2: Remove unused performance and execution helpers — in progress
+`brinson_fachler_attribution`, `rolling_sharpe`, `futures_roll_yield`, `time_under_water`,
+`max_drawdown_duration`, and the public `drawdown_series`, `cagr` and `annualized_return`.
+`calmar_ratio` and the Ulcer and Serenity ratios use the private versions of the last three.
 
 ### QC-3: Remove unused portfolio, filtering, core and options helpers — open
 `mean_variance_weights`, `l1_turnover_penalized_weights`, `kelly_fraction`, `sample_covariance`,

@@ -149,7 +149,7 @@ def maximum_drawdown(returns: npt.NDArray[np.float64]) -> float:
     """Maximum drawdown of the cumulative return path, as a positive fraction.
 
     Measured against the running peak of the wealth path seeded with its
-    starting capital of 1.0 (see `drawdown_series`), so
+    starting capital of 1.0 (see `_drawdown_series`), so
     `maximum_drawdown(np.array([-0.5])) == 0.5`.
     """
     _validate_maximum_drawdown(returns)
@@ -158,28 +158,6 @@ def maximum_drawdown(returns: npt.NDArray[np.float64]) -> float:
 
 def _maximum_drawdown(returns: npt.NDArray[np.float64]) -> float:
     return float(np.max(_drawdown_series(returns)))
-
-
-def drawdown_series(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Drawdown at every period, as a positive fraction (0 at a new high).
-
-    drawdown_t = (running_peak_t - cumulative_t) / running_peak_t, where
-    cumulative_t = prod(1 + returns[:t+1]) and running_peak_t is the running
-    maximum of the wealth path *including its starting value of 1.0* (the
-    capital in place before the first return; Bacon 2008), i.e.
-    running_peak_t = max(1.0, cumulative_0, ..., cumulative_t). A loss on the
-    first period is therefore a drawdown, matching
-    `empyrical.stats.drawdown_series`.
-    `maximum_drawdown(returns) == drawdown_series(returns).max()`.
-
-    Args:
-        returns: Periodic simple returns.
-
-    Returns:
-        Drawdown series, same length as `returns`, each entry in [0, 1).
-    """
-    _validate_returns(returns)
-    return _drawdown_series(returns)
 
 
 def _drawdown_series(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -191,72 +169,6 @@ def _drawdown_series(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.float64
     peak = np.maximum.accumulate(np.concatenate(([1.0], cumulative)))[1:]
     result: npt.NDArray[np.float64] = (peak - cumulative) / peak
     return result
-
-
-def time_under_water(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.int64]:
-    """Number of consecutive periods (inclusive) since the last new equity high.
-
-    0 at a period that is itself a new high (drawdown == 0); otherwise the
-    count increments by 1 each period the drawdown persists, resetting to 0
-    the moment a new high is reached.
-
-    Args:
-        returns: Periodic simple returns.
-
-    Returns:
-        Integer series, same length as `returns`.
-    """
-    _validate_returns(returns)
-    return _time_under_water(returns)
-
-
-def _time_under_water(returns: npt.NDArray[np.float64]) -> npt.NDArray[np.int64]:
-    drawdowns = _drawdown_series(returns)
-    underwater = drawdowns > 0.0
-    result = np.zeros(returns.shape[0], dtype=np.int64)
-    counter = 0
-    for t in range(returns.shape[0]):
-        counter = counter + 1 if underwater[t] else 0
-        result[t] = counter
-    return result
-
-
-def max_drawdown_duration(returns: npt.NDArray[np.float64]) -> int:
-    """Longest historical drawdown duration, in periods.
-
-    The maximum number of consecutive periods spent below a prior equity
-    high, over the whole series (see `time_under_water`).
-
-    Args:
-        returns: Periodic simple returns.
-
-    Returns:
-        Longest drawdown duration, in periods (0 if the series never dips
-        below its running peak).
-    """
-    _validate_returns(returns)
-    return int(np.max(_time_under_water(returns)))
-
-
-def _validate_cagr(returns: npt.NDArray[np.float64], periods_per_year: int) -> None:
-    _validate_returns(returns)
-    if periods_per_year <= 0:
-        raise ValueError("periods_per_year must be positive")
-
-
-def cagr(returns: npt.NDArray[np.float64], periods_per_year: int = 252) -> float:
-    """Compound annual growth rate of the cumulative return path.
-
-    CAGR = ending_value^(periods_per_year / n) - 1, ending_value =
-    prod(1 + returns), n = len(returns). This is the standard "annualized
-    return" figure (empyrical's `annual_return`, QuantStats' `cagr`,
-    Young's (1991) Calmar ratio as commonly applied) — the geometric growth
-    rate consistent with actually compounding the observed returns, as
-    opposed to the arithmetic mean scaled by frequency (see
-    `annualized_return`'s `"arithmetic"` method).
-    """
-    _validate_cagr(returns, periods_per_year)
-    return _cagr(returns, periods_per_year)
 
 
 def _cagr(returns: npt.NDArray[np.float64], periods_per_year: int) -> float:
@@ -280,27 +192,6 @@ def _validate_annualized_return(
         raise ValueError("periods_per_year must be positive")
     if method not in ("cagr", "arithmetic"):
         raise ValueError('method must be "cagr" or "arithmetic"')
-
-
-def annualized_return(
-    returns: npt.NDArray[np.float64],
-    periods_per_year: int = 252,
-    method: AnnualizedReturnMethod = "cagr",
-) -> float:
-    """Annualized return of `returns`, by either of two conventions.
-
-    Args:
-        returns: Periodic simple returns.
-        periods_per_year: Number of periods in a year (e.g. 252 for daily).
-        method: `"cagr"` (default) — see `cagr`; the standard convention.
-            `"arithmetic"` — mean(returns) * periods_per_year, a simpler but
-            upward-biased approximation for volatile series (Jensen's
-            inequality: E[compound growth] < (1 + E[r])^n for r with
-            variance > 0), kept for compatibility with callers that already
-            rely on it.
-    """
-    _validate_annualized_return(returns, periods_per_year, method)
-    return _annualized_return(returns, periods_per_year, method)
 
 
 def _annualized_return(
@@ -376,43 +267,6 @@ def _information_ratio(
     diff = returns - benchmark_returns
     tracking_error = float(np.std(diff, ddof=1))
     return float(np.mean(diff)) / tracking_error * float(np.sqrt(periods_per_year))
-
-
-def _validate_rolling_sharpe(
-    returns: npt.NDArray[np.float64],
-    window: int,
-    risk_free_rate: float,
-    periods_per_year: int,
-) -> None:
-    _validate_returns(returns)
-    if window <= 0:
-        raise ValueError("window must be a positive integer")
-    if window > returns.size:
-        raise ValueError("window must not exceed the length of returns")
-
-
-def rolling_sharpe(
-    returns: npt.NDArray[np.float64],
-    window: int,
-    risk_free_rate: float = 0.0,
-    periods_per_year: int = 252,
-) -> npt.NDArray[np.float64]:
-    """Rolling annualized Sharpe ratio; the first `window - 1` entries are NaN."""
-    _validate_rolling_sharpe(returns, window, risk_free_rate, periods_per_year)
-    return _rolling_sharpe(returns, window, risk_free_rate, periods_per_year)
-
-
-def _rolling_sharpe(
-    returns: npt.NDArray[np.float64],
-    window: int,
-    risk_free_rate: float,
-    periods_per_year: int,
-) -> npt.NDArray[np.float64]:
-    n = returns.shape[0]
-    result = np.full(n, np.nan, dtype=np.float64)
-    for i in range(window - 1, n):
-        result[i] = _sharpe_ratio(returns[i - window + 1 : i + 1], risk_free_rate, periods_per_year)
-    return result
 
 
 def _validate_hit_rate(returns: npt.NDArray[np.float64]) -> None:

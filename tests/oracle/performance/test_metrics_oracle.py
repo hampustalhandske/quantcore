@@ -1,4 +1,4 @@
-"""Oracle tests for C1: `calmar_ratio` / `cagr` / `annualized_return` vs empyrical.
+"""Oracle tests for C1: `calmar_ratio` vs empyrical.
 
 Confirmed finding C1 (see QUANTCORE_FIX_PROMPT.md): `calmar_ratio` used
 arithmetic annualized return (`mean(r) * periods_per_year`), where
@@ -19,11 +19,7 @@ pytest.importorskip("empyrical")
 
 import empyrical
 
-from quantcore.performance.metrics import (
-    annualized_return,
-    cagr,
-    calmar_ratio,
-)
+from quantcore.performance.metrics import calmar_ratio
 
 pytestmark = pytest.mark.oracle
 
@@ -33,21 +29,6 @@ RNG_SEED = 20240921
 def _returns(n: int, seed: int, daily_vol: float = 0.01, drift: float = 0.0003) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return rng.normal(drift, daily_vol, size=n)
-
-
-class TestCagrMatchesEmpyricalAnnualReturn:
-    @pytest.mark.parametrize("seed", range(5))
-    def test_matches(self, seed: int) -> None:
-        returns = _returns(500, seed)
-        expected = empyrical.annual_return(returns, period="daily")
-        actual = cagr(returns, periods_per_year=252)
-        assert actual == pytest.approx(expected, rel=1e-9)
-
-    def test_annualized_return_cagr_method_matches(self) -> None:
-        returns = _returns(500, RNG_SEED)
-        expected = empyrical.annual_return(returns, period="daily")
-        actual = annualized_return(returns, periods_per_year=252, method="cagr")
-        assert actual == pytest.approx(expected, rel=1e-9)
 
 
 class TestCalmarRatioMatchesEmpyrical:

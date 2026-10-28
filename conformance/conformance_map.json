@@ -723,27 +723,6 @@
         "rtol": 0.001
       }
     },
-    "futures_roll_yield": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 5.82e-11,
-          "max_rel_error": 8.36e-13
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 5.82e-11,
-      "max_rel_error": 8.36e-13,
-      "oracle": "hand-derived closed form",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 0.0,
-        "justification": "closed form: one division, one subtraction, one multiplication.",
-        "rtol": 1e-12
-      }
-    },
     "gain_to_pain": {
       "by_quantity": {
         "value": {
@@ -1768,27 +1747,6 @@
         "atol": 0.001,
         "justification": "compared directly on WEIGHTS, not an objective (see conformance.targets.portfolio's module docstring): Spinu (2013)'s reformulation is strictly convex, so the risk-parity portfolio is unique and two correct solvers must agree on the weight vector itself. Generous relative to the closed-form default because quantcore's SLSQP least-squares-of-contribution-differences formulation and the oracle's independent log-barrier L-BFGS-B solver (conformance.targets.portfolio._spinu_risk_parity_weights) are very different numerical paths to the same point; measured agreement ~1e-7 on well-behaved cases in an empirical 200-case sweep (seed 100, k in 2..10, well_conditioned family), while quantcore's SLSQP failed to reach an equal-risk-contribution solution (or raised RuntimeError on non-convergence) on 13/200 cases, with weight deviations up to 0.39. This tolerance is tight enough that both outcomes are correctly classified: convergent cases pass, divergent ones fail by orders of magnitude.",
         "rtol": 0.001
-      }
-    },
-    "rolling_sharpe": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 5.96e-08,
-          "max_rel_error": 2.88e-13
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 5.96e-08,
-      "max_rel_error": 2.88e-13,
-      "oracle": "empyrical-reloaded",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "each windowed entry is the same closed-form Sharpe ratio as sharpe_ratio, repeated over many windows; the array comparator's max over all windows inherits sharpe_ratio's own rounding margin.",
-        "rtol": 1e-09
       }
     },
     "sample_covariance": {

@@ -1,8 +1,7 @@
 """Tier-1 differential tests: execution costs against a hand-derived closed-form reference.
 
-Covers `square_root_market_impact`, `short_borrow_cost`, `margin_financing_cost` and
-`futures_roll_yield`. Unlike the performance and statistics targets, these take scalar arguments,
-not a series -- there
+Covers `square_root_market_impact`, `short_borrow_cost` and `margin_financing_cost`. Unlike the
+performance and statistics targets, these take scalar arguments, not a series -- there
 is no "length" to bucket. `conformance.generators.length_bucket_for` and the `short`/`medium`/
 `long` coverage buckets it defines describe series length specifically and do not apply here, so
 each function declares a single length bucket, `"scalar"`, and every recorded case uses it, which
@@ -22,7 +21,6 @@ from conformance.compare import registry
 from conformance.edge_cases import observe
 from conformance.harness import check
 from conformance.targets.execution import (
-    futures_roll_yield,
     margin_financing_cost,
     short_borrow_cost,
     square_root_market_impact,
@@ -31,7 +29,6 @@ from conformance.targets.execution import (
 _SQUARE_ROOT_MARKET_IMPACT = registry()["square_root_market_impact"]
 _SHORT_BORROW_COST = registry()["short_borrow_cost"]
 _MARGIN_FINANCING_COST = registry()["margin_financing_cost"]
-_FUTURES_ROLL_YIELD = registry()["futures_roll_yield"]
 
 _SCALAR_BUCKET = "scalar"
 
@@ -65,16 +62,6 @@ MARGIN_FINANCING_COST_FAMILIES: tuple[str, ...] = (
 )
 MARGIN_FINANCING_COST_BUCKETS: tuple[str, ...] = (_SCALAR_BUCKET,)
 
-FUTURES_ROLL_YIELD_FAMILIES: tuple[str, ...] = (
-    "backwardation",
-    "contango",
-    "flat",
-    "tiny_price",
-    "huge_price",
-    "short_days_to_roll",
-    "long_days_to_roll",
-)
-FUTURES_ROLL_YIELD_BUCKETS: tuple[str, ...] = (_SCALAR_BUCKET,)
 
 _DAYS_PER_10_YEARS = 3650
 
@@ -224,62 +211,6 @@ def test_margin_financing_cost_matches_closed_form(case: CarryCase) -> None:
     )
 
 
-@dataclass(frozen=True)
-class RollYieldCase:
-    """One `futures_roll_yield` input, tagged with the term-structure family that produced it."""
-
-    near_price: float
-    far_price: float
-    days_to_roll: int
-    family: str
-
-
-@st.composite
-def roll_yield_case(draw: st.DrawFn) -> RollYieldCase:
-    """Draw a `futures_roll_yield` input from a term-structure/magnitude/horizon family."""
-    family = draw(st.sampled_from(list(FUTURES_ROLL_YIELD_FAMILIES)))
-    days_to_roll = draw(st.integers(min_value=1, max_value=365))
-    if family == "backwardation":
-        far_price = draw(_finite_floats(1.0, 1e6))
-        near_price = far_price * draw(_finite_floats(1.0001, 3.0))
-    elif family == "contango":
-        far_price = draw(_finite_floats(1.0, 1e6))
-        near_price = far_price * draw(_finite_floats(1e-3, 0.9999))
-    elif family == "flat":
-        near_price = draw(_finite_floats(1.0, 1e6))
-        far_price = near_price
-    elif family == "tiny_price":
-        near_price = draw(_finite_floats(1e-6, 1e-3))
-        far_price = draw(_finite_floats(1e-6, 1e-3))
-    elif family == "huge_price":
-        near_price = draw(_finite_floats(1e9, 1e12))
-        far_price = draw(_finite_floats(1e9, 1e12))
-    elif family == "short_days_to_roll":
-        near_price = draw(_finite_floats(1.0, 1e6))
-        far_price = draw(_finite_floats(1.0, 1e6))
-        days_to_roll = 1
-    else:  # long_days_to_roll
-        near_price = draw(_finite_floats(1.0, 1e6))
-        far_price = draw(_finite_floats(1.0, 1e6))
-        days_to_roll = draw(st.integers(min_value=180, max_value=365))
-    return RollYieldCase(
-        near_price=near_price, far_price=far_price, days_to_roll=days_to_roll, family=family
-    )
-
-
-@given(case=roll_yield_case())
-def test_futures_roll_yield_matches_closed_form(case: RollYieldCase) -> None:
-    """Quantcore's `futures_roll_yield` against the hand-derived near/far term-structure formula."""
-    check(
-        _FUTURES_ROLL_YIELD,
-        case.near_price,
-        case.far_price,
-        case.days_to_roll,
-        family=case.family,
-        length_bucket=_SCALAR_BUCKET,
-    )
-
-
 # --- Contract tests: NaN/inf/negative through the validating functions of `targets.execution` ---
 #
 # What raw quantcore does on these same inputs is recorded via `conformance.edge_cases.observe`
@@ -394,43 +325,5 @@ def test_margin_financing_cost_rejects_nan_inf_and_negative() -> None:
         qc_execution.margin_financing_cost,
         -1.0,
         0.05,
-        30,
-    )
-
-
-def test_futures_roll_yield_rejects_nan_inf_and_non_positive() -> None:
-    """`futures_roll_yield` raises `ValueError` on NaN/inf/non-positive prices or `days_to_roll`."""
-    for argument, bad_value in [
-        ("near_price", math.nan),
-        ("near_price", math.inf),
-        ("near_price", 0.0),
-        ("near_price", -1.0),
-        ("far_price", math.nan),
-        ("far_price", math.inf),
-        ("far_price", 0.0),
-        ("far_price", -1.0),
-    ]:
-        base = {"near_price": 105.0, "far_price": 100.0, "days_to_roll": 30}
-        base[argument] = bad_value
-        try:
-            futures_roll_yield(**base)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"expected ValueError for {argument}={bad_value!r}")
-    for bad_days in (0, -1):
-        try:
-            futures_roll_yield(near_price=105.0, far_price=100.0, days_to_roll=bad_days)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"expected ValueError for days_to_roll={bad_days!r}")
-    observe(
-        "futures_roll_yield",
-        "quantcore",
-        "zero far_price",
-        qc_execution.futures_roll_yield,
-        105.0,
-        0.0,
         30,
     )

@@ -30,7 +30,6 @@ pytest.importorskip("sklearn")
 pytest.importorskip("linearmodels")
 pytest.importorskip("empyrical")
 pytest.importorskip("quantstats")
-pytest.importorskip("QuantLib")
 pytest.importorskip("vollib")
 pytest.importorskip("hmmlearn")
 pytest.importorskip("cvxpy")
@@ -1939,7 +1938,6 @@ def test_oracle_versions_covers_every_oracle_library_and_the_numerical_base() ->
         "linearmodels",
         "empyrical-reloaded",
         "quantstats",
-        "QuantLib",
         "py_vollib",
         "hmmlearn",
         "cvxpy",

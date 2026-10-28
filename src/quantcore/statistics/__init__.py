@@ -1,8 +1,6 @@
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
-    johansen_max_eigenvalue_test,
-    johansen_trace_test,
     ou_half_life,
     spread_zscore,
 )
@@ -28,8 +26,6 @@ __all__ = [
     "factor_loadings",
     "fama_macbeth_regression",
     "jarque_bera_test",
-    "johansen_max_eigenvalue_test",
-    "johansen_trace_test",
     "kpss_test",
     "newey_west_cov",
     "newey_west_optimal_lags",

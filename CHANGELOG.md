@@ -12,7 +12,8 @@ to see exactly what changed and why before upgrading.
 
 - `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price` and
   `monte_carlo_put_price`. No project calls them. `QuantLib` is no longer a
-  runtime dependency; it remains an oracle in the `oracle` extra.
+  runtime dependency and is no longer in the `oracle` extra; the dividend-yield
+  Greek oracle tests use `py_vollib`.
 - `brinson_fachler_attribution` and `BrinsonFachlerAttribution`, `rolling_sharpe`,
   `futures_roll_yield`, `cagr`, `annualized_return`, `drawdown_series`,
   `time_under_water` and `max_drawdown_duration`. No project calls them.
@@ -25,6 +26,8 @@ to see exactly what changed and why before upgrading.
   `ledoit_wolf_shrinkage` are unchanged.
 - `implied_volatility`, `option_expiry_payoff` and `option_position_pnl`. No
   project calls them.
+- `johansen_trace_test` and `johansen_max_eigenvalue_test`. No project calls
+  them.
 
 ### Changed — default behaviour changed
 

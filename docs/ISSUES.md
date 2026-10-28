@@ -11,7 +11,7 @@ Status values: `open`, `in progress`, `done`.
 ### QC-1: Remove the COS Heston and Monte Carlo pricers — in progress
 `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price`, `monte_carlo_put_price`,
 their tests, conformance targets, tolerances and benchmark rows. QuantLib leaves the runtime
-dependencies and stays an oracle in the `oracle` extra.
+dependencies and the `oracle` extra; the dividend-yield oracle test uses py_vollib.
 
 ### QC-2: Remove unused performance and execution helpers — in progress
 `brinson_fachler_attribution`, `rolling_sharpe`, `futures_roll_yield`, `time_under_water`,
@@ -30,7 +30,7 @@ dependencies and stays an oracle in the `oracle` extra.
 ### QC-3b: Remove unused option helpers — in progress
 `implied_volatility`, `option_expiry_payoff`, `option_position_pnl`.
 
-### QC-4: Remove Johansen — open
+### QC-4: Remove Johansen — in progress
 `johansen_trace_test`, `johansen_max_eigenvalue_test`.
 
 ## Delegation (a library does the job; quantcore keeps one wrapper per function)
@@ -80,3 +80,12 @@ Sharpe and its standard error, HAC t, bootstrap CI, PSR, DSR, CSCV/PBO, effectiv
 resampling calls. Function list and bit-identity agreed with edgelab before work starts.
 Ledoit-Wolf is delegated to scikit-learn in this step only if it is identical to the current
 closed form.
+
+## Evaluation
+
+### QC-14: Replace the active-set QP solver? — open (after QC-12)
+`portfolio/optimization.py` carries a general active-set solver (~700 lines) used only by
+`min_variance_weights`. Measure a replacement (`scipy.optimize` or a small QP library) on
+agentic's real covariance shapes for speed on the per-pod-per-day path and for the maximum
+weight difference. Replace it only if it is not slower and the weights agree to 1e-8; otherwise
+keep it and record the reason here.

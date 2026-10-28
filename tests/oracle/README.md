@@ -7,9 +7,9 @@ agrees with the industry-standard result, not merely that it is
 self-consistent.
 
 These tests import reference libraries (`statsmodels`, `arch`,
-`scikit-learn`, `linearmodels`, `empyrical`, `quantstats`, `QuantLib`,
+`scikit-learn`, `linearmodels`, `empyrical`, `quantstats`,
 `vollib`/`py_vollib`, `hmmlearn`, `filterpy`, `cvxpy`, `hypothesis`) from the
-`oracle` extra. `arch`, `QuantLib` and `empyrical` are also the default
+`oracle` extra. `arch` and `empyrical` are also the default
 backend of one quantcore function each (see `CLAUDE.md`); the tests here
 check quantcore's own implementation of those functions, so they pass
 `backend="quantcore"`. No other reference library is imported from
@@ -37,8 +37,8 @@ Every oracle test's tolerance must follow the kind of calculation it checks,
 and any tolerance looser than the defaults below carries a one-line comment
 explaining why.
 
-- **Closed-form vs. closed-form** (e.g. Black-Scholes price vs. QuantLib's
-  analytic engine, a table lookup vs. the same published table): `1e-10`
+- **Closed-form vs. closed-form** (e.g. Black-Scholes price vs. py_vollib's
+  closed form, a table lookup vs. the same published table): `1e-10`
   relative. Two exact formulas evaluated in double precision should agree to
   numerical noise.
 - **Optimizer-based** (MLE fits — GARCH/EGARCH, ARIMA, HMM Baum-Welch —
@@ -52,8 +52,8 @@ explaining why.
   reference value at a fixed seed, `k` stated per test (`k=3` unless
   otherwise justified — roughly a 1-in-370 false-fail rate per test, tight
   enough to catch a real bug, loose enough not to flake).
-- **Table lookups / response-surface approximations** (MacKinnon p-values,
-  Johansen critical values): the statistic to `1e-6` (both sides compute it
+- **Table lookups / response-surface approximations** (MacKinnon p-values):
+  the statistic to `1e-6` (both sides compute it
   the same closed-form way); the p-value or critical value to the tolerance
   the source paper itself claims for its approximation — `1e-3` unless a
   test states otherwise.
@@ -87,8 +87,6 @@ the committed `conformance/conformance_map.json` and `docs/CONFORMANCE.md`
 These public functions have no conformance target, so their oracle tests in
 this directory are their only comparison with an independent reference:
 
-- `statistics`: `johansen_trace_test`, `johansen_max_eigenvalue_test`
-  (`statistics/test_johansen_oracle.py`).
 - `performance`: the drawdown path behind `maximum_drawdown` and the Ulcer and Serenity
   ratios (`performance/test_drawdown_oracle.py`) and `component_var`
   (`performance/test_component_var_oracle.py`).

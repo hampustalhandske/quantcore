@@ -164,11 +164,6 @@ cite the relevant entry in their docstrings.
   test: step 1 OLS with intercept, step 2 ADF on the residuals with one
   lagged difference and no constant, p-value from MacKinnon's N=2 surface)
 
-- Johansen, S. (1988). "Statistical Analysis of Cointegration Vectors."
-  *Journal of Economic Dynamics and Control*, 12(2–3), 231–254.
-  → `statistics/cointegration.py` (Johansen trace and maximum-eigenvalue
-  tests, eigenvectors)
-
 - Avellaneda, M. and Lee, J.-H. (2010). "Statistical Arbitrage in the U.S.
   Equities Market." *Quantitative Finance*, 10(7), 761–782.
   → `statistics/cointegration.py` (OU half-life and z-score for spread trading)
@@ -184,13 +179,6 @@ cite the relevant entry in their docstrings.
   were checked against the working-paper version of the article; the
   large-p coefficients and the no-constant tables equal those of
   `statsmodels.tsa.adfvalues` and were not checked against a primary source.)
-
-- MacKinnon, J.G., Haug, A.A., and Michelis, L. (1999). "Numerical
-  Distribution Functions of Likelihood Ratio Tests for Cointegration."
-  *Journal of Applied Econometrics*, 14(5), 563–577.
-  → `statistics/cointegration.py` (Johansen trace and maximum-eigenvalue
-  test critical values, by deterministic-term case and confidence level;
-  `_JOHANSEN_TRACE_CRIT`, `_JOHANSEN_MAX_EIG_CRIT`)
 
 ## Time series
 

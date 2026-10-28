@@ -10,8 +10,6 @@ import pytest
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
-    johansen_max_eigenvalue_test,
-    johansen_trace_test,
     ou_half_life,
     spread_zscore,
 )
@@ -260,114 +258,6 @@ class TestEngleGrangerTest:
         y = 2.0 * x + spread
         _, _, p_value = engle_granger_test(y, x)
         assert p_value == 0.0
-
-
-class TestJohansenTraceTest:
-    def test_invalid_inputs(self) -> None:
-        with pytest.raises(ValueError):
-            johansen_trace_test(np.zeros((10, 1)))
-        with pytest.raises(ValueError):
-            johansen_trace_test(np.zeros((3, 2)), n_lags=5)
-
-    def test_output_shapes(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(200, 2))
-        trace_stats, crit_values, eigenvectors = johansen_trace_test(data, n_lags=1)
-        assert trace_stats.shape == (2,)
-        assert crit_values.shape == (2,)
-        assert eigenvectors.shape == (2, 2)
-
-    def test_trace_statistics_non_negative(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(200, 3))
-        trace_stats, _, _ = johansen_trace_test(data, n_lags=1)
-        assert np.all(trace_stats >= 0.0)
-
-    def test_default_critical_values_match_published_table_unrestricted_constant(self) -> None:
-        # Regression test for the production bug: the old table was the
-        # no-deterministic-term case shifted by one index (its 12.3212 was
-        # the "c" case's k-r=2 value, not k-r=1), so it required a trace
-        # statistic above ~12.32 where the correct 95% threshold is 3.84 —
-        # the test almost never rejected. These are MacKinnon, Haug &
-        # Michelis (1999) Table 1's unrestricted-constant 95% values,
-        # k-r = 1..6, and must never silently shift again.
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(50, 6))
-        _, crit_values, _ = johansen_trace_test(data, n_lags=1)
-        expected = np.array([95.7542, 69.8189, 47.8545, 29.7961, 15.4943, 3.8415])
-        np.testing.assert_allclose(crit_values, expected)
-
-    @pytest.mark.parametrize(
-        ("deterministic", "confidence", "expected_k_minus_r_1"),
-        [
-            ("n", 0.95, 4.1296),
-            ("c", 0.95, 3.8415),
-            ("ct", 0.95, 3.8415),
-            ("c", 0.90, 2.7055),
-            ("c", 0.99, 6.6349),
-        ],
-    )
-    def test_critical_value_selects_correct_table_and_column(
-        self, deterministic: str, confidence: float, expected_k_minus_r_1: float
-    ) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(50, 2))
-        _, crit_values, _ = johansen_trace_test(
-            data, n_lags=1, deterministic=deterministic, confidence=confidence
-        )
-        assert crit_values[-1] == pytest.approx(expected_k_minus_r_1)
-
-    def test_invalid_deterministic_or_confidence_raises(self) -> None:
-        data = np.random.default_rng(RNG_SEED).normal(size=(50, 2))
-        with pytest.raises(ValueError):
-            johansen_trace_test(data, deterministic="bogus")
-        with pytest.raises(ValueError):
-            johansen_trace_test(data, confidence=0.5)
-
-    def test_supports_up_to_twelve_series(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(50, 12))
-        trace_stats, crit_values, eigenvectors = johansen_trace_test(data, n_lags=1)
-        assert trace_stats.shape == (12,)
-        assert crit_values.shape == (12,)
-        assert eigenvectors.shape == (12, 12)
-
-
-class TestJohansenMaxEigenvalueTest:
-    def test_output_shapes(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(200, 3))
-        max_eig_stats, crit_values, eigvals, eigenvectors = johansen_max_eigenvalue_test(
-            data, n_lags=1
-        )
-        assert max_eig_stats.shape == (3,)
-        assert crit_values.shape == (3,)
-        assert eigvals.shape == (3,)
-        assert eigenvectors.shape == (3, 3)
-
-    def test_eigenvalues_descending_and_in_unit_interval(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(200, 3))
-        _, _, eigvals, _ = johansen_max_eigenvalue_test(data, n_lags=1)
-        assert np.all(eigvals >= 0.0) and np.all(eigvals < 1.0)
-        assert all(a >= b for a, b in pairwise(eigvals))
-
-    def test_max_eigenvalue_statistics_sum_to_trace_statistic(self) -> None:
-        # trace_stat[r] = sum_{i=r}^{k-1} max_eig_stat[i] by construction
-        # (both derive from the same eigenvalues); check the r=0 case, which
-        # is the full trace statistic.
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(200, 3))
-        trace_stats, _, _ = johansen_trace_test(data, n_lags=1)
-        max_eig_stats, _, _, _ = johansen_max_eigenvalue_test(data, n_lags=1)
-        assert trace_stats[0] == pytest.approx(np.sum(max_eig_stats))
-
-    def test_default_critical_values_match_published_table(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(50, 3))
-        _, crit_values, _, _ = johansen_max_eigenvalue_test(data, n_lags=1)
-        expected = np.array([21.1314, 14.2639, 3.8415])
-        np.testing.assert_allclose(crit_values, expected)
 
 
 class TestOuHalfLife:

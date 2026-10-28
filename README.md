@@ -58,7 +58,7 @@ implementation or a published closed-form/worked example, not only by
 internal unit tests. Two layers do this:
 
 - `tests/oracle/` holds fixed-case oracle tests: hand-picked inputs
-  compared with a reference library (`statsmodels`, `arch`, `QuantLib`,
+  compared with a reference library (`statsmodels`, `arch`, `py_vollib`,
   ...) or a published worked example.
 - `conformance/` holds the conformance suite: each covered quantity is
   registered once with an independent oracle and a written tolerance,
@@ -141,7 +141,7 @@ uv run mypy src/            # type check (strict outside core/)
 
 `tests/unit/` and `tests/integration/` run by default. `tests/oracle/`
 (fixed-case differential tests against reference libraries — `statsmodels`,
-`arch`, `scikit-learn`, `QuantLib`, etc. — see "Verification status" above)
+`arch`, `scikit-learn`, `py_vollib`, etc. — see "Verification status" above)
 needs the `oracle` extra and is marked with `@pytest.mark.oracle`:
 
 ```bash

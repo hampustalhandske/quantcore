@@ -36,7 +36,6 @@ oracle = [
     "linearmodels==7.0",
     "empyrical-reloaded==0.5.12",
     "quantstats==0.0.81",
-    "QuantLib==1.43",
     "py_vollib==1.0.12",
     "hmmlearn==0.3.3",
     "filterpy==1.4.5",
@@ -94,11 +93,6 @@ ignore = []
 "tests/unit/filtering/test_kalman.py" = ["N806"]
 "tests/unit/portfolio/test_black_litterman.py" = ["N806"]
 "tests/unit/statistics/test_regression.py" = ["N806"]
-# `import QuantLib as ql` is the universal convention for this library
-# (used that way in QuantLib's own docs and every downstream project);
-# renaming would make oracle tests harder to cross-reference against them.
-"tests/oracle/**/*.py" = ["N813"]
-"conformance/**/*.py" = ["N813"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -123,9 +117,8 @@ module = "quantcore.core.*"
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
-# empyrical (a default backend) and QuantLib (an oracle imported by conformance/ and tests)
-# ship no type information.
-module = ["QuantLib", "empyrical"]
+# empyrical (a default backend) ships no type information.
+module = ["empyrical"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

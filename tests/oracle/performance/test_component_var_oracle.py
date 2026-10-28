@@ -13,7 +13,7 @@ marginal contribution to portfolio risk, scaled into VaR units --
 
 No third-party library exposes this exact decomposition as a public
 function to compare against directly (it is standard textbook material,
-not something e.g. `empyrical` or `QuantLib` implements as a named
+not something e.g. `empyrical` implements as a named
 routine), so this test computes the expected values from scratch in plain
 NumPy/SciPy -- independent of `quantcore`'s own implementation -- for a
 concrete numeric case, and pins the exact result.

@@ -13,18 +13,8 @@ cite the relevant entry in their docstrings.
 
 - Merton, R.C. (1973). "Theory of Rational Option Pricing." *Bell Journal
   of Economics and Management Science*, 4(1), 141–183.
-  → `pricing/black_scholes.py`, `pricing/greeks.py`, `pricing/heston.py`
+  → `pricing/black_scholes.py`, `pricing/greeks.py`
   (continuous dividend yield / cost-of-carry extension, `dividend_yield`)
-
-- Boyle, P. (1977). "Options: A Monte Carlo Approach." *Journal of
-  Financial Economics*, 4(3), 323–338.
-  → `pricing/monte_carlo.py` (base method)
-
-- Boyle, P., Broadie, M., and Glasserman, P. (1997). "Monte Carlo Methods
-  for Security Pricing." *Journal of Economic Dynamics and Control*,
-  21(8), 1267–1321.
-  → `pricing/monte_carlo.py` (variance reduction: antithetic variates,
-  control variates)
 
 ## Stochastic differential equations
 
@@ -92,7 +82,6 @@ cite the relevant entry in their docstrings.
   Financial Studies*, 6(2), 327–343.
   → `core/stochastic.py` (Heston stochastic volatility SDE)
   → `core/price_paths.py` (Heston model, `simulate_heston_price_paths`)
-  → `pricing/heston.py` (Heston characteristic function for COS pricing)
 
 - Lord, R., Koekkoek, R. and van Dijk, D. (2010). "A Comparison of Biased
   Simulation Schemes for Stochastic Volatility Models." *Quantitative
@@ -110,17 +99,6 @@ cite the relevant entry in their docstrings.
   Discontinuous." *Journal of Financial Economics*, 3(1–2), 125–144.
   → `core/price_paths.py` (jump diffusion with compensated drift,
   `simulate_jump_diffusion_price_paths`)
-
-- Fang, F. and Oosterlee, C.W. (2008). "A Novel Pricing Method for European
-  Options Based on Fourier-Cosine Series Expansions." *SIAM Journal on
-  Scientific Computing*, 31(2), 826–848.
-  → `pricing/heston.py` (COS method for option pricing under Heston: the
-  put is expanded in `y = ln(S_T/K)` on the range `x + c1 ∓ L*sqrt(c2 +
-  sqrt(c4))`, eq. 49, and the call follows by put-call parity as the paper
-  recommends in Section 3.3. The paper's Table 11 `c2` is not used as
-  printed: its `xi^2*theta*(6e^{-kT} - 7)` term should read
-  `theta*(4e^{-kT} - 5)` for the expression to equal the log-return's
-  variance; `_heston_cumulants` carries the corrected closed form.)
 
 ## Option Greeks and implied volatility
 

@@ -1,12 +1,9 @@
 """Integration: raw GBM path simulation, averaged and discounted by hand,
 should also recover the Black-Scholes price.
 
-This is a second, more end-to-end version of the Monte Carlo convergence
-check: rather than going through monte_carlo_call_price/put_price, it drives
-quantcore.core.sde_solver.simulate_gbm_paths directly and does the
-payoff/discounting/standard-error arithmetic in the test itself. This
-exercises core -> pricing numerical agreement without relying on the pricing
-module's own implementation of the discounting step.
+The test drives quantcore.core.sde_solver.simulate_gbm_paths directly and does
+the payoff/discounting/standard-error arithmetic itself, which exercises
+core -> pricing numerical agreement.
 """
 
 from __future__ import annotations

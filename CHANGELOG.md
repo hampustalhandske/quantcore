@@ -8,13 +8,19 @@ to see exactly what changed and why before upgrading.
 
 ## [0.3.0] — Unreleased
 
+### Removed
+
+- `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price` and
+  `monte_carlo_put_price`. No project calls them. `QuantLib` is no longer a
+  runtime dependency; it remains an oracle in the `oracle` extra.
+
 ### Changed — default behaviour changed
 
-**Three functions use an external library by default, selected by a new
+**Two functions use an external library by default, selected by a new
 keyword-only `backend` argument.** `backend="quantcore"` selects quantcore's
-own implementation, which is what each function ran in 0.2.0. `arch`,
-`QuantLib` and `empyrical-reloaded` are therefore runtime dependencies of the
-package; each is imported inside its function on first use.
+own implementation, which is what each function ran in 0.2.0. `arch` and
+`empyrical-reloaded` are therefore runtime dependencies of the package; each
+is imported inside its function on first use.
 
 - `fit_garch_11(returns, *, backend="arch")` returns the `arch` package's
   Gaussian GARCH(1,1) fit of the demeaned returns (the residuals are fitted in
@@ -28,13 +34,6 @@ package; each is imported inside its function on first use.
   the default gives (0.053451, 0.06240, 0.91201). Non-convergence of `arch`
   raises `ConvergenceError`; returns with no variation raise `ValueError`
   (the `"quantcore"` backend returns (1e-10, 0.0, 0.0) for them).
-- `heston_cos_call` and `heston_cos_put` (`backend="quantlib"`) return
-  QuantLib's `AnalyticHestonEngine` price. A maturity that is not a whole
-  number of days is priced exactly by rescaling the unit of time. The price
-  agrees with the COS expansion (`backend="quantcore"`) to about 1e-6
-  relative; `n_terms` is used by the `"quantcore"` backend only. QuantLib
-  needs `xi > 0`: with `xi = 0` the default raises `ValueError` and
-  `backend="quantcore"` prices the deterministic-variance case.
 - `conditional_value_at_risk(..., method="historical", backend="empyrical")`
   returns the negated `empyrical.conditional_value_at_risk`: the mean of the
   `int((n - 1) * (1 - alpha)) + 1` smallest returns. `backend="quantcore"`

@@ -7,7 +7,7 @@ and the baseline every number is measured against:
 1. quantcore's Numba kernels against the NumPy reference kernels that live
    beside them in `src/quantcore`, plus end-to-end Monte Carlo throughput.
 2. quantcore's public functions against the external library each one is
-   oracle-tested against (`arch`, `statsmodels`, `scipy`, `QuantLib`, `scikit-learn`,
+   oracle-tested against (`arch`, `statsmodels`, `scipy`, `scikit-learn`,
    `empyrical`, `cvxpy` with the CLARABEL solver, `quantstats` on `pandas` Series,
    `filterpy`, and `skfolio` when it is installed), on identical inputs.
 
@@ -48,7 +48,6 @@ import empyrical
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import QuantLib
 import quantstats.stats as qs_stats
 import statsmodels.api as sm
 from arch import arch_model
@@ -94,7 +93,6 @@ from quantcore.portfolio import (
     mean_variance_weights,
     min_variance_weights,
 )
-from quantcore.pricing import black_scholes_call, heston_cos_call, monte_carlo_call_price
 from quantcore.risk import (
     conditional_value_at_risk,
     fit_garch_11,
@@ -128,7 +126,6 @@ REPORTED_PACKAGES = (
     "pandas",
     "statsmodels",
     "arch",
-    "QuantLib",
     "scikit-learn",
     "empyrical-reloaded",
     "cvxpy",
@@ -353,11 +350,6 @@ def print_header() -> None:
         "by Kalman filter); quantcore minimises the conditional sum of squares."
     )
     print("- ARIMA forecast: `ARIMAResults.forecast(h)` on an already fitted result.")
-    print(
-        "- Heston call: `QuantLib.AnalyticHestonEngine`, both with its default integration and "
-        "with the 1e-12 adaptive Gauss-Lobatto setting the oracle test uses; quantcore uses its "
-        "default n_terms=2048."
-    )
     print("- OLS: `sm.OLS(y, x).fit()` reading params, resid and rsquared.")
     print(
         "- Newey-West: `sm.OLS(y, x).fit(cov_type='HAC', cov_kwds={'maxlags': L}).cov_params()` "
@@ -444,26 +436,7 @@ def bench_throughput() -> None:
     print("\n### Monte Carlo throughput (random draws included, no baseline)\n")
     print("| function | size | time | paths / s | path-steps / s | check |")
     print("|---|---|---|---|---|---|")
-    spot, strike, rate, vol, maturity = 100.0, 105.0, 0.03, 0.2, 1.0
-    closed_form = black_scholes_call(spot, strike, rate, vol, maturity)
-
-    for num_paths, num_steps in ((100_000, 252), (1_000_000, 1)):
-
-        def price(num_paths: int = num_paths, num_steps: int = num_steps) -> tuple[float, float]:
-            return monte_carlo_call_price(
-                spot, strike, rate, vol, maturity, num_paths, num_steps, seed=SEED
-            )
-
-        seconds = median_seconds(price)
-        estimate, std_error = price()
-        z = (estimate - closed_form) / std_error
-        print(
-            f"| monte_carlo_call_price (antithetic) | {num_paths:,} paths x {num_steps} steps | "
-            f"{format_seconds(seconds)} | {num_paths / seconds:,.0f} | "
-            f"{num_paths * num_steps / seconds:,.0f} | "
-            f"{z:+.2f} standard errors from Black-Scholes |"
-        )
-
+    spot, rate, vol, maturity = 100.0, 0.03, 0.2, 1.0
     num_paths, num_steps = 100_000, 252
     seconds = median_seconds(
         lambda: simulate_gbm_paths(spot, rate, vol, maturity, num_steps, num_paths, seed=SEED)
@@ -713,139 +686,6 @@ def bench_arima() -> list[Row]:
                 like_for_like,
             )
         )
-    return rows
-
-
-HESTON_SPOT, HESTON_RATE = 100.0, 0.0
-HESTON_V0, HESTON_KAPPA, HESTON_THETA = 0.04, 1.0, 0.04
-HESTON_XI, HESTON_RHO = 0.3, -0.7
-HESTON_MONEYNESS = (0.5, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0)
-HESTON_MATURITY_DAYS = (7, 37, 183, 365, 730)
-
-
-def _quantlib_heston_calls(
-    contracts: list[tuple[float, int]], oracle_grade: bool
-) -> npt.NDArray[np.float64]:
-    """Price Heston calls with QuantLib, building the model once for all contracts.
-
-    Args:
-        contracts: (strike, days to expiry) pairs.
-        oracle_grade: True uses adaptive Gauss-Lobatto at 1e-12 relative
-            tolerance, the oracle test's setting; False uses the engine's
-            default integration.
-    """
-    today = QuantLib.Date(1, 1, 2024)
-    QuantLib.Settings.instance().evaluationDate = today
-    day_count = QuantLib.Actual365Fixed()
-    rate_ts = QuantLib.YieldTermStructureHandle(QuantLib.FlatForward(today, HESTON_RATE, day_count))
-    div_ts = QuantLib.YieldTermStructureHandle(QuantLib.FlatForward(today, 0.0, day_count))
-    process = QuantLib.HestonProcess(
-        rate_ts,
-        div_ts,
-        QuantLib.QuoteHandle(QuantLib.SimpleQuote(HESTON_SPOT)),
-        HESTON_V0,
-        HESTON_KAPPA,
-        HESTON_THETA,
-        HESTON_XI,
-        HESTON_RHO,
-    )
-    model = QuantLib.HestonModel(process)
-    if oracle_grade:
-        engine = QuantLib.AnalyticHestonEngine(model, 1e-12, 1_000_000)
-    else:
-        engine = QuantLib.AnalyticHestonEngine(model)
-
-    prices = np.empty(len(contracts))
-    for i, (strike, days) in enumerate(contracts):
-        option = QuantLib.VanillaOption(
-            QuantLib.PlainVanillaPayoff(QuantLib.Option.Call, strike),
-            QuantLib.EuropeanExercise(today + QuantLib.Period(days, QuantLib.Days)),
-        )
-        option.setPricingEngine(engine)
-        prices[i] = option.NPV()
-    return prices
-
-
-def _quantcore_heston_calls(contracts: list[tuple[float, int]]) -> npt.NDArray[np.float64]:
-    return np.array(
-        [
-            heston_cos_call(
-                HESTON_SPOT,
-                strike,
-                HESTON_RATE,
-                days / 365.0,
-                HESTON_V0,
-                HESTON_KAPPA,
-                HESTON_THETA,
-                HESTON_XI,
-                HESTON_RHO,
-                backend="quantcore",
-            )
-            for strike, days in contracts
-        ]
-    )
-
-
-def _heston_prices_agree(actual: FloatArray, expected: FloatArray) -> bool:
-    """Oracle-test rule: rtol 1e-6 for prices above 1e-4, atol 1e-8 below."""
-    large = np.abs(expected) > 1e-4
-    return bool(
-        np.allclose(actual[large], expected[large], rtol=1e-6, atol=0.0)
-        and np.allclose(actual[~large], expected[~large], rtol=0.0, atol=1e-8)
-    )
-
-
-def bench_heston() -> list[Row]:
-    """`heston_cos_call(backend="quantcore")` against `QuantLib.AnalyticHestonEngine`.
-
-    `heston_cos_call`'s default backend is that engine, so the rows time
-    quantcore's own COS expansion.
-
-    QuantLib time includes building the term structures, process, model and
-    engine, since quantcore's function starts from the same scalar inputs. On
-    the 40-contract grid QuantLib builds them once and reprices; quantcore is
-    called once per contract.
-    """
-    single = [(HESTON_SPOT, 365)]
-    grid = [(HESTON_SPOT * m, days) for m in HESTON_MONEYNESS for days in HESTON_MATURITY_DAYS]
-    rows = []
-    for label, contracts in (("1 call, ATM, 1y", single), ("40 calls, K/S 0.5-3, 7d-2y", grid)):
-        reference = _quantlib_heston_calls(contracts, oracle_grade=True)
-        t_quantcore = median_seconds(lambda contracts=contracts: _quantcore_heston_calls(contracts))
-        agree = _heston_prices_agree(_quantcore_heston_calls(contracts), reference)
-        for engine_label, oracle_grade in (
-            ("QuantLib, default integration", False),
-            ("QuantLib, 1e-12 adaptive", True),
-        ):
-            t_quantlib = median_seconds(
-                lambda contracts=contracts, oracle_grade=oracle_grade: _quantlib_heston_calls(
-                    contracts, oracle_grade
-                )
-            )
-            if oracle_grade:
-                verdict = yes_no(agree, "rtol 1e-6, atol 1e-8 below 1e-4")
-            else:
-                default_agrees = _heston_prices_agree(
-                    _quantlib_heston_calls(contracts, oracle_grade=False), reference
-                )
-                verdict = yes_no(
-                    agree and default_agrees,
-                    "both vs the 1e-12 engine, rtol 1e-6"
-                    if default_agrees
-                    else "quantcore agrees with the 1e-12 engine; this engine setting does not",
-                )
-            rows.append(
-                Row(
-                    'heston_cos_call(backend="quantcore")',
-                    label,
-                    t_quantcore,
-                    engine_label,
-                    t_quantlib,
-                    verdict,
-                    "yes: same price from the same scalar inputs; COS series (2048 terms) "
-                    "against characteristic-function quadrature",
-                )
-            )
     return rows
 
 
@@ -1533,7 +1373,6 @@ def main() -> None:
     bench_throughput()
     print_table("GARCH(1,1) fit: quantcore vs arch", bench_garch_fit())
     print_table("ARIMA fit and forecast: quantcore vs statsmodels", bench_arima())
-    print_table("Heston COS call price: quantcore vs QuantLib", bench_heston())
     print_table("OLS and Newey-West: quantcore vs statsmodels", bench_regression())
     print_table("Engle-Granger: quantcore vs statsmodels", bench_engle_granger())
     print_table("Historical VaR / CVaR: quantcore vs empyrical and skfolio", bench_var_cvar())

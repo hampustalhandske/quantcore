@@ -8,11 +8,10 @@ dependencies = [
     "numba>=0.67.0",
     "numpy>=1.26",
     "scipy>=1.13",
-    # Default backends of three functions, each imported on first use:
-    # fit_garch_11 (arch), heston_cos_call / heston_cos_put (QuantLib) and
+    # Default backends of two functions, each imported on first use:
+    # fit_garch_11 (arch) and
     # conditional_value_at_risk(method="historical") (empyrical).
     "arch>=7.0",
-    "QuantLib>=1.35",
     "empyrical-reloaded>=0.5.11",
 ]
 
@@ -25,8 +24,8 @@ dev = [
     "scipy-stubs>=1.13",
 ]
 # Independent oracle implementations that tests/oracle/ and conformance/
-# verify quantcore's numbers against. Apart from the three default backends
-# listed under `dependencies` (arch, QuantLib, empyrical), none is imported
+# verify quantcore's numbers against. Apart from the two default backends
+# listed under `dependencies` (arch, empyrical), none is imported
 # from src/quantcore. Pinned exactly: the conformance suite's derandomized
 # cases and recorded error bounds are only reproducible against fixed oracle
 # and hypothesis versions.
@@ -100,8 +99,6 @@ ignore = []
 # (used that way in QuantLib's own docs and every downstream project);
 # renaming would make oracle tests harder to cross-reference against them.
 "tests/oracle/**/*.py" = ["N813"]
-"src/quantcore/pricing/heston.py" = ["N813"]
-"tests/unit/pricing/test_heston.py" = ["N813"]
 "conformance/**/*.py" = ["N813"]
 
 [tool.ruff.format]
@@ -127,7 +124,8 @@ module = "quantcore.core.*"
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
-# The default-backend libraries ship no type information.
+# empyrical (a default backend) and QuantLib (an oracle imported by conformance/ and tests)
+# ship no type information.
 module = ["QuantLib", "empyrical"]
 ignore_missing_imports = true
 

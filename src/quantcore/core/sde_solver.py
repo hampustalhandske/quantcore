@@ -174,9 +174,7 @@ def _generate_gbm_increments(
     Drawing the increments once in NumPy (rather than inside the Numba
     kernel) means the NumPy-reference and Numba-accelerated GBM simulators
     can be fed the exact same random draws, which is what makes the
-    np.allclose agreement test between them meaningful. It also lets
-    ``pricing/monte_carlo.py`` build antithetic (mirrored) increment pairs
-    for variance reduction without duplicating the GBM recursion.
+    np.allclose agreement test between them meaningful.
     """
     rng = np.random.default_rng(seed)
     return rng.normal(0.0, np.sqrt(dt), size=(num_paths, num_steps))

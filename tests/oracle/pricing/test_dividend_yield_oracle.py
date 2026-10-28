@@ -1,7 +1,7 @@
 """Oracle tests for C12/C13 (owner follow-up 2b): dividend yield / cost-of-carry.
 
 `dividend_yield` (q) added additively to `black_scholes_call`/`_put`, every
-Greek, `implied_volatility`, and `heston_cos_call`; `heston_cos_put` added.
+Greek and `implied_volatility`.
 q=0.0 (every function's default) must reproduce the pre-existing q-less
 formulas exactly (checked in tests/unit/pricing/); this file checks q > 0
 against independent oracles.
@@ -19,8 +19,6 @@ Oracles:
 
 from __future__ import annotations
 
-from functools import partial
-
 import numpy as np
 import pytest
 
@@ -35,7 +33,6 @@ from vollib.black_scholes_merton.greeks.analytical import rho as vollib_rho
 from vollib.black_scholes_merton.greeks.analytical import theta as vollib_theta
 from vollib.black_scholes_merton.greeks.analytical import vega as vollib_vega
 
-from quantcore.pricing import heston
 from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
 from quantcore.pricing.greeks import (
     bs_delta,
@@ -45,11 +42,6 @@ from quantcore.pricing.greeks import (
     bs_vega,
     implied_volatility,
 )
-
-# The COS expansion is what these tests check against QuantLib, so they pin the
-# "quantcore" backend; with the default backend the price is QuantLib's own.
-heston_cos_call = partial(heston.heston_cos_call, backend="quantcore")
-heston_cos_put = partial(heston.heston_cos_put, backend="quantcore")
 
 pytestmark = pytest.mark.oracle
 
@@ -232,64 +224,3 @@ class TestImpliedVolatilityRoundTripsWithDividendYield:
                 dividend_yield=q,
             )
             assert recovered == pytest.approx(sigma, abs=1e-5)
-
-
-def _ql_heston_price(
-    spot: float,
-    strike: float,
-    rate: float,
-    time_to_maturity: float,
-    v0: float,
-    kappa: float,
-    theta: float,
-    xi: float,
-    rho: float,
-    dividend_yield: float,
-    option_type: str,
-) -> float:
-    today = ql.Date(1, 1, 2024)
-    ql.Settings.instance().evaluationDate = today
-    maturity = today + round(time_to_maturity * 365)
-    day_count = ql.Actual365Fixed()
-
-    ql_type = ql.Option.Call if option_type == "call" else ql.Option.Put
-    payoff = ql.PlainVanillaPayoff(ql_type, strike)
-    exercise = ql.EuropeanExercise(maturity)
-    option = ql.VanillaOption(payoff, exercise)
-
-    spot_handle = ql.QuoteHandle(ql.SimpleQuote(spot))
-    rate_ts = ql.YieldTermStructureHandle(ql.FlatForward(today, rate, day_count))
-    div_ts = ql.YieldTermStructureHandle(ql.FlatForward(today, dividend_yield, day_count))
-    process = ql.HestonProcess(rate_ts, div_ts, spot_handle, v0, kappa, theta, xi, rho)
-    option.setPricingEngine(ql.AnalyticHestonEngine(ql.HestonModel(process)))
-    return float(option.NPV())
-
-
-HESTON_BASE = dict(
-    spot=100.0,
-    strike=100.0,
-    rate=0.05,
-    time_to_maturity=1.0,
-    v0=0.04,
-    kappa=1.5,
-    theta=0.04,
-    xi=0.3,
-    rho=-0.7,
-)
-
-
-class TestHestonDividendYieldMatchesQuantLib:
-    def test_call_price_matches(self) -> None:
-        actual = heston_cos_call(**HESTON_BASE, dividend_yield=Q)
-        expected = _ql_heston_price(**HESTON_BASE, dividend_yield=Q, option_type="call")
-        assert actual == pytest.approx(expected, rel=1e-5)
-
-    def test_put_price_matches(self) -> None:
-        actual = heston_cos_put(**HESTON_BASE, dividend_yield=Q)
-        expected = _ql_heston_price(**HESTON_BASE, dividend_yield=Q, option_type="put")
-        assert actual == pytest.approx(expected, rel=1e-5)
-
-    def test_zero_dividend_yield_matches_quantlib(self) -> None:
-        actual = heston_cos_call(**HESTON_BASE)
-        expected = _ql_heston_price(**HESTON_BASE, dividend_yield=0.0, option_type="call")
-        assert actual == pytest.approx(expected, rel=1e-5)

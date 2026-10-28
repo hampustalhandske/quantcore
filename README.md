@@ -97,10 +97,9 @@ than silently falling back to a slower implementation.
 
 ## Requirements
 
-Python 3.12+. Dependencies: NumPy, SciPy, Numba, plus three libraries that
+Python 3.12+. Dependencies: NumPy, SciPy, Numba, plus two libraries that
 are the default backend of one function each and are imported only when that
-backend runs: `arch` (`fit_garch_11`), `QuantLib` (`heston_cos_call`,
-`heston_cos_put`) and `empyrical-reloaded`
+backend runs: `arch` (`fit_garch_11`) and `empyrical-reloaded`
 (`conditional_value_at_risk(method="historical")`). Each of those functions
 takes `backend="quantcore"` to use quantcore's own implementation instead.
 
@@ -118,7 +117,7 @@ Then import from the subpackage you need — each subpackage's `__init__.py`
 re-exports its public functions:
 
 ```python
-from quantcore.pricing import black_scholes_call, monte_carlo_call_price
+from quantcore.pricing import black_scholes_call, bs_delta
 from quantcore.risk import value_at_risk, conditional_value_at_risk, garch_11_variance
 from quantcore.core import simulate_gbm_paths, simulate_gbm_price_paths
 from quantcore.portfolio import mean_variance_weights, black_litterman
@@ -166,8 +165,8 @@ Profiles (`ci`, `full`, `explore`) and the rest are in
 are in `benchmarks/bench_quantcore.py` (`uv run python benchmarks/bench_quantcore.py`,
 needs the `oracle` extra).
 
-Apart from the three default backends listed under Requirements (`arch`,
-`QuantLib`, `empyrical-reloaded`), the oracle libraries are test-only and
+Apart from the two default backends listed under Requirements (`arch`,
+`empyrical-reloaded`), the oracle libraries are test-only and
 never imported from `src/quantcore`.
 
 ### Conventions

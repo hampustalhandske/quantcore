@@ -814,67 +814,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "tests/unit/pricing/test_greeks.py."
         ),
     ),
-    "heston_cos_call": Tolerance(
-        rtol=1e-6,
-        atol=1e-6,
-        justification=(
-            "quantcore's Fang & Oosterlee (2008) COS series (n_terms=2048 by default, truncation "
-            "range centred on the log-moneyness and widened by the fourth cumulant) against "
-            "QuantLib's AnalyticHestonEngine (adaptive quadrature on the Heston characteristic "
-            "function integral) -- two different numerical methods for the same semi-closed-form "
-            "price. Measured on whole-day maturities (the QuantLib oracle prices to whole calendar "
-            "days) across Feller-satisfying/violating, moneyness 1/3 to 3 and expiries from one "
-            "day to ten years: worst relative error ~3e-10. rtol/atol 1e-6 leaves room for that "
-            "while staying far tighter than a wrong parameter mapping (e.g. a swapped "
-            "kappa/theta) or a mis-centred truncation range would produce."
-        ),
-    ),
-    "heston_cos_put": Tolerance(
-        rtol=1e-6,
-        atol=1e-6,
-        justification="as heston_cos_call: same COS-vs-quadrature method-difference margin; "
-        "quantcore expands the put directly and derives the call from it by put-call parity.",
-    ),
-    "monte_carlo_call_price": Tolerance(
-        rtol=0.0,
-        atol=1e-10,
-        justification=(
-            "Not a relative/absolute price tolerance: this function's `compare` is "
-            "`conformance.targets.pricing_extra._MonteCarloComparator`, which accepts the Monte "
-            "Carlo price when |price - closed_form| <= atol + 4 * max(reported standard error, "
-            "true standard error). The closed form is the BSM price, the exact expectation of "
-            "what the simulation estimates. The true standard error is the standard deviation of "
-            "the estimator itself, returned by the oracle. quantcore's log-price steps are exact "
-            "for GBM, so each payoff g is a function of one standard normal Z, and with "
-            "antithetic variates the num_paths payoffs are num_paths // 2 independent mirrored "
-            "pairs (Z, -Z) plus one unpaired path when num_paths is odd, so Var[price] = "
-            "exp(-2rT) / num_paths^2 * (2 * (num_paths // 2) * (Var[g] + Cov[g(Z), g(-Z)]) + "
-            "(num_paths % 2) * Var[g]). E[g], E[g^2] and E[g(Z) g(-Z)] are closed forms, the "
-            "last because S(Z) * S(-Z) = F^2 * exp(-sigma^2 T) is constant, so this variance is "
-            "exact and not a bound: it matches numerical quadrature of the moments to 3e-10 "
-            "relative and the spread of quantcore's estimates over 40,000 seeds to 0.5 percent. "
-            "Both standard errors are needed. The reported one is exactly 0 when no path "
-            "finishes in the money, while the closed form is positive; the true one covers that "
-            "(out of the money, closed_form <= true_se * sqrt(num_paths * p / (1 - 2p)) with p "
-            "the chance one path pays). With a handful of paying paths the estimate can "
-            "overshoot by more than 4 true standard errors, and the reported one, about "
-            "price / sqrt(paying paths) or more, covers that. k = 4 is a two-sided normal tail "
-            "of 6e-5 per case. `rtol` is unused and kept at 0.0 so it cannot stand in for the "
-            "k * SE band. `atol` absorbs only the rounding of the closed form: each N() of the "
-            "erf-based formula carries about 2^-53 absolute error, so the price carries up to "
-            "about 3 * 2^-53 * (S + K), which is 3.3e-13 for the tested spots and strikes "
-            "(S, K <= 500; the largest seen on 52,000 cases is 2.9e-16 * (S + K)). 1e-10 is 300 "
-            "times that and 1e-11 of the smallest tested spot."
-        ),
-    ),
-    "monte_carlo_put_price": Tolerance(
-        rtol=0.0,
-        atol=1e-10,
-        justification=(
-            "as monte_carlo_call_price: same _MonteCarloComparator, k = 4 and atol, with the "
-            "true standard error computed from the put payoff's moments."
-        ),
-    ),
     "option_expiry_payoff": Tolerance(
         rtol=1e-12,
         atol=1e-10,

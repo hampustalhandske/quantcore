@@ -31,80 +31,9 @@ References:
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import numba
 import numpy as np
 import numpy.typing as npt
-
-
-def euler_maruyama(
-    drift: Callable[[npt.NDArray[np.float64], float], npt.NDArray[np.float64]],
-    diffusion: Callable[[npt.NDArray[np.float64], float], npt.NDArray[np.float64]],
-    x0: float,
-    t0: float,
-    t1: float,
-    num_steps: int,
-    num_paths: int,
-    seed: int | None = None,
-) -> npt.NDArray[np.float64]:
-    """Simulate paths of dX_t = a(X_t, t) dt + b(X_t, t) dW_t via Euler-Maruyama.
-
-    Args:
-        drift: Drift coefficient a(X_t, t), vectorized over paths.
-        diffusion: Diffusion coefficient b(X_t, t), vectorized over paths.
-        x0: Initial value X_0.
-        t0: Start time.
-        t1: End time.
-        num_steps: Number of discretization steps between t0 and t1.
-        num_paths: Number of independent sample paths to simulate.
-        seed: Optional seed for reproducibility.
-
-    Returns:
-        Array of shape (num_paths, num_steps + 1) with simulated paths,
-        including the initial value X_0 at column 0.
-
-    References:
-        Kloeden & Platen (1992), Ch. 9. See REFERENCES.md.
-    """
-    if t1 < t0:
-        raise ValueError("t1 must be >= t0")
-    if num_steps <= 0:
-        raise ValueError("num_steps must be a positive integer")
-    if num_paths < 0:
-        raise ValueError("num_paths must be non-negative")
-    return _euler_maruyama(drift, diffusion, x0, t0, t1, num_steps, num_paths, seed)
-
-
-def _euler_maruyama(
-    drift: Callable[[npt.NDArray[np.float64], float], npt.NDArray[np.float64]],
-    diffusion: Callable[[npt.NDArray[np.float64], float], npt.NDArray[np.float64]],
-    x0: float,
-    t0: float,
-    t1: float,
-    num_steps: int,
-    num_paths: int,
-    seed: int | None,
-) -> npt.NDArray[np.float64]:
-    # Generic reference implementation. `drift`/`diffusion` are arbitrary
-    # Python callables supplied by the caller, so this cannot be Numba-jitted
-    # without requiring callers to pass already-njit-compiled functions (which
-    # would break the public API contract). Numba acceleration is applied to
-    # the GBM specialization below instead, where the coefficients are known
-    # concretely at compile time. See module docstring / project summary.
-    dt = (t1 - t0) / num_steps
-    rng = np.random.default_rng(seed)
-    paths = np.empty((num_paths, num_steps + 1), dtype=np.float64)
-    paths[:, 0] = x0
-
-    t = t0
-    for k in range(num_steps):
-        x_k = paths[:, k]
-        dw_k = rng.normal(0.0, np.sqrt(dt), size=num_paths)
-        paths[:, k + 1] = x_k + drift(x_k, t) * dt + diffusion(x_k, t) * dw_k
-        t += dt
-
-    return paths
 
 
 def _validate_gbm_inputs(

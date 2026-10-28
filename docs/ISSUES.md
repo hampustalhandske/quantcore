@@ -18,12 +18,17 @@ dependencies and stays an oracle in the `oracle` extra.
 `max_drawdown_duration`, and the public `drawdown_series`, `cagr` and `annualized_return`.
 `calmar_ratio` and the Ulcer and Serenity ratios use the private versions of the last three.
 
-### QC-3: Remove unused portfolio, filtering, core and options helpers — open
+### QC-3: Remove unused portfolio, filtering and core helpers — in progress
 `mean_variance_weights`, `l1_turnover_penalized_weights`, `kelly_fraction`, `sample_covariance`,
 `ewma_covariance`, `kalman_filter`, `kalman_smooth`, `euler_maruyama`,
-`core.stochastic.simulate_heston_paths`, `implied_volatility`, `option_expiry_payoff`,
-`option_position_pnl`. `dynamic_hedge_ratio`, `simulate_heston_price_paths` and
-`simulate_exp_ou_price_paths` stay.
+`core.stochastic.simulate_heston_paths`. `dynamic_hedge_ratio`, `simulate_heston_price_paths` and
+`simulate_exp_ou_price_paths` stay. The active-set quadratic-program solver in
+`portfolio/optimization.py` was written for the mean-variance and L1-turnover programs; only
+`min_variance_weights` still uses it. Replacing it with something smaller could move
+`min_variance_weights` results, so it is left as it is.
+
+### QC-3b: Remove unused option helpers — open
+`implied_volatility`, `option_expiry_payoff`, `option_position_pnl`.
 
 ### QC-4: Remove Johansen — open
 `johansen_trace_test`, `johansen_max_eigenvalue_test`.

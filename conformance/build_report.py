@@ -395,10 +395,6 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "hmm_decode": (tier2_regime, "HMM_DECODE"),
     "hmm_predict_proba": (tier2_regime, "HMM_PREDICT_PROBA"),
     "hmm_filtered_proba": (tier2_regime, "HMM_FILTERED_PROBA"),
-    "kalman_filter_means": (tier2_filtering, "KALMAN_FILTER_MEANS"),
-    "kalman_filter_covs": (tier2_filtering, "KALMAN_FILTER_COVS"),
-    "kalman_smooth_means": (tier2_filtering, "KALMAN_SMOOTH_MEANS"),
-    "kalman_smooth_covs": (tier2_filtering, "KALMAN_SMOOTH_COVS"),
     "dynamic_hedge_ratio": (tier2_filtering, "DYNAMIC_HEDGE_RATIO"),
     "black_scholes_merton_price": (tier2_pricing_extra, "BSM"),
     "bsm_delta": (tier2_pricing_extra, "BSM"),
@@ -411,18 +407,13 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "option_position_pnl": (tier2_pricing_extra, "OPTION_POSITION_PNL"),
     "option_roll_schedule": (tier2_pricing_extra, "OPTION_ROLL_SCHEDULE"),
     "protective_put_sizing": (tier2_pricing_extra, "PROTECTIVE_PUT_SIZING"),
-    "sample_covariance": (tier2_portfolio, "SAMPLE_COVARIANCE"),
-    "ewma_covariance": (tier2_portfolio, "EWMA_COVARIANCE"),
     "ledoit_wolf_shrinkage": (tier2_portfolio, "LEDOIT_WOLF_SHRINKAGE"),
     "min_variance_weights": (tier2_portfolio, "MIN_VARIANCE_WEIGHTS"),
-    "mean_variance_weights": (tier2_portfolio, "MEAN_VARIANCE_WEIGHTS"),
     "unconstrained_mean_variance_weights": (
         tier2_portfolio,
         "UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS",
     ),
-    "l1_turnover_penalized_weights": (tier2_portfolio, "L1_TURNOVER_PENALIZED_WEIGHTS"),
     "risk_parity_weights": (tier2_portfolio, "RISK_PARITY_WEIGHTS"),
-    "kelly_fraction": (tier2_portfolio, "KELLY_FRACTION"),
     "implied_equilibrium_returns": (tier2_portfolio, "IMPLIED_EQUILIBRIUM_RETURNS"),
     "black_litterman": (tier2_portfolio, "BLACK_LITTERMAN"),
     "factor_loadings_loadings": (tier2_time_series, "FACTOR_LOADINGS"),
@@ -596,7 +587,8 @@ _ALL_COVARIANCE_FAMILIES = frozenset(COVARIANCE_FAMILIES)
 # Each fitter records the log-likelihood it attains (larger is better). Each optimiser records the
 # value of the objective its oracle optimises, evaluated at each solver's own weights
 # (`conformance.targets.portfolio`): portfolio variance for `min_variance_weights`, which the
-# program minimises, and mean-variance utility for the other three, which it maximises.
+# program minimises, and mean-variance utility for the unconstrained optimiser, which it
+# maximises.
 ITERATIVE_ESTIMATORS: dict[str, IterativeEstimator] = {
     "fit_garch_11": IterativeEstimator(_GAUSSIAN_INNOVATION_FAMILIES, "log_likelihood", "maximize"),
     "egarch_fit": IterativeEstimator(_GAUSSIAN_INNOVATION_FAMILIES, "log_likelihood", "maximize"),
@@ -604,11 +596,7 @@ ITERATIVE_ESTIMATORS: dict[str, IterativeEstimator] = {
         _GAUSSIAN_INNOVATION_FAMILIES, "log_likelihood", "maximize"
     ),
     "min_variance_weights": IterativeEstimator(_ALL_COVARIANCE_FAMILIES, "objective", "minimize"),
-    "mean_variance_weights": IterativeEstimator(_ALL_COVARIANCE_FAMILIES, "objective", "maximize"),
     "unconstrained_mean_variance_weights": IterativeEstimator(
-        _ALL_COVARIANCE_FAMILIES, "objective", "maximize"
-    ),
-    "l1_turnover_penalized_weights": IterativeEstimator(
         _ALL_COVARIANCE_FAMILIES, "objective", "maximize"
     ),
     # Every family `conformance/test_tier2_time_series.py` draws for `arima_fit` is fit at its own

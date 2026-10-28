@@ -1,21 +1,13 @@
-"""Portfolio weight optimization: mean-variance, risk parity, and Kelly sizing.
+"""Portfolio weight optimization: minimum variance, unconstrained mean-variance, risk parity.
 
-Mean-variance (Markowitz 1952):
-    min_w  w^T Sigma w  s.t.  w^T mu = mu_target, sum(w) = 1, w >= 0
-    or for unconstrained tangency:
-    w_tangency = Sigma^{-1}(mu - r_f) / 1^T Sigma^{-1}(mu - r_f)
+Unconstrained mean-variance (Markowitz 1952):
+    w = (1/lambda) * Sigma^{-1} mu
 
-Fully-invested quadratic programs (sum(w) = 1, w >= 0 unless shorting is
-allowed):
-    minimum variance   min_w  w^T Sigma w
-    mean-variance      max_w  w^T mu - 0.5*lambda*w^T Sigma w
-    with turnover cost max_w  w^T mu - 0.5*lambda*w^T Sigma w
-                              - c*||w - w_prev||_1
-    All three are convex quadratic programs; the third becomes one once the
-    trade w - w_prev is written as purchases minus sales, both non-negative,
-    which makes the L1 cost linear (Lobo, Fazel & Boyd 2007). They are
-    solved exactly by one primal active-set method (Nocedal & Wright 2006,
-    Algorithm 16.3): constraints believed to bind are held as equalities,
+Minimum variance (Markowitz 1952), fully invested (sum(w) = 1, w >= 0 unless
+shorting is allowed):
+    min_w  w^T Sigma w
+    A convex quadratic program, solved exactly by one primal active-set method
+    (Nocedal & Wright 2006, Algorithm 16.3): constraints believed to bind are held as equalities,
     the resulting equality-constrained problem is solved in closed form
     (from a Cholesky factor of the free assets' block, or in the null space
     of those constraints where that block is singular), and the set is
@@ -36,16 +28,11 @@ Risk parity / Equal Risk Contribution (Maillard et al. 2010):
     Sigma, so the minimiser is unique and a damped Newton iteration
     converges from any interior starting point.
 
-Kelly fraction (Kelly 1956, single-asset):
-    f* = (mu - r_f) / sigma^2
-
 References:
-    Markowitz, H. (1952), "Portfolio Selection." Kelly, J.L. (1956), "A New
-    Interpretation of Information Rate." Maillard, Roncalli & Teïletche
-    (2010), "The Properties of Equally Weighted Risk Contribution
+    Markowitz, H. (1952), "Portfolio Selection." Maillard, Roncalli &
+    Teïletche (2010), "The Properties of Equally Weighted Risk Contribution
     Portfolios." Spinu, F. (2013), "An Algorithm for Computing Risk Parity
-    Weights." Lobo, Fazel & Boyd (2007), "Portfolio Optimization with
-    Linear and Fixed Transaction Costs." Nocedal, J. & Wright, S.J. (2006),
+    Weights." Nocedal, J. & Wright, S.J. (2006),
     "Numerical Optimization," 2nd ed., ch. 16. Bland, R.G. (1977), "New
     Finite Pivoting Rules for the Simplex Method." See docs/REFERENCES.md.
 """
@@ -861,88 +848,6 @@ def _min_variance_weights(
     )
 
 
-def _validate_mean_variance_inputs(
-    expected_returns: npt.NDArray[np.float64],
-    cov_matrix: npt.NDArray[np.float64],
-    risk_aversion: float,
-) -> None:
-    _validate_cov_matrix(cov_matrix)
-    _validate_expected_returns(expected_returns, cov_matrix)
-    _validate_risk_aversion_is_finite(risk_aversion)
-    if risk_aversion < 0.0:
-        raise ValueError("risk_aversion must be non-negative")
-    _validate_cov_matrix_is_positive_semidefinite(cov_matrix)
-
-
-def mean_variance_weights(
-    expected_returns: npt.NDArray[np.float64],
-    cov_matrix: npt.NDArray[np.float64],
-    risk_aversion: float,
-    allow_short: bool = False,
-) -> npt.NDArray[np.float64]:
-    """Maximize w^T mu - 0.5*risk_aversion*w^T Sigma w s.t. sum(w) = 1, w >= 0.
-
-    A convex quadratic program, solved exactly (to floating-point
-    round-off) by the active-set method of `_solve_convex_qp`. The result
-    does not depend on the units of the inputs: multiplying
-    `expected_returns` and `cov_matrix` by a common positive factor leaves
-    the weights unchanged. When the maximum is not unique (a singular
-    `risk_aversion * cov_matrix`), one maximiser is returned.
-
-    Args:
-        expected_returns: Expected asset returns, shape (k,).
-        cov_matrix: Covariance matrix of asset returns, shape (k, k),
-            positive semi-definite.
-        risk_aversion: Risk-aversion coefficient lambda >= 0.
-        allow_short: If False (default), also constrains w >= 0.
-
-    Returns:
-        Portfolio weights of shape (k,), summing to 1. With
-        `allow_short=False` no weight is negative and an asset the
-        constraint excludes has weight exactly 0.
-
-    Raises:
-        ValueError: If the shapes are inconsistent, any input contains a
-            NaN or infinite value, `risk_aversion` is negative, or
-            `cov_matrix` is not positive semi-definite (its symmetric part
-            has an eigenvalue below -1e-12 times its largest absolute row
-            sum).
-        RuntimeError: If the utility is unbounded above, which requires
-            `allow_short=True` and a `risk_aversion * cov_matrix` with a
-            direction of zero variance along which expected return can be
-            added without limit (in particular `risk_aversion = 0`, and any
-            covariance whose smallest eigenvalue is below about 1e-12 times
-            its largest absolute row sum); if `risk_aversion * cov_matrix`
-            or the optimal weights overflow double precision; or if the
-            active-set iteration exceeds its iteration cap. No silent
-            fallback is returned in any case.
-
-    References:
-        Markowitz (1952); Nocedal & Wright (2006), ch. 16. See
-        docs/REFERENCES.md.
-    """
-    _validate_mean_variance_inputs(expected_returns, cov_matrix, risk_aversion)
-    return _mean_variance_weights(expected_returns, cov_matrix, risk_aversion, allow_short)
-
-
-def _mean_variance_weights(
-    expected_returns: npt.NDArray[np.float64],
-    cov_matrix: npt.NDArray[np.float64],
-    risk_aversion: float,
-    allow_short: bool,
-) -> npt.NDArray[np.float64]:
-    mu = np.asarray(expected_returns, dtype=np.float64)
-    k = mu.shape[0]
-    hessian = _scaled_symmetric_part(cov_matrix, 0.5 * risk_aversion)
-    if allow_short:
-        start = np.full(k, 1.0 / k)
-    else:
-        vertex = np.zeros(k)
-        vertex[int(np.argmax(mu - 0.5 * np.diag(hessian)))] = 1.0
-        start = _long_only_start(hessian, -mu, vertex)
-    return _fully_invested_minimiser(hessian, -mu, start, allow_short, "mean_variance_weights")
-
-
 def _validate_unconstrained_mean_variance_inputs(
     expected_returns: npt.NDArray[np.float64],
     cov_matrix: npt.NDArray[np.float64],
@@ -967,12 +872,8 @@ def unconstrained_mean_variance_weights(
     long-only constraint. The resulting weights need not sum to 1, may be
     negative (short positions), and may exceed 1x gross exposure (leverage).
     Use this for a raw tangency-style allocation (e.g. as a prior or building
-    block in a downstream optimizer that layers its own constraints); use
-    `mean_variance_weights` instead when a fully-invested, optionally
-    long-only portfolio is required.
-
-    Because this is a single linear solve with no constraints to iterate
-    over, it is faster than `mean_variance_weights`.
+    block in a downstream optimizer that layers its own constraints). It is
+    a single linear solve.
 
     Args:
         expected_returns: Expected asset returns, shape (k,).
@@ -1002,158 +903,6 @@ def _unconstrained_mean_variance_weights(
     # explicitly squares the condition number's effect on rounding error,
     # whereas solve dispatches to a direct LU factorization of cov_matrix.
     return np.linalg.solve(cov_matrix, expected_returns) / risk_aversion
-
-
-def _validate_l1_turnover_penalized_inputs(
-    expected_returns: npt.NDArray[np.float64],
-    cov_matrix: npt.NDArray[np.float64],
-    previous_weights: npt.NDArray[np.float64],
-    cost_bps: float,
-    risk_aversion: float,
-) -> None:
-    _validate_cov_matrix(cov_matrix)
-    _validate_expected_returns(expected_returns, cov_matrix)
-    if previous_weights.ndim != 1 or previous_weights.shape[0] != cov_matrix.shape[0]:
-        raise ValueError("previous_weights must be a 1D array matching cov_matrix's dimension")
-    if not np.all(np.isfinite(previous_weights)):
-        raise ValueError("previous_weights must contain only finite values")
-    if abs(previous_weights.sum() - 1.0) > 1e-6:
-        raise ValueError("previous_weights must sum to 1")
-    if not np.isfinite(cost_bps):
-        raise ValueError("cost_bps must be finite")
-    if cost_bps < 0.0:
-        raise ValueError("cost_bps must be non-negative")
-    _validate_risk_aversion_is_finite(risk_aversion)
-    if risk_aversion < 0.0:
-        raise ValueError("risk_aversion must be non-negative")
-    _validate_cov_matrix_is_positive_semidefinite(cov_matrix)
-
-
-def l1_turnover_penalized_weights(
-    expected_returns: npt.NDArray[np.float64],
-    cov_matrix: npt.NDArray[np.float64],
-    previous_weights: npt.NDArray[np.float64],
-    cost_bps: float,
-    risk_aversion: float,
-    allow_short: bool = False,
-) -> npt.NDArray[np.float64]:
-    """Mean-variance weights penalized for turnover away from previous_weights.
-
-    Maximizes w^T mu - 0.5*risk_aversion*w^T Sigma w - (cost_bps/10000)*||w -
-    previous_weights||_1, s.t. sum(w) = 1, w >= 0 (unless allow_short). With
-    cost_bps = 0 this is the program `mean_variance_weights` solves.
-
-    The trade is written as purchases minus sales, both non-negative, which
-    turns the L1 cost into a linear term and the problem into a convex
-    quadratic program; it is solved exactly (to floating-point round-off)
-    by the active-set method of `_solve_convex_qp`, started from no trade.
-    The result does not depend on the units of the inputs: multiplying
-    `expected_returns`, `cov_matrix` and `cost_bps` by a common positive
-    factor leaves the weights unchanged.
-
-    Args:
-        expected_returns: Expected asset returns, shape (k,).
-        cov_matrix: Covariance matrix of asset returns, shape (k, k),
-            positive semi-definite.
-        previous_weights: Current portfolio weights before rebalancing, shape
-            (k,), must sum to 1 (within 1e-6). If they sum to 1 only within
-            that tolerance and not to round-off, the difference is traded
-            away, so the result sums to 1. With `allow_short=False` a
-            negative entry is a short position that the result closes.
-        cost_bps: Proportional transaction cost in basis points per unit of
-            L1 turnover (must be non-negative).
-        risk_aversion: Risk-aversion coefficient lambda >= 0.
-        allow_short: If False (default), also constrains w >= 0.
-
-    Returns:
-        Portfolio weights of shape (k,), summing to 1. An asset that is
-        optimally left untraded keeps its `previous_weights` entry bit for
-        bit, so a no-trade optimum is returned as a copy of
-        `previous_weights`. With `allow_short=False` no weight is negative
-        and a position that is sold out entirely has weight exactly 0.
-
-    Raises:
-        ValueError: If the shapes are inconsistent, any input contains a
-            NaN or infinite value, `previous_weights` does not sum to 1,
-            `cost_bps` or `risk_aversion` is negative, or `cov_matrix` is
-            not positive semi-definite (its symmetric part has an eigenvalue
-            below -1e-12 times its largest absolute row sum).
-        RuntimeError: If the utility is unbounded above, which requires
-            `allow_short=True` and a `risk_aversion * cov_matrix` with a
-            direction of zero variance along which expected return, net of
-            the cost, can be added without limit; if `risk_aversion *
-            cov_matrix` or the optimal weights overflow double precision; or
-            if the active-set iteration exceeds its iteration cap. No silent
-            fallback is returned in any case.
-
-    References:
-        Markowitz (1952); Lobo, Fazel & Boyd (2007); Nocedal & Wright
-        (2006), ch. 16. See docs/REFERENCES.md.
-    """
-    _validate_l1_turnover_penalized_inputs(
-        expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion
-    )
-    return _l1_turnover_penalized_weights(
-        expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion, allow_short
-    )
-
-
-def _l1_turnover_penalized_weights(
-    expected_returns: npt.NDArray[np.float64],
-    cov_matrix: npt.NDArray[np.float64],
-    previous_weights: npt.NDArray[np.float64],
-    cost_bps: float,
-    risk_aversion: float,
-    allow_short: bool,
-) -> npt.NDArray[np.float64]:
-    mu = np.asarray(expected_returns, dtype=np.float64)
-    previous = np.asarray(previous_weights, dtype=np.float64)
-    k = mu.shape[0]
-    hessian = _scaled_symmetric_part(cov_matrix, 0.5 * risk_aversion)
-    cost_rate = cost_bps / 10000.0
-
-    # ||w - previous||_1 is not differentiable where w_i == previous_i. Writing
-    # w = previous + buy - sell with buy, sell >= 0 and charging cost_rate on
-    # buy + sell gives a smooth quadratic program in (buy, sell) with the same
-    # optimum: buying and selling the same asset at once only adds cost, so at
-    # most one of buy_i, sell_i is positive and buy_i + sell_i = |w_i -
-    # previous_i|. Up to a constant its objective is
-    #   0.5*(buy - sell)'H(buy - sell) + (marginal + cost_rate)'buy
-    #       + (cost_rate - marginal)'sell,
-    # with marginal the gradient of the smooth part at no trade.
-    with np.errstate(over="ignore", invalid="ignore"):
-        marginal = hessian @ previous - mu
-        split_linear = np.concatenate([marginal + cost_rate, cost_rate - marginal])
-    split_hessian = np.block([[hessian, -hessian], [-hessian, hessian]])
-
-    # Net purchases must make the weights sum to 1. Previous weights that
-    # already do so to round-off need no net trade at all, which keeps the
-    # no-trade point feasible and lets it be returned unchanged.
-    net_purchases = 1.0 - float(previous.sum())
-    if abs(net_purchases) <= _QP_RTOL * (1.0 + float(np.abs(previous).sum())):
-        net_purchases = 0.0
-
-    lower = np.zeros(2 * k)
-    upper = np.full(2 * k, np.inf)
-    if not allow_short:
-        # w_i >= 0 in terms of the trades: a short previous position has to be
-        # bought back, and no more than a long previous position can be sold.
-        lower[:k] = np.maximum(-previous, 0.0)
-        upper[k:] = np.maximum(previous, 0.0)
-
-    trades = _solve_convex_qp(
-        hessian=split_hessian,
-        linear=split_linear,
-        eq_matrix=np.concatenate([np.ones(k), -np.ones(k)])[None, :],
-        eq_rhs=np.array([net_purchases]),
-        ineq_matrix=np.zeros((0, 2 * k)),
-        ineq_rhs=np.zeros(0),
-        lower=lower,
-        upper=upper,
-        start=np.zeros(2 * k),
-        func_name="l1_turnover_penalized_weights",
-    )
-    return np.asarray(previous + trades[:k] - trades[k:], dtype=np.float64)
 
 
 def _validate_risk_parity_inputs(cov_matrix: npt.NDArray[np.float64]) -> None:
@@ -1283,42 +1032,3 @@ def _risk_parity_weights(cov_matrix: npt.NDArray[np.float64]) -> npt.NDArray[np.
         f"(best deviation {best_dev:.3e} exceeds the {_RISK_PARITY_STALL_TOL} "
         f"fallback tolerance); the covariance matrix may be numerically invalid"
     )
-
-
-def _validate_kelly_fraction_inputs(expected_return: float, variance: float) -> None:
-    if not np.isfinite(expected_return):
-        raise ValueError("expected_return must be finite")
-    if not np.isfinite(variance):
-        raise ValueError("variance must be finite")
-    if variance <= 0.0:
-        raise ValueError("variance must be strictly positive")
-
-
-def kelly_fraction(expected_return: float, variance: float, clip: bool = True) -> float:
-    """Compute the single-asset Kelly fraction f* = expected_return / variance.
-
-    Args:
-        expected_return: Excess expected return E[r] - r_f.
-        variance: Return variance sigma^2 (must be strictly positive).
-        clip: If True (default), clamp the result to [-1, 1] — a leverage
-            cap, not part of Kelly's (1956) original formula, which has no
-            such bound (a high-edge, low-variance input can legitimately
-            call for a fraction outside [-1, 1] under the textbook
-            criterion). Pass `clip=False` for the unclamped textbook value.
-
-    Returns:
-        Kelly fraction; clamped to [-1, 1] if `clip` is True.
-
-    Raises:
-        ValueError: If `expected_return` or `variance` is NaN or infinite,
-            or `variance` is not strictly positive.
-    """
-    _validate_kelly_fraction_inputs(expected_return, variance)
-    return _kelly_fraction(expected_return, variance, clip)
-
-
-def _kelly_fraction(expected_return: float, variance: float, clip: bool) -> float:
-    fraction = expected_return / variance
-    if not clip:
-        return float(fraction)
-    return float(np.clip(fraction, -1.0, 1.0))

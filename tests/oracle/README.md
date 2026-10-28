@@ -92,8 +92,7 @@ this directory are their only comparison with an independent reference:
 - `performance`: the drawdown path behind `maximum_drawdown` and the Ulcer and Serenity
   ratios (`performance/test_drawdown_oracle.py`) and `component_var`
   (`performance/test_component_var_oracle.py`).
-- `core`: `simulate_gbm_paths`, `simulate_ou_paths`, `simulate_cir_paths`,
-  `simulate_heston_paths` and `euler_maruyama`
+- `core`: `simulate_gbm_paths`, `simulate_ou_paths`, `simulate_cir_paths`
   (`core/test_sde_moments_oracle.py`), and `simulate_gbm_price_paths`,
   `simulate_heston_price_paths`, `simulate_jump_diffusion_price_paths`,
   `simulate_regime_switching_price_paths`, `simulate_exp_ou_price_paths` and

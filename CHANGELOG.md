@@ -17,6 +17,12 @@ to see exactly what changed and why before upgrading.
   `futures_roll_yield`, `cagr`, `annualized_return`, `drawdown_series`,
   `time_under_water` and `max_drawdown_duration`. No project calls them.
   `calmar_ratio` still takes `return_method="cagr"` or `"arithmetic"`.
+- `mean_variance_weights`, `l1_turnover_penalized_weights`, `kelly_fraction`,
+  `sample_covariance`, `ewma_covariance`, `kalman_filter`, `kalman_smooth`,
+  `euler_maruyama` and the raw `core.stochastic.simulate_heston_paths`. No
+  project calls them. `simulate_heston_price_paths`, `dynamic_hedge_ratio`,
+  `min_variance_weights`, `unconstrained_mean_variance_weights` and
+  `ledoit_wolf_shrinkage` are unchanged.
 
 ### Changed — default behaviour changed
 

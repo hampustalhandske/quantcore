@@ -1,25 +1,22 @@
-"""Tier-2 portfolio construction: covariance, mean-variance, risk parity, Kelly, Black-Litterman.
+"""Tier-2 portfolio construction: Ledoit-Wolf, mean-variance, risk parity, Black-Litterman.
 
 Each quantity is registered as a `ConformanceTarget` pairing a quantcore adapter (a thin call into
 `quantcore.portfolio`) with an independent oracle. Importing this module registers all of them.
 
-Covariances: unbiased sample, EWMA (RiskMetrics, seeded at the sample covariance) and
-Ledoit-Wolf (population `1/T` normalisation, identity-scaled target). The four mean-variance
-optimisers are solved in `cvxpy` and compared on the attained objective, not the weights;
-`risk_parity_weights` (unique, Spinu 2013) is compared on its weights.
+Covariance: Ledoit-Wolf (population `1/T` normalisation, identity-scaled target). The two
+mean-variance optimisers are solved in `cvxpy` and compared on the attained objective, not the
+weights; `risk_parity_weights` (unique, Spinu 2013) is compared on its weights.
 
-Full citations for Markowitz (1952), Kelly (1956), Maillard, Roncalli & Teiletche (2010), Spinu
-(2013), Black & Litterman (1992), He & Litterman (1999), Ledoit & Wolf (2004) and RiskMetrics
-(1996) are in `docs/REFERENCES.md` under "Portfolio optimization" and "Covariance estimation".
+Full citations for Markowitz (1952), Maillard, Roncalli & Teiletche (2010), Spinu (2013), Black &
+Litterman (1992), He & Litterman (1999) and Ledoit & Wolf (2004) are in `docs/REFERENCES.md` under
+"Portfolio optimization" and "Covariance estimation".
 """
 
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
-from cvxpy import CLARABEL, Maximize, Minimize, Problem, Variable
+from cvxpy import CLARABEL, Minimize, Problem, Variable
 from cvxpy.atoms.affine.sum import sum as cp_sum
 from cvxpy.atoms.affine.wraps import psd_wrap
-from cvxpy.atoms.norm1 import norm1
 from cvxpy.atoms.quad_form import quad_form
 from cvxpy.settings import OPTIMAL, OPTIMAL_INACCURATE
 from scipy.optimize import minimize
@@ -30,7 +27,6 @@ from conformance.compare import (
     ArrayComparator,
     ConformanceTarget,
     DecisiveFloatArrayComparator,
-    ScalarComparator,
 )
 
 type FloatArray = npt.NDArray[np.float64]
@@ -49,81 +45,6 @@ def _variable_value(variable: Variable, func_name: str) -> FloatArray:
     if value is None:
         raise RuntimeError(f"{func_name}: cvxpy returned no solution value")
     return np.asarray(value, dtype=np.float64)
-
-
-# --- sample_covariance ---------------------------------------------------------------------------
-
-
-def _sample_covariance_quantcore(returns: FloatArray) -> FloatArray:
-    return np.asarray(qc_portfolio.sample_covariance(returns), dtype=np.float64)
-
-
-def _sample_covariance_reference(returns: FloatArray) -> FloatArray:
-    """`numpy.cov(returns, rowvar=False, ddof=1)`: an independent library's own unbiased covariance.
-
-    This anchors the oracle to an independent library's code, rather than re-implementing
-    quantcore's own documented two-pass formula by hand.
-    """
-    return np.asarray(np.cov(returns, rowvar=False, ddof=1), dtype=np.float64)
-
-
-_SAMPLE_COVARIANCE = ConformanceTarget(
-    name="sample_covariance",
-    tier=2,
-    oracle="numpy.cov(returns, rowvar=False, ddof=1)",
-    citation="Standard unbiased sample covariance (ddof=1).",
-    compare=ArrayComparator(),
-    quantcore=_sample_covariance_quantcore,
-    reference=_sample_covariance_reference,
-)
-
-
-# --- ewma_covariance -------------------------------------------------------------------------
-
-
-def _ewma_covariance_quantcore(returns: FloatArray, lambda_: float) -> FloatArray:
-    return np.asarray(qc_portfolio.ewma_covariance(returns, lambda_), dtype=np.float64)
-
-
-def _ewma_covariance_reference(returns: FloatArray, lambda_: float) -> FloatArray:
-    """RiskMetrics zero-mean EWMA covariance built from a pandas exponentially weighted mean.
-
-    The recursion `S_t = lambda*S_{t-1} + (1-lambda)*r_{t-1} r_{t-1}'` with seed `S_0` equal to the
-    sample covariance is, for `T` observations and `p_t = r_t r_t'`,
-    `S_{T-1} = m_{T-2} + lambda^(T-1) * (S_0 - p_0)`, where `m` is
-    `pandas.DataFrame(p).ewm(alpha=1-lambda_, adjust=False).mean()` (seeded at `p_0`), i.e. the
-    exponentially weighted mean of the outer products lagged by one observation, with the seed
-    swapped from `p_0` to `S_0`. Returns are not demeaned. A single observation keeps
-    `outer(r_0, r_0)`.
-    """
-    num_obs, num_assets = returns.shape
-    if num_obs < 2:
-        outer = np.outer(returns[0], returns[0])
-        return np.asarray(outer, dtype=np.float64)
-    products = pd.DataFrame((returns[:, :, None] * returns[:, None, :]).reshape(num_obs, -1))
-    lagged_mean = products.ewm(alpha=1.0 - lambda_, adjust=False).mean().iloc[num_obs - 2]
-    mean_matrix = lagged_mean.to_numpy(dtype=np.float64).reshape(num_assets, num_assets)
-    seed = np.atleast_2d(np.cov(returns.T, ddof=1))
-    first = np.outer(returns[0], returns[0])
-    result = mean_matrix + lambda_ ** (num_obs - 1) * (seed - first)
-    return np.asarray(result, dtype=np.float64)
-
-
-_EWMA_COVARIANCE = ConformanceTarget(
-    name="ewma_covariance",
-    tier=2,
-    oracle=(
-        "pandas.DataFrame.ewm(alpha=1-lambda_, adjust=False).mean() of the outer products "
-        "r_t r_t', lagged one observation, with the sample-covariance seed (no demeaning)"
-    ),
-    citation=(
-        "J.P. Morgan/Reuters (1996), RiskMetrics -- Technical Document (4th ed.): zero-mean "
-        "exponentially weighted covariance of raw return outer products."
-    ),
-    compare=ArrayComparator(),
-    quantcore=_ewma_covariance_quantcore,
-    reference=_ewma_covariance_reference,
-)
 
 
 # --- ledoit_wolf_shrinkage --------------------------------------------------------------------
@@ -205,7 +126,7 @@ _LEDOIT_WOLF_SHRINKAGE = ConformanceTarget(
 )
 
 
-# --- mean-variance family: min_variance / mean_variance / unconstrained / l1-turnover -------------
+# --- mean-variance family: min_variance / unconstrained ------------------------------------------
 # Each is registered as (objective, weights) under `DecisiveFloatArrayComparator`, classified by
 # the sign-test rule for iterative estimators (every case is `well_specified`: a convex program
 # has no misspecified family).
@@ -261,48 +182,6 @@ def _mean_variance_objective(
     return float(weights @ expected_returns - 0.5 * risk_aversion * risk_term)
 
 
-def _mean_variance_weights_quantcore(
-    expected_returns: FloatArray, cov_matrix: FloatArray, risk_aversion: float, allow_short: bool
-) -> OptimizerResult:
-    weights = np.asarray(
-        qc_portfolio.mean_variance_weights(
-            expected_returns, cov_matrix, risk_aversion, allow_short
-        ),
-        dtype=np.float64,
-    )
-    return _mean_variance_objective(weights, expected_returns, cov_matrix, risk_aversion), weights
-
-
-def _mean_variance_weights_reference(
-    expected_returns: FloatArray, cov_matrix: FloatArray, risk_aversion: float, allow_short: bool
-) -> OptimizerResult:
-    """`max w^T mu - 0.5*ra*w^T Sigma w` s.t. `sum(w)=1, [w>=0]`; same constraints as quantcore."""
-    k = cov_matrix.shape[0]
-    weights = Variable(k)
-    constraints = [cp_sum(weights) == 1]
-    if not allow_short:
-        constraints.append(weights >= 0)
-    objective = weights @ expected_returns - 0.5 * risk_aversion * quad_form(
-        weights, psd_wrap(cov_matrix)
-    )
-    problem = Problem(Maximize(objective), constraints)
-    problem.solve(solver=_CVXPY_SOLVER)
-    _require_cvxpy_optimal(problem, "mean_variance_weights")
-    w = _variable_value(weights, "mean_variance_weights")
-    return _mean_variance_objective(w, expected_returns, cov_matrix, risk_aversion), w
-
-
-_MEAN_VARIANCE_WEIGHTS = ConformanceTarget(
-    name="mean_variance_weights",
-    tier=2,
-    oracle="cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP)",
-    citation="Markowitz (1952). Full citation in docs/REFERENCES.md.",
-    compare=DecisiveFloatArrayComparator(),
-    quantcore=_mean_variance_weights_quantcore,
-    reference=_mean_variance_weights_reference,
-)
-
-
 def _unconstrained_mean_variance_weights_quantcore(
     expected_returns: FloatArray, cov_matrix: FloatArray, risk_aversion: float
 ) -> OptimizerResult:
@@ -340,88 +219,6 @@ _UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS = ConformanceTarget(
     compare=DecisiveFloatArrayComparator(),
     quantcore=_unconstrained_mean_variance_weights_quantcore,
     reference=_unconstrained_mean_variance_weights_reference,
-)
-
-
-def _l1_turnover_objective(
-    weights: FloatArray,
-    expected_returns: FloatArray,
-    cov_matrix: FloatArray,
-    previous_weights: FloatArray,
-    cost_bps: float,
-    risk_aversion: float,
-) -> float:
-    turnover = float(np.sum(np.abs(weights - previous_weights)))
-    return (
-        _mean_variance_objective(weights, expected_returns, cov_matrix, risk_aversion)
-        - (cost_bps / 10_000.0) * turnover
-    )
-
-
-def _l1_turnover_penalized_weights_quantcore(
-    expected_returns: FloatArray,
-    cov_matrix: FloatArray,
-    previous_weights: FloatArray,
-    cost_bps: float,
-    risk_aversion: float,
-    allow_short: bool,
-) -> OptimizerResult:
-    weights = np.asarray(
-        qc_portfolio.l1_turnover_penalized_weights(
-            expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion, allow_short
-        ),
-        dtype=np.float64,
-    )
-    objective = _l1_turnover_objective(
-        weights, expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion
-    )
-    return objective, weights
-
-
-def _l1_turnover_penalized_weights_reference(
-    expected_returns: FloatArray,
-    cov_matrix: FloatArray,
-    previous_weights: FloatArray,
-    cost_bps: float,
-    risk_aversion: float,
-    allow_short: bool,
-) -> OptimizerResult:
-    """Same objective and `sum(w) = 1, [w >= 0]` constraints, with `cvxpy.norm1` for the L1 term.
-
-    quantcore splits the L1 penalty into non-negative buy/sell slacks so SLSQP's finite-difference
-    gradient sees a smooth problem (its own module docstring); `cvxpy.norm1` needs no such
-    reformulation since `cvxpy` handles the nonsmooth term directly as a DCP atom, so this reference
-    solves the mathematically identical convex program without replicating that implementation
-    detail.
-    """
-    k = cov_matrix.shape[0]
-    weights = Variable(k)
-    constraints = [cp_sum(weights) == 1]
-    if not allow_short:
-        constraints.append(weights >= 0)
-    objective = (
-        weights @ expected_returns
-        - 0.5 * risk_aversion * quad_form(weights, psd_wrap(cov_matrix))
-        - (cost_bps / 10_000.0) * norm1(weights - previous_weights)
-    )
-    problem = Problem(Maximize(objective), constraints)
-    problem.solve(solver=_CVXPY_SOLVER)
-    _require_cvxpy_optimal(problem, "l1_turnover_penalized_weights")
-    w = _variable_value(weights, "l1_turnover_penalized_weights")
-    result_objective = _l1_turnover_objective(
-        w, expected_returns, cov_matrix, previous_weights, cost_bps, risk_aversion
-    )
-    return result_objective, w
-
-
-_L1_TURNOVER_PENALIZED_WEIGHTS = ConformanceTarget(
-    name="l1_turnover_penalized_weights",
-    tier=2,
-    oracle="cvxpy (same QP/L1 program quantcore solves via a smooth buy/sell-slack SLSQP)",
-    citation="Markowitz (1952). Full citation in docs/REFERENCES.md.",
-    compare=DecisiveFloatArrayComparator(),
-    quantcore=_l1_turnover_penalized_weights_quantcore,
-    reference=_l1_turnover_penalized_weights_reference,
 )
 
 
@@ -544,32 +341,6 @@ _RISK_PARITY_WEIGHTS = ConformanceTarget(
     compare=ArrayComparator(),
     quantcore=_risk_parity_weights_quantcore,
     reference=_risk_parity_weights_reference,
-)
-
-
-# --- kelly_fraction ---------------------------------------------------------------------------
-
-
-def _kelly_fraction_quantcore(expected_return: float, variance: float, clip: bool) -> float:
-    return float(qc_portfolio.kelly_fraction(expected_return, variance, clip))
-
-
-def _kelly_fraction_reference(expected_return: float, variance: float, clip: bool) -> float:
-    """Hand formula `f* = E[r] / sigma^2` (Kelly 1956; Thorp 2006), with the same `[-1, 1]` clip."""
-    fraction = expected_return / variance
-    if not clip:
-        return float(fraction)
-    return float(np.clip(fraction, -1.0, 1.0))
-
-
-_KELLY_FRACTION = ConformanceTarget(
-    name="kelly_fraction",
-    tier=2,
-    oracle="hand formula (Kelly 1956 / Thorp 2006)",
-    citation="Kelly (1956), full citation in docs/REFERENCES.md; Thorp (2006).",
-    compare=ScalarComparator(),
-    quantcore=_kelly_fraction_quantcore,
-    reference=_kelly_fraction_reference,
 )
 
 

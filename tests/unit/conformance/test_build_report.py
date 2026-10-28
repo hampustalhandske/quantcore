@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from scipy.optimize import minimize
 
 # The builder imports every tier test module, and through them every library of the `oracle`
 # extra; skip this module without them.
@@ -32,7 +33,6 @@ pytest.importorskip("quantstats")
 pytest.importorskip("QuantLib")
 pytest.importorskip("vollib")
 pytest.importorskip("hmmlearn")
-pytest.importorskip("pykalman")
 pytest.importorskip("cvxpy")
 
 import conformance.build_report as build_report_module
@@ -1545,6 +1545,22 @@ def _shorting_helps_problem() -> tuple[np.ndarray, np.ndarray]:
     return mu, cov
 
 
+def _long_only_fully_invested_utility(
+    mu: np.ndarray, cov: np.ndarray, risk_aversion: float
+) -> float:
+    """Best mean-variance utility over weights that are non-negative and sum to one."""
+    k = mu.shape[0]
+    result = minimize(
+        lambda w: -(w @ mu - 0.5 * risk_aversion * w @ cov @ w),
+        np.full(k, 1.0 / k),
+        method="SLSQP",
+        bounds=[(0.0, None)] * k,
+        constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1.0}],
+        options={"ftol": 1e-14, "maxiter": 1000},
+    )
+    return float(-result.fun)
+
+
 def _relaxed_and_constrained_objectives(name: str) -> tuple[float, float]:
     """The registered oracle's optimal objective for a program and for a relaxation of it."""
     mu, cov = _shorting_helps_problem()
@@ -1553,18 +1569,8 @@ def _relaxed_and_constrained_objectives(name: str) -> tuple[float, float]:
     assert reference is not None
     if name == "min_variance_weights":
         return reference(cov, True)[0], reference(cov, False)[0]
-    if name == "mean_variance_weights":
-        return reference(mu, cov, 3.0, True)[0], reference(mu, cov, 3.0, False)[0]
-    if name == "l1_turnover_penalized_weights":
-        previous = np.full(3, 1.0 / 3.0)
-        return (
-            reference(mu, cov, previous, 5.0, 3.0, True)[0],
-            reference(mu, cov, previous, 5.0, 3.0, False)[0],
-        )
     if name == "unconstrained_mean_variance_weights":
-        constrained = targets["mean_variance_weights"].reference
-        assert constrained is not None
-        return reference(mu, cov, 3.0)[0], constrained(mu, cov, 3.0, False)[0]
+        return reference(mu, cov, 3.0)[0], _long_only_fully_invested_utility(mu, cov, 3.0)
     raise AssertionError(f"no relaxation written for {name!r}")
 
 
@@ -1598,12 +1604,10 @@ def test_every_log_likelihood_estimator_is_maximised() -> None:
 
 
 def test_min_variance_weights_is_the_minimised_estimator() -> None:
-    """Portfolio variance is minimised; the three utility objectives are maximised."""
+    """Portfolio variance is minimised; the utility objective is maximised."""
     senses = {name: estimator.sense for name, estimator in ITERATIVE_ESTIMATORS.items()}
     assert senses["min_variance_weights"] == "minimize"
-    assert senses["mean_variance_weights"] == "maximize"
     assert senses["unconstrained_mean_variance_weights"] == "maximize"
-    assert senses["l1_turnover_penalized_weights"] == "maximize"
 
 
 def test_explore_mismatches_judges_a_verified_iterative_estimator_by_its_sign_test(
@@ -1938,7 +1942,6 @@ def test_oracle_versions_covers_every_oracle_library_and_the_numerical_base() ->
         "QuantLib",
         "py_vollib",
         "hmmlearn",
-        "pykalman",
         "cvxpy",
         "pandas",
         "hypothesis",

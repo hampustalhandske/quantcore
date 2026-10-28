@@ -74,7 +74,6 @@ from quantcore.core.sde_solver import (
     _simulate_gbm_paths_numpy,
     simulate_gbm_paths,
 )
-from quantcore.core.stochastic import simulate_heston_paths
 from quantcore.filtering import dynamic_hedge_ratio
 from quantcore.performance import (
     common_sense_ratio,
@@ -88,9 +87,7 @@ from quantcore.performance import (
     ulcer_performance_index,
 )
 from quantcore.portfolio import (
-    l1_turnover_penalized_weights,
     ledoit_wolf_shrinkage,
-    mean_variance_weights,
     min_variance_weights,
 )
 from quantcore.risk import (
@@ -443,16 +440,6 @@ def bench_throughput() -> None:
     )
     print(
         f"| simulate_gbm_paths | {num_paths:,} paths x {num_steps} steps | "
-        f"{format_seconds(seconds)} | {num_paths / seconds:,.0f} | "
-        f"{num_paths * num_steps / seconds:,.0f} | - |"
-    )
-    seconds = median_seconds(
-        lambda: simulate_heston_paths(
-            100.0, 0.04, 0.03, 2.0, 0.04, 0.3, -0.7, 1.0, num_paths, num_steps, seed=SEED
-        )
-    )
-    print(
-        f"| simulate_heston_paths | {num_paths:,} paths x {num_steps} steps | "
         f"{format_seconds(seconds)} | {num_paths / seconds:,.0f} | "
         f"{num_paths * num_steps / seconds:,.0f} | - |"
     )
@@ -969,17 +956,12 @@ def _solved_weights(problem: cp.Problem, weights: cp.Variable, name: str) -> Flo
 
 
 def bench_portfolio_optimisers() -> list[Row]:
-    """`min_variance_weights`, `mean_variance_weights` and `l1_turnover_penalized_weights`
-    against the identical program in `cvxpy` solved by CLARABEL.
+    """`min_variance_weights` against the identical program in `cvxpy` solved by CLARABEL.
 
-    All three are long-only, fully invested (`sum(w) = 1`, `w >= 0`), on a
-    random factor-model covariance at daily-return scale. The programs are
-    `min w'Sigma w`; `max w'mu - 0.5*lambda*w'Sigma w` with lambda = 5; and
-    the same utility minus `(cost_bps / 1e4) * ||w - w_prev||_1` with
-    cost_bps = 10 and random long-only `w_prev`. cvxpy gets the L1 term as
-    `norm1` where quantcore splits it into purchases and sales.
+    The program is long-only and fully invested (`sum(w) = 1`, `w >= 0`), on a
+    random factor-model covariance at daily-return scale: `min w'Sigma w`.
 
-    Each cvxpy program is timed two ways, one library row each: "build +
+    The cvxpy program is timed two ways, one library row each: "build +
     solve" constructs the problem and solves it on every call, as quantcore's
     function takes raw arrays; "solve only" calls `problem.solve` on a
     problem built outside the timed call, the least cvxpy can cost per call.
@@ -989,25 +971,12 @@ def bench_portfolio_optimisers() -> list[Row]:
     gap tolerance is of that order). The weights themselves are not compared:
     they can differ along flat directions of the objective.
     """
-    risk_aversion, cost_bps = 5.0, 10.0
     rows = []
     for n_assets in (10, 50, 200):
         cov = _factor_model_covariance(n_assets, SEED)
-        rng = np.random.default_rng(SEED + n_assets)
-        mu = rng.normal(4e-4, 3e-4, n_assets)
-        previous = rng.dirichlet(np.ones(n_assets))
-        penalty = cost_bps / 10_000.0
 
         def min_variance_objective(w: FloatArray, cov: FloatArray = cov) -> float:
             return float(w @ cov @ w)
-
-        def utility(w: FloatArray, cov: FloatArray = cov, mu: FloatArray = mu) -> float:
-            return float(w @ mu - 0.5 * risk_aversion * (w @ cov @ w))
-
-        def turnover_utility(
-            w: FloatArray, previous: FloatArray = previous, penalty: float = penalty
-        ) -> float:
-            return utility(w) - penalty * float(np.sum(np.abs(w - previous)))
 
         def build_min_variance(cov: FloatArray = cov) -> tuple[cp.Problem, cp.Variable]:
             w = cp.Variable(cov.shape[0])
@@ -1016,37 +985,8 @@ def bench_portfolio_optimisers() -> list[Row]:
             )
             return problem, w
 
-        def build_mean_variance(
-            cov: FloatArray = cov, mu: FloatArray = mu
-        ) -> tuple[cp.Problem, cp.Variable]:
-            w = cp.Variable(cov.shape[0])
-            objective = w @ mu - 0.5 * risk_aversion * cp.quad_form(w, cp.psd_wrap(cov))
-            return cp.Problem(cp.Maximize(objective), [cp.sum(w) == 1, w >= 0]), w
-
-        def build_turnover(
-            cov: FloatArray = cov,
-            mu: FloatArray = mu,
-            previous: FloatArray = previous,
-            penalty: float = penalty,
-        ) -> tuple[cp.Problem, cp.Variable]:
-            w = cp.Variable(cov.shape[0])
-            objective = (
-                w @ mu
-                - 0.5 * risk_aversion * cp.quad_form(w, cp.psd_wrap(cov))
-                - penalty * cp.norm1(w - previous)
-            )
-            return cp.Problem(cp.Maximize(objective), [cp.sum(w) == 1, w >= 0]), w
-
         def quantcore_min_variance(cov: FloatArray = cov) -> FloatArray:
             return min_variance_weights(cov)
-
-        def quantcore_mean_variance(cov: FloatArray = cov, mu: FloatArray = mu) -> FloatArray:
-            return mean_variance_weights(mu, cov, risk_aversion)
-
-        def quantcore_turnover(
-            cov: FloatArray = cov, mu: FloatArray = mu, previous: FloatArray = previous
-        ) -> FloatArray:
-            return l1_turnover_penalized_weights(mu, cov, previous, cost_bps, risk_aversion)
 
         cases: list[
             tuple[
@@ -1062,8 +1002,6 @@ def bench_portfolio_optimisers() -> list[Row]:
                 build_min_variance,
                 min_variance_objective,
             ),
-            ("mean_variance_weights", quantcore_mean_variance, build_mean_variance, utility),
-            ("l1_turnover_penalized_weights", quantcore_turnover, build_turnover, turnover_utility),
         ]
         for name, quantcore_fn, build, objective in cases:
             prebuilt_problem, prebuilt_weights = build()

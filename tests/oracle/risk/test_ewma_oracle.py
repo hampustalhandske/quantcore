@@ -1,7 +1,4 @@
-"""Oracle tests for `ewma_variance`/`ewma_covariance` vs `pandas.Series.ewm`.
-
-Covers Workstream D: "ewma_variance / ewma_covariance vs pandas ewm and
-RiskMetrics."
+"""Oracle tests for `ewma_variance` vs `pandas.Series.ewm`.
 
 quantcore's RiskMetrics (1996) recursion --
 `sigma_t^2 = lambda*sigma_{t-1}^2 + (1-lambda)*epsilon_{t-1}^2` -- is a
@@ -24,7 +21,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.portfolio.covariance import ewma_covariance
 from quantcore.risk.egarch import ewma_variance
 
 pytestmark = pytest.mark.oracle
@@ -58,35 +54,3 @@ class TestEwmaVarianceMatchesPandasOneStepAheadEwma:
         pandas_var = pd.Series(returns).ewm(alpha=1.0 - lambda_, adjust=False).var(bias=True)
 
         assert not np.allclose(quantcore_variance, pandas_var.to_numpy(), rtol=1e-2)
-
-
-class TestEwmaCovarianceMatchesPandasOneStepAheadEwma:
-    def test_matches_shifted_pandas_ewma_of_outer_products_after_burn_in(self) -> None:
-        # ewma_covariance seeds at the *sample* covariance of the full
-        # series (a different seed convention than ewma_variance's
-        # returns[0]**2), so a long series is used here to let that seed
-        # choice's influence decay away (lambda^T ~= 0), rather than trying
-        # to inject the same seed into pandas' recursion directly.
-        rng = np.random.default_rng(RNG_SEED)
-        n_obs, n_assets = 3000, 3
-        returns = rng.normal(scale=0.01, size=(n_obs, n_assets))
-        lambda_ = 0.94
-
-        quantcore_cov = ewma_covariance(returns, lambda_=lambda_)
-
-        products = pd.DataFrame(
-            {
-                (i, j): returns[:, i] * returns[:, j]
-                for i in range(n_assets)
-                for j in range(n_assets)
-            }
-        )
-        pandas_ewma_mean = products.ewm(alpha=1.0 - lambda_, adjust=False).mean()
-        shifted = pandas_ewma_mean.shift(1)
-        shifted.iloc[0] = products.iloc[0]
-        terminal = shifted.iloc[-1]
-        pandas_cov = np.array(
-            [[terminal[(i, j)] for j in range(n_assets)] for i in range(n_assets)]
-        )
-
-        np.testing.assert_allclose(quantcore_cov, pandas_cov, rtol=1e-8)

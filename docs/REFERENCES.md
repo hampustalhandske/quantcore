@@ -20,7 +20,8 @@ cite the relevant entry in their docstrings.
 
 - Kloeden, P.E. and Platen, E. (1992). *Numerical Solution of Stochastic
   Differential Equations*. Springer.
-  → `core/sde_solver.py` (Euler-Maruyama scheme and convergence properties)
+  → `core/sde_solver.py` (Euler-Maruyama scheme in log-price space, as used by
+  `simulate_gbm_paths`)
 
 - Glasserman, P. (2004). *Monte Carlo Methods in Financial Engineering*.
   Springer.
@@ -80,7 +81,6 @@ cite the relevant entry in their docstrings.
 - Heston, S.L. (1993). "A Closed-Form Solution for Options with Stochastic
   Volatility with Applications to Bond and Currency Options." *Review of
   Financial Studies*, 6(2), 327–343.
-  → `core/stochastic.py` (Heston stochastic volatility SDE)
   → `core/price_paths.py` (Heston model, `simulate_heston_price_paths`)
 
 - Lord, R., Koekkoek, R. and van Dijk, D. (2010). "A Comparison of Biased
@@ -125,11 +125,7 @@ cite the relevant entry in their docstrings.
 - Kalman, R.E. (1960). "A New Approach to Linear Filtering and Prediction
   Problems." *Journal of Basic Engineering*, 82(1), 35–45.
   → `filtering/kalman.py` (linear Kalman filter predict/update equations,
-  also used by `dynamic_hedge_ratio`)
-
-- Rauch, H.E., Tung, F., and Striebel, C.T. (1965). "Maximum Likelihood
-  Estimates of Linear Dynamic Systems." *AIAA Journal*, 3(8), 1445–1450.
-  → `filtering/kalman.py` (RTS smoother backward pass)
+  used by `dynamic_hedge_ratio`)
 
 - Chan, E.P. (2013). *Algorithmic Trading: Winning Strategies and Their
   Rationale*. Wiley. Ch. 3. Details not verified.
@@ -328,13 +324,7 @@ cite the relevant entry in their docstrings.
 
 - Markowitz, H. (1952). "Portfolio Selection." *Journal of Finance*, 7(1),
   77–91.
-  → `portfolio/optimization.py` (mean-variance efficient frontier)
-
-- Kelly, J.L. (1956). "A New Interpretation of Information Rate." *Bell System
-  Technical Journal*, 35(4), 917–926.
-  → `portfolio/optimization.py` (Kelly fraction for position sizing;
-  `kelly_fraction`'s default [-1, 1] clamp is a leverage cap, not part of
-  Kelly's original formula — `clip=False` returns the unclamped value)
+  → `portfolio/optimization.py` (minimum variance, unconstrained mean-variance)
 
 - Maillard, S., Roncalli, T., and Teïletche, J. (2010). "The Properties of
   Equally Weighted Risk Contribution Portfolios." *Journal of Portfolio
@@ -380,9 +370,6 @@ cite the relevant entry in their docstrings.
   Large-Dimensional Covariance Matrices." *Journal of Multivariate Analysis*,
   88(2), 365–411.
   → `portfolio/covariance.py` (Ledoit-Wolf analytical shrinkage)
-
-- J.P. Morgan/Reuters (1996). Already cited under Risk metrics.
-  → `portfolio/covariance.py` (EWMA covariance / RiskMetrics)
 
 ## Performance metrics
 

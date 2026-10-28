@@ -1,8 +1,7 @@
 """Oracle tests: SDE path simulators vs their closed-form analytical moments.
 
-Covers Workstream D priority 5 (owner follow-up, decision 4): "GBM / OU /
-CIR / Heston simulators vs analytical means, variances and
-autocovariances (and Feller-condition edge cases for CIR/Heston)."
+GBM / OU / CIR simulators vs analytical means, variances and
+autocovariances (and Feller-condition edge cases for CIR).
 
 No third-party library is the oracle here — the ground truth is the
 published closed-form solution for each process's transition mean and
@@ -26,8 +25,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from quantcore.core.sde_solver import euler_maruyama, simulate_gbm_paths
-from quantcore.core.stochastic import simulate_cir_paths, simulate_heston_paths, simulate_ou_paths
+from quantcore.core.sde_solver import simulate_gbm_paths
+from quantcore.core.stochastic import simulate_cir_paths, simulate_ou_paths
 
 pytestmark = pytest.mark.oracle
 
@@ -209,87 +208,3 @@ class TestCirMoments:
         assert fraction_near_zero > 0.0, (
             "expected some mass near the zero boundary when the Feller condition is violated"
         )
-
-
-class TestHestonVarianceMoments:
-    """Heston's variance process V_t is itself CIR with (kappa, theta, xi);
-    same closed-form moments as TestCirMoments, applied to xi in place of
-    the standalone CIR process's sigma."""
-
-    def test_terminal_variance_mean_matches_cir_closed_form(self) -> None:
-        v0, kappa, theta, xi, t = 0.04, 2.0, 0.04, 0.3, 1.0
-        _, v_paths = simulate_heston_paths(
-            s0=100.0,
-            v0=v0,
-            mu=0.05,
-            kappa=kappa,
-            theta=theta,
-            xi=xi,
-            rho=-0.5,
-            t=t,
-            n_paths=200_000,
-            n_steps=200,
-            seed=RNG_SEED,
-        )
-        terminal_v = v_paths[:, -1]
-        expected_mean = theta + (v0 - theta) * np.exp(-kappa * t)
-        _assert_within_k_standard_errors(
-            terminal_v, expected_mean, label="Heston terminal variance mean"
-        )
-
-    def test_terminal_spot_mean_matches_gbm_style_closed_form(self) -> None:
-        # E[S_t] = S_0*exp(mu*t) regardless of the stochastic-volatility
-        # dynamics (V_t's randomness doesn't bias the spot's drift under
-        # the model's own risk-neutral/actual measure as specified by mu).
-        s0, mu, t = 100.0, 0.05, 1.0
-        s_paths, _ = simulate_heston_paths(
-            s0=s0,
-            v0=0.04,
-            mu=mu,
-            kappa=1.5,
-            theta=0.04,
-            xi=0.3,
-            rho=-0.7,
-            t=t,
-            n_paths=200_000,
-            n_steps=200,
-            seed=RNG_SEED,
-        )
-        terminal_s = s_paths[:, -1]
-        expected_mean = s0 * np.exp(mu * t)
-        _assert_within_k_standard_errors(
-            terminal_s, expected_mean, label="Heston terminal spot mean"
-        )
-
-
-class TestGenericEulerMaruyamaMatchesOuClosedForm:
-    """`euler_maruyama` is the generic solver behind the specialized,
-    Numba-accelerated `simulate_ou_paths`/`simulate_cir_paths`/etc; those
-    are already checked against closed-form moments above, but the
-    generic (arbitrary-callable) code path itself was not exercised by
-    any of those tests. Applying it directly to the OU drift/diffusion
-    and checking against the same closed-form moments used in
-    `TestOuMoments` covers that remaining gap.
-    """
-
-    def test_terminal_mean_and_variance_match_ou_closed_form(self) -> None:
-        theta, mu, sigma, x0, t = 1.5, 0.2, 0.3, 1.0, 1.0
-
-        def drift(x: np.ndarray, _t: float) -> np.ndarray:
-            return theta * (mu - x)
-
-        def diffusion(x: np.ndarray, _t: float) -> np.ndarray:
-            return np.full_like(x, sigma)
-
-        paths = euler_maruyama(
-            drift, diffusion, x0=x0, t0=0.0, t1=t, num_steps=200, num_paths=200_000, seed=RNG_SEED
-        )
-        terminal = paths[:, -1]
-
-        expected_mean = mu + (x0 - mu) * np.exp(-theta * t)
-        expected_variance = (sigma**2 / (2.0 * theta)) * (1.0 - np.exp(-2.0 * theta * t))
-
-        _assert_within_k_standard_errors(terminal, expected_mean, label="Euler-Maruyama OU mean")
-        sample_variance = float(np.var(terminal, ddof=1))
-        approx_se = expected_variance * np.sqrt(2.0 / terminal.size)
-        assert abs(sample_variance - expected_variance) < 6.0 * approx_se

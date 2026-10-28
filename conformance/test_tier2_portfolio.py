@@ -1,20 +1,15 @@
 """Tier-2 differential tests for the PORTFOLIO family (`conformance.targets.portfolio`).
 
-Covariance estimators (`sample_covariance`, `ewma_covariance`, `ledoit_wolf_shrinkage`) are checked
-against hand/sklearn references on `returns_panel()` draws, bucketed by the panel's observation
-count `n` (`length_bucket_for`, the harness's existing series-length bucketing). The mean-variance
-family (`min_variance_weights`, `mean_variance_weights`, `unconstrained_mean_variance_weights`,
-`l1_turnover_penalized_weights`) and `implied_equilibrium_returns`/`black_litterman` take a
+`ledoit_wolf_shrinkage` is checked against a sklearn reference on `returns_panel()` draws, bucketed
+by the panel's observation count `n` (`length_bucket_for`, the harness's existing series-length
+bucketing). The mean-variance family (`min_variance_weights`,
+`unconstrained_mean_variance_weights`) and `implied_equilibrium_returns`/`black_litterman` take a
 covariance matrix, not a series, so there is no natural "length" in the `length_bucket_for` sense;
 each instead declares a `_dim_bucket` (`"dim_small"`/`"dim_medium"`/`"dim_large"`) from the matrix's
 own dimension `k`, the same approach `test_tier1_execution.py` takes for its scalar-only
 functions. `risk_parity_weights` uses the same
-dimension bucketing. `kelly_fraction` takes two scalars with no covariance matrix at all, so it
-declares its own small family set and the `"scalar"` bucket, exactly as
-`test_tier1_execution.py`'s functions do.
+dimension bucketing.
 """
-
-from dataclasses import dataclass
 
 import numpy as np
 from hypothesis import given, settings
@@ -32,15 +27,10 @@ from conformance.generators import (
 )
 from conformance.harness import check
 
-_SAMPLE_COVARIANCE = registry()["sample_covariance"]
-_EWMA_COVARIANCE = registry()["ewma_covariance"]
 _LEDOIT_WOLF_SHRINKAGE = registry()["ledoit_wolf_shrinkage"]
 _MIN_VARIANCE_WEIGHTS = registry()["min_variance_weights"]
-_MEAN_VARIANCE_WEIGHTS = registry()["mean_variance_weights"]
 _UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS = registry()["unconstrained_mean_variance_weights"]
-_L1_TURNOVER_PENALIZED_WEIGHTS = registry()["l1_turnover_penalized_weights"]
 _RISK_PARITY_WEIGHTS = registry()["risk_parity_weights"]
-_KELLY_FRACTION = registry()["kelly_fraction"]
 _IMPLIED_EQUILIBRIUM_RETURNS = registry()["implied_equilibrium_returns"]
 _BLACK_LITTERMAN = registry()["black_litterman"]
 
@@ -63,13 +53,6 @@ def _dim_bucket(k: int) -> str:
 
 _DIM_BUCKETS: tuple[str, ...] = ("dim_small", "dim_medium", "dim_large")
 
-# Declared coverage: `build_report.py` fails the build if any declared family or length/dimension
-# bucket ends up with zero recorded cases.
-SAMPLE_COVARIANCE_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
-SAMPLE_COVARIANCE_BUCKETS: tuple[str, ...] = ("medium", "long")
-
-EWMA_COVARIANCE_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
-EWMA_COVARIANCE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
 LEDOIT_WOLF_SHRINKAGE_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
 LEDOIT_WOLF_SHRINKAGE_BUCKETS: tuple[str, ...] = ("medium", "long")
@@ -77,14 +60,10 @@ LEDOIT_WOLF_SHRINKAGE_BUCKETS: tuple[str, ...] = ("medium", "long")
 MIN_VARIANCE_WEIGHTS_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
 MIN_VARIANCE_WEIGHTS_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
 
-MEAN_VARIANCE_WEIGHTS_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
-MEAN_VARIANCE_WEIGHTS_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
 
 UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
 UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
 
-L1_TURNOVER_PENALIZED_WEIGHTS_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
-L1_TURNOVER_PENALIZED_WEIGHTS_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
 
 RISK_PARITY_WEIGHTS_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
 RISK_PARITY_WEIGHTS_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
@@ -95,14 +74,6 @@ IMPLIED_EQUILIBRIUM_RETURNS_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
 BLACK_LITTERMAN_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
 BLACK_LITTERMAN_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
 
-KELLY_FRACTION_FAMILIES: tuple[str, ...] = (
-    "positive_edge",
-    "negative_edge",
-    "clip_binding_positive",
-    "clip_binding_negative",
-)
-KELLY_FRACTION_BUCKETS: tuple[str, ...] = (_SCALAR_BUCKET,)
-
 
 def _finite_floats(min_value: float, max_value: float) -> "st.SearchStrategy[float]":
     return st.floats(
@@ -110,35 +81,7 @@ def _finite_floats(min_value: float, max_value: float) -> "st.SearchStrategy[flo
     )
 
 
-# --- sample_covariance, ewma_covariance, ledoit_wolf_shrinkage -----------------------------------
-
-
-@settings(max_examples=200)
-@given(tagged=returns_panel(min_len=15, max_len=1200))
-def test_sample_covariance_matches_hand_reference(tagged: TaggedPanel) -> None:
-    check(
-        _SAMPLE_COVARIANCE,
-        tagged.values,
-        family=tagged.family,
-        length_bucket=length_bucket_for(tagged.n),
-        seed=tagged.seed,
-    )
-
-
-@settings(max_examples=200)
-@given(
-    tagged=returns_panel(min_len=1, max_len=1200),
-    lambda_=st.floats(0.80, 0.99),
-)
-def test_ewma_covariance_matches_hand_reference(tagged: TaggedPanel, lambda_: float) -> None:
-    check(
-        _EWMA_COVARIANCE,
-        tagged.values,
-        lambda_,
-        family=tagged.family,
-        length_bucket=length_bucket_for(tagged.n),
-        seed=tagged.seed,
-    )
+# --- ledoit_wolf_shrinkage ------------------------------------------------------------------------
 
 
 @settings(max_examples=200)
@@ -171,29 +114,6 @@ def test_min_variance_weights_matches_cvxpy(tagged: TaggedCovariance, allow_shor
 
 
 @settings(max_examples=200)
-@given(
-    tagged=covariance_matrix(),
-    risk_aversion=st.floats(0.1, 10.0),
-    allow_short=st.booleans(),
-)
-def test_mean_variance_weights_matches_cvxpy(
-    tagged: TaggedCovariance, risk_aversion: float, allow_short: bool
-) -> None:
-    mu = np.random.default_rng(tagged.seed ^ 0x5EED).normal(0.0005, 0.002, tagged.k)
-    check(
-        _MEAN_VARIANCE_WEIGHTS,
-        mu,
-        tagged.matrix,
-        risk_aversion,
-        allow_short,
-        family=tagged.family,
-        length_bucket=_dim_bucket(tagged.k),
-        seed=tagged.seed,
-        quantities=_OPTIMIZER_QUANTITIES,
-    )
-
-
-@settings(max_examples=200)
 @given(tagged=covariance_matrix(), risk_aversion=st.floats(0.1, 10.0))
 def test_unconstrained_mean_variance_weights_matches_closed_form(
     tagged: TaggedCovariance, risk_aversion: float
@@ -204,34 +124,6 @@ def test_unconstrained_mean_variance_weights_matches_closed_form(
         mu,
         tagged.matrix,
         risk_aversion,
-        family=tagged.family,
-        length_bucket=_dim_bucket(tagged.k),
-        seed=tagged.seed,
-        quantities=_OPTIMIZER_QUANTITIES,
-    )
-
-
-@settings(max_examples=200)
-@given(
-    tagged=covariance_matrix(),
-    risk_aversion=st.floats(0.1, 10.0),
-    cost_bps=st.floats(0.0, 100.0),
-    allow_short=st.booleans(),
-)
-def test_l1_turnover_penalized_weights_matches_cvxpy(
-    tagged: TaggedCovariance, risk_aversion: float, cost_bps: float, allow_short: bool
-) -> None:
-    rng = np.random.default_rng(tagged.seed ^ 0x5EED)
-    mu = rng.normal(0.0005, 0.002, tagged.k)
-    previous = rng.dirichlet(np.ones(tagged.k))
-    check(
-        _L1_TURNOVER_PENALIZED_WEIGHTS,
-        mu,
-        tagged.matrix,
-        previous,
-        cost_bps,
-        risk_aversion,
-        allow_short,
         family=tagged.family,
         length_bucket=_dim_bucket(tagged.k),
         seed=tagged.seed,
@@ -251,52 +143,6 @@ def test_risk_parity_weights_matches_spinu_reference(tagged: TaggedCovariance) -
         family=tagged.family,
         length_bucket=_dim_bucket(tagged.k),
         seed=tagged.seed,
-    )
-
-
-# --- kelly_fraction ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class KellyCase:
-    """One `kelly_fraction` input, tagged with the family that produced it."""
-
-    expected_return: float
-    variance: float
-    clip: bool
-    family: str
-
-
-@st.composite
-def kelly_case(draw: "st.DrawFn") -> KellyCase:
-    """Draw a `kelly_fraction` input covering ordinary, negative-edge, and clip-binding regimes."""
-    family = draw(st.sampled_from(KELLY_FRACTION_FAMILIES))
-    clip = draw(st.booleans())
-    if family == "positive_edge":
-        expected_return = draw(_finite_floats(1e-6, 0.05))
-        variance = draw(_finite_floats(1e-4, 0.1))
-    elif family == "negative_edge":
-        expected_return = draw(_finite_floats(-0.05, -1e-6))
-        variance = draw(_finite_floats(1e-4, 0.1))
-    elif family == "clip_binding_positive":
-        expected_return = draw(_finite_floats(0.5, 5.0))
-        variance = draw(_finite_floats(1e-4, 0.05))
-    else:  # clip_binding_negative
-        expected_return = draw(_finite_floats(-5.0, -0.5))
-        variance = draw(_finite_floats(1e-4, 0.05))
-    return KellyCase(expected_return=expected_return, variance=variance, clip=clip, family=family)
-
-
-@settings(max_examples=200)
-@given(case=kelly_case())
-def test_kelly_fraction_matches_hand_formula(case: KellyCase) -> None:
-    check(
-        _KELLY_FRACTION,
-        case.expected_return,
-        case.variance,
-        case.clip,
-        family=case.family,
-        length_bucket=_SCALAR_BUCKET,
     )
 
 

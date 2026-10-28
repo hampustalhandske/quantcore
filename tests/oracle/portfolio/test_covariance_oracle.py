@@ -15,9 +15,7 @@ estimator, not just the same estimator on a slightly different scale —
 before the fix, the shrunk covariance differed from `sklearn`'s by ~1%
 of typical variance magnitudes on a 5-asset synthetic panel, not
 numerical noise. Fixed by switching the internal sample covariance to
-1/T; `sample_covariance` (the standalone public function) is unaffected
-and keeps its own 1/(T-1) convention, since it isn't part of the Theorem 1
-computation.
+1/T.
 """
 
 from __future__ import annotations

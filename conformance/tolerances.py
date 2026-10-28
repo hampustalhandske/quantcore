@@ -658,38 +658,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "measured max abs difference ~3e-20 (machine precision)."
         ),
     ),
-    "kalman_filter_means": Tolerance(
-        rtol=1e-8,
-        atol=1e-10,
-        justification=(
-            "pykalman, with its initial state pre-advanced by one predict step so its 'step 0' "
-            "matches quantcore's own indexing convention (conformance.targets.filtering "
-            "module docstring); measured max abs difference ~3e-16 (machine precision) once that "
-            "adjustment is made -- without it, the two disagree by ~1e-4, a pure indexing "
-            "artifact, not a numerical one."
-        ),
-    ),
-    "kalman_filter_covs": Tolerance(
-        rtol=1e-8,
-        atol=1e-10,
-        justification=(
-            "as kalman_filter_means; measured max abs difference ~1e-17 (machine precision)."
-        ),
-    ),
-    "kalman_smooth_means": Tolerance(
-        rtol=1e-8,
-        atol=1e-10,
-        justification=(
-            "as kalman_filter_means; measured max abs difference ~2e-16 (machine precision)."
-        ),
-    ),
-    "kalman_smooth_covs": Tolerance(
-        rtol=1e-8,
-        atol=1e-10,
-        justification=(
-            "as kalman_filter_means; measured max abs difference ~1e-17 (machine precision)."
-        ),
-    ),
     "dynamic_hedge_ratio": Tolerance(
         rtol=1e-6,
         atol=1e-8,
@@ -1050,31 +1018,6 @@ TOLERANCES: dict[str, Tolerance] = {
         ),
     ),
     # --- portfolio family (conformance.targets.portfolio) ---------------------------------------
-    "sample_covariance": Tolerance(
-        rtol=1e-9,
-        atol=1e-9,
-        justification=(
-            "closed-form ddof=1 sample covariance; quantcore's own two-pass formula and "
-            "numpy.cov(returns, rowvar=False, ddof=1) -- an independent library implementation, "
-            "not a re-derivation of quantcore's own documented formula -- sum in a different "
-            "order internally, one order looser than the pure closed-form default to absorb that "
-            "(measured max relative error ~2e-15 on 300 random panels up to k=10, T=2000)."
-        ),
-    ),
-    "ewma_covariance": Tolerance(
-        rtol=1e-10,
-        atol=1e-12,
-        justification=(
-            "pandas.DataFrame.ewm(alpha=1-lambda_, adjust=False).mean() of the raw outer products, "
-            "lagged one observation and re-seeded at the sample covariance -- an independent "
-            "evaluation of the same zero-mean RiskMetrics recursion. Both sides are sums of at "
-            "most T positive-weight terms (weights lambda^k*(1-lambda), all non-negative, summing "
-            "to one) evaluated in a different order, so the accumulated rounding is a few "
-            "hundred ulps at worst (~T*eps ~ 3e-13 relative for T=1200), inside the closed-form "
-            "default rtol=1e-10. atol=1e-12 covers off-diagonal entries that cancel to near zero "
-            "from products of order 1e-4 or smaller."
-        ),
-    ),
     "ledoit_wolf_shrinkage": Tolerance(
         rtol=1e-6,
         atol=1e-6,
@@ -1112,11 +1055,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "objective gap ~1e-8 to ~1e-10 on 300 well-conditioned random covariances up to k=10."
         ),
     ),
-    "mean_variance_weights": Tolerance(
-        rtol=1e-6,
-        atol=1e-8,
-        justification="as min_variance_weights, for the analogous maximise-utility QP.",
-    ),
     "unconstrained_mean_variance_weights": Tolerance(
         rtol=1e-9,
         atol=1e-10,
@@ -1126,19 +1064,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "closed-form default only for the extra quadratic-form evaluation building the "
             "objective; measured relative gap consistent with 0 (both sides perform the same "
             "direct linear solve)."
-        ),
-    ),
-    "l1_turnover_penalized_weights": Tolerance(
-        rtol=1e-6,
-        atol=1e-8,
-        justification=(
-            "as min_variance_weights, but the QP additionally includes a non-smooth L1 turnover "
-            "penalty; quantcore reformulates it into smooth buy/sell slacks for SLSQP while the "
-            "oracle's cvxpy program uses the L1 atom directly -- two "
-            "genuinely different reformulations of the identical convex program, so the tolerance "
-            "stays the same as the smooth QPs above rather than being loosened further, on the "
-            "premise that a correctly-solved convex program's objective does not care which "
-            "reformulation reached it."
         ),
     ),
     "risk_parity_weights": Tolerance(
@@ -1160,11 +1085,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "enough that both outcomes are correctly classified: convergent cases pass, divergent "
             "ones fail by orders of magnitude."
         ),
-    ),
-    "kelly_fraction": Tolerance(
-        rtol=1e-10,
-        atol=1e-12,
-        justification="hand formula f* = expected_return / variance, a single division.",
     ),
     "implied_equilibrium_returns": Tolerance(
         rtol=1e-10,

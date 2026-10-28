@@ -1,4 +1,4 @@
-"""Tests for mean-variance, risk-parity, and Kelly portfolio sizing."""
+"""Tests for minimum-variance, unconstrained mean-variance and risk-parity weights."""
 
 from __future__ import annotations
 
@@ -11,9 +11,6 @@ from scipy.optimize import nnls
 
 import quantcore.portfolio.optimization as opt_module
 from quantcore.portfolio.optimization import (
-    kelly_fraction,
-    l1_turnover_penalized_weights,
-    mean_variance_weights,
     min_variance_weights,
     risk_parity_weights,
     unconstrained_mean_variance_weights,
@@ -44,55 +41,6 @@ class TestMinVarianceWeights:
         weights = min_variance_weights(cov)
         assert weights[0] == pytest.approx(expected[0], abs=1e-12)
         assert weights[1] == pytest.approx(expected[1], abs=1e-12)
-
-
-class TestMeanVarianceWeights:
-    def test_invalid_inputs_mismatched_shapes(self) -> None:
-        with pytest.raises(ValueError):
-            mean_variance_weights(
-                expected_returns=np.array([0.05, 0.07, 0.03]),
-                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-                risk_aversion=2.0,
-            )
-
-    def test_invalid_inputs_negative_risk_aversion(self) -> None:
-        with pytest.raises(ValueError):
-            mean_variance_weights(
-                expected_returns=np.array([0.05, 0.07]),
-                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-                risk_aversion=-1.0,
-            )
-
-    def test_weights_sum_to_one_and_non_negative(self) -> None:
-        weights = mean_variance_weights(
-            expected_returns=np.array([0.05, 0.07]),
-            cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-            risk_aversion=3.0,
-        )
-        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
-        assert np.all(weights >= -1e-8)
-
-    def test_allow_short_can_produce_a_negative_weight(self) -> None:
-        # A strongly negative view on one asset, uncorrelated with the
-        # other, should be expressed as a short position when allowed to.
-        weights = mean_variance_weights(
-            expected_returns=np.array([0.05, -0.20]),
-            cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-            risk_aversion=1.0,
-            allow_short=True,
-        )
-        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
-        assert weights[1] < 0.0
-
-    def test_allow_short_false_still_constrains_to_non_negative(self) -> None:
-        weights = mean_variance_weights(
-            expected_returns=np.array([0.05, -0.20]),
-            cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-            risk_aversion=1.0,
-            allow_short=False,
-        )
-        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
-        assert np.all(weights >= -1e-8)
 
 
 class TestRiskParityWeights:
@@ -168,139 +116,6 @@ class TestRiskParityWeights:
             np.testing.assert_allclose(contributions, 1.0 / k, atol=1e-6)
 
 
-class TestL1TurnoverPenalizedWeights:
-    def test_invalid_inputs_mismatched_expected_returns_shape(self) -> None:
-        with pytest.raises(ValueError):
-            l1_turnover_penalized_weights(
-                expected_returns=np.array([0.05, 0.07, 0.03]),
-                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-                previous_weights=np.array([0.5, 0.5]),
-                cost_bps=10.0,
-                risk_aversion=2.0,
-            )
-
-    def test_invalid_inputs_mismatched_previous_weights_shape(self) -> None:
-        with pytest.raises(ValueError):
-            l1_turnover_penalized_weights(
-                expected_returns=np.array([0.05, 0.07]),
-                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-                previous_weights=np.array([0.5, 0.3, 0.2]),
-                cost_bps=10.0,
-                risk_aversion=2.0,
-            )
-
-    def test_invalid_inputs_previous_weights_not_summing_to_one(self) -> None:
-        with pytest.raises(ValueError):
-            l1_turnover_penalized_weights(
-                expected_returns=np.array([0.05, 0.07]),
-                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-                previous_weights=np.array([0.5, 0.3]),
-                cost_bps=10.0,
-                risk_aversion=2.0,
-            )
-
-    def test_invalid_inputs_negative_cost_bps(self) -> None:
-        with pytest.raises(ValueError):
-            l1_turnover_penalized_weights(
-                expected_returns=np.array([0.05, 0.07]),
-                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-                previous_weights=np.array([0.5, 0.5]),
-                cost_bps=-1.0,
-                risk_aversion=2.0,
-            )
-
-    def test_invalid_inputs_negative_risk_aversion(self) -> None:
-        with pytest.raises(ValueError):
-            l1_turnover_penalized_weights(
-                expected_returns=np.array([0.05, 0.07]),
-                cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-                previous_weights=np.array([0.5, 0.5]),
-                cost_bps=10.0,
-                risk_aversion=-1.0,
-            )
-
-    def test_zero_cost_recovers_mean_variance_weights(self) -> None:
-        # With no cost the turnover term vanishes and both functions solve the
-        # same strictly convex program, whose optimum is unique.
-        expected_returns = np.array([0.05, 0.07, 0.03])
-        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
-        previous_weights = np.array([1 / 3, 1 / 3, 1 / 3])
-
-        mv_weights = mean_variance_weights(expected_returns, cov, risk_aversion=3.0)
-        penalized_weights = l1_turnover_penalized_weights(
-            expected_returns,
-            cov,
-            previous_weights,
-            cost_bps=0.0,
-            risk_aversion=3.0,
-        )
-        assert np.allclose(mv_weights, penalized_weights, atol=1e-12)
-
-    def test_increasing_cost_bps_weakly_reduces_turnover(self) -> None:
-        expected_returns = np.array([0.10, -0.02, 0.05])
-        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
-        previous_weights = np.array([0.2, 0.5, 0.3])
-
-        turnovers = []
-        for cost_bps in [0.0, 10.0, 100.0, 1000.0]:
-            weights = l1_turnover_penalized_weights(
-                expected_returns,
-                cov,
-                previous_weights,
-                cost_bps=cost_bps,
-                risk_aversion=2.0,
-            )
-            turnovers.append(np.abs(weights - previous_weights).sum())
-
-        assert all(turnovers[i] >= turnovers[i + 1] - 1e-6 for i in range(len(turnovers) - 1))
-
-    def test_weights_sum_to_one_and_non_negative(self) -> None:
-        expected_returns = np.array([0.05, 0.07, 0.03])
-        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
-        for previous_weights in [
-            np.array([1 / 3, 1 / 3, 1 / 3]),
-            np.array([0.6, 0.1, 0.3]),
-            np.array([0.0, 1.0, 0.0]),
-        ]:
-            for cost_bps in [0.0, 25.0, 250.0]:
-                weights = l1_turnover_penalized_weights(
-                    expected_returns,
-                    cov,
-                    previous_weights,
-                    cost_bps=cost_bps,
-                    risk_aversion=1.5,
-                )
-                assert weights.sum() == pytest.approx(1.0, abs=1e-6)
-                assert np.all(weights >= -1e-8)
-
-    def test_allow_short_can_produce_a_negative_weight(self) -> None:
-        weights = l1_turnover_penalized_weights(
-            expected_returns=np.array([0.05, -0.20]),
-            cov_matrix=np.array([[0.04, 0.0], [0.0, 0.01]]),
-            previous_weights=np.array([0.5, 0.5]),
-            cost_bps=1.0,
-            risk_aversion=1.0,
-            allow_short=True,
-        )
-        assert weights.sum() == pytest.approx(1.0, abs=1e-6)
-        assert weights[1] < 0.0
-
-    def test_high_cost_starting_at_previous_weights_barely_moves(self) -> None:
-        expected_returns = np.array([0.20, -0.10, 0.05])
-        cov = np.array([[0.04, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.02]])
-        previous_weights = np.array([1 / 3, 1 / 3, 1 / 3])
-
-        weights = l1_turnover_penalized_weights(
-            expected_returns,
-            cov,
-            previous_weights,
-            cost_bps=1_000_000.0,
-            risk_aversion=1.0,
-        )
-        turnover = np.abs(weights - previous_weights).sum()
-        assert turnover == pytest.approx(0.0, abs=1e-4)
-
-
 class TestUnconstrainedMeanVarianceWeights:
     def test_invalid_inputs_mismatched_shapes(self) -> None:
         with pytest.raises(ValueError):
@@ -355,17 +170,6 @@ class TestUnconstrainedMeanVarianceWeights:
 
         assert cov @ weights * risk_aversion == pytest.approx(expected_returns, abs=1e-8)
 
-    def test_does_not_sum_to_one_and_differs_from_mean_variance_weights(self) -> None:
-        expected_returns = np.array([0.05, -0.20])
-        cov = np.array([[0.04, 0.0], [0.0, 0.01]])
-        risk_aversion = 1.0
-
-        unconstrained = unconstrained_mean_variance_weights(expected_returns, cov, risk_aversion)
-        constrained = mean_variance_weights(expected_returns, cov, risk_aversion, allow_short=True)
-
-        assert unconstrained.sum() != pytest.approx(1.0, abs=1e-6)
-        assert not np.allclose(unconstrained, constrained, atol=1e-3)
-
     def test_matches_explicit_inverse_on_ill_conditioned_matrix(self) -> None:
         # Near-singular but still invertible: a strong cross-correlation
         # pushes the condition number high without breaking invertibility.
@@ -379,107 +183,18 @@ class TestUnconstrainedMeanVarianceWeights:
         assert weights == pytest.approx(reference, abs=1e-6)
 
 
-class TestKellyFraction:
-    def test_invalid_inputs(self) -> None:
-        with pytest.raises(ValueError):
-            kelly_fraction(expected_return=0.05, variance=0.0)
-
-    def test_invalid_inputs_negative_variance(self) -> None:
-        with pytest.raises(ValueError):
-            kelly_fraction(expected_return=0.05, variance=-0.01)
-
-    @pytest.mark.parametrize("clip", [True, False])
-    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
-    def test_non_finite_expected_return_raises(self, bad: float, clip: bool) -> None:
-        with pytest.raises(ValueError, match="expected_return must be finite"):
-            kelly_fraction(expected_return=bad, variance=0.04, clip=clip)
-
-    @pytest.mark.parametrize("clip", [True, False])
-    @pytest.mark.parametrize("bad", [np.nan, np.inf])
-    def test_non_finite_variance_raises(self, bad: float, clip: bool) -> None:
-        with pytest.raises(ValueError, match="variance must be finite"):
-            kelly_fraction(expected_return=0.05, variance=bad, clip=clip)
-
-    @pytest.mark.parametrize(
-        ("expected_return", "variance", "expected"),
-        [
-            (0.02, 0.04, 0.5),
-            (0.01, 0.1, 0.1),
-            (-0.02, 0.04, -0.5),
-        ],
-    )
-    def test_matches_closed_form(
-        self, expected_return: float, variance: float, expected: float
-    ) -> None:
-        assert kelly_fraction(expected_return, variance) == pytest.approx(expected, abs=1e-9)
-
-    def test_clamps_to_unit_interval(self) -> None:
-        assert kelly_fraction(expected_return=10.0, variance=0.01) == pytest.approx(1.0)
-        assert kelly_fraction(expected_return=-10.0, variance=0.01) == pytest.approx(-1.0)
-
-    def test_clip_false_returns_unclamped_textbook_value(self) -> None:
-        assert kelly_fraction(expected_return=10.0, variance=0.01, clip=False) == pytest.approx(
-            1000.0
-        )
-        assert kelly_fraction(expected_return=-10.0, variance=0.01, clip=False) == pytest.approx(
-            -1000.0
-        )
-
-    def test_clip_false_matches_clip_true_within_unit_interval(self) -> None:
-        clipped = kelly_fraction(expected_return=0.02, variance=0.04)
-        unclipped = kelly_fraction(expected_return=0.02, variance=0.04, clip=False)
-        assert clipped == pytest.approx(unclipped)
-
-
 class TestSolverFailureIsReported:
     """No optimiser returns a point it could not certify as optimal.
 
-    `min_variance_weights`, `mean_variance_weights` and
-    `l1_turnover_penalized_weights` raise when their quadratic program has
-    no finite optimum or the active-set iteration runs out of its iteration
-    budget; `risk_parity_weights` has the same contract for its Newton
-    iteration.
+    `min_variance_weights` raises when its quadratic program has no finite
+    optimum or the active-set iteration runs out of its iteration budget;
+    `risk_parity_weights` has the same contract for its Newton iteration.
     """
-
-    def test_mean_variance_weights_raises_when_unbounded(self) -> None:
-        # No risk penalty and shorting allowed: the utility grows without
-        # limit by shorting the lower-return asset to buy the other.
-        with pytest.raises(RuntimeError, match="unbounded"):
-            mean_variance_weights(np.array([0.05, 0.03]), np.eye(2), 0.0, allow_short=True)
-
-    def test_mean_variance_weights_raises_when_unbounded_on_singular_covariance(self) -> None:
-        # Two perfectly correlated assets with different expected returns:
-        # a long-short position in them carries no risk and earns the spread.
-        cov = np.array([[0.04, 0.04, 0.0], [0.04, 0.04, 0.0], [0.0, 0.0, 0.01]])
-        with pytest.raises(RuntimeError, match="unbounded"):
-            mean_variance_weights(np.array([0.05, 0.03, 0.02]), cov, 2.0, allow_short=True)
-
-    def test_l1_turnover_penalized_weights_raises_when_unbounded(self) -> None:
-        with pytest.raises(RuntimeError, match="unbounded"):
-            l1_turnover_penalized_weights(
-                np.array([0.05, 0.03]), np.eye(2), np.array([0.5, 0.5]), 10.0, 0.0, allow_short=True
-            )
 
     def test_min_variance_weights_raises_at_iteration_cap(self, monkeypatch) -> None:
         monkeypatch.setattr(opt_module, "_QP_MAX_ITER_PER_CONSTRAINT", 0)
         with pytest.raises(RuntimeError, match="did not converge"):
             min_variance_weights(np.eye(2))
-
-    def test_mean_variance_weights_raises_at_iteration_cap(self, monkeypatch) -> None:
-        monkeypatch.setattr(opt_module, "_QP_MAX_ITER_PER_CONSTRAINT", 0)
-        with pytest.raises(RuntimeError, match="did not converge"):
-            mean_variance_weights(np.array([0.05, 0.03]), np.eye(2), risk_aversion=1.0)
-
-    def test_l1_turnover_penalized_weights_raises_at_iteration_cap(self, monkeypatch) -> None:
-        monkeypatch.setattr(opt_module, "_QP_MAX_ITER_PER_CONSTRAINT", 0)
-        with pytest.raises(RuntimeError, match="did not converge"):
-            l1_turnover_penalized_weights(
-                np.array([0.05, 0.03]),
-                np.eye(2),
-                previous_weights=np.array([0.5, 0.5]),
-                cost_bps=10.0,
-                risk_aversion=1.0,
-            )
 
     def test_risk_parity_weights_raises_on_non_convergence(self, monkeypatch) -> None:
         # risk_parity_weights uses its own Newton iteration rather than
@@ -615,243 +330,6 @@ class TestMinVarianceWeightsExactness:
 
     def test_single_asset(self) -> None:
         np.testing.assert_array_equal(min_variance_weights(np.array([[0.04]])), [1.0])
-
-
-class TestMeanVarianceWeightsExactness:
-    def test_matches_closed_form_when_shorting_is_allowed(self) -> None:
-        # Equality-constrained problem: w = H^-1 (mu + nu*1), nu fixed by the budget.
-        mu, cov, _ = _random_problem(1)
-        ra = 3.0
-        inv_mu = np.linalg.solve(ra * cov, mu)
-        inv_one = np.linalg.solve(ra * cov, np.ones(mu.size))
-        expected = inv_mu + (1.0 - inv_mu.sum()) / inv_one.sum() * inv_one
-        np.testing.assert_allclose(
-            mean_variance_weights(mu, cov, ra, allow_short=True), expected, atol=1e-12
-        )
-
-    @pytest.mark.parametrize("seed", range(5))
-    def test_long_only_solution_satisfies_kkt_conditions(self, seed: int) -> None:
-        mu, cov, _ = _random_problem(seed, k=8)
-        ra = 2.0
-        w = mean_variance_weights(mu, cov, ra)
-        assert w.sum() == pytest.approx(1.0, abs=1e-12)
-        assert w.min() >= 0.0
-        assert _budget_kkt_violation(w, ra * cov, -mu, long_only=True) < 1e-12
-
-    def test_asset_excluded_by_the_long_only_constraint_has_weight_exactly_zero(self) -> None:
-        w = mean_variance_weights(
-            np.array([0.05, -0.20, 0.03]), np.diag([0.04, 0.01, 0.02]), risk_aversion=1.0
-        )
-        assert w[1] == 0.0
-        assert np.count_nonzero(w) == 2
-
-    @pytest.mark.parametrize("scale", [1e-8, 1e-4, 1e4, 1e8])
-    def test_invariant_to_the_units_of_returns(self, scale: float) -> None:
-        # Multiplying expected returns and covariance by the same factor
-        # multiplies the utility by it and leaves its maximiser unchanged.
-        mu, cov, _ = _random_problem(3)
-        for allow_short in (False, True):
-            np.testing.assert_allclose(
-                mean_variance_weights(scale * mu, scale * cov, 3.0, allow_short),
-                mean_variance_weights(mu, cov, 3.0, allow_short),
-                atol=1e-12,
-            )
-
-    def test_rescaling_returns_and_covariance_separately_rescales_the_risk_aversion(self) -> None:
-        # U(w) = w'(a*mu) - 0.5*ra*w'(b*Sigma)w has the maximiser of the
-        # problem with unit scales and risk aversion ra*b/a.
-        mu, cov, _ = _random_problem(4)
-        np.testing.assert_allclose(
-            mean_variance_weights(100.0 * mu, 1e4 * cov, 0.03),
-            mean_variance_weights(mu, cov, 3.0),
-            atol=1e-12,
-        )
-
-    def test_daily_scale_inputs_reach_the_optimum(self) -> None:
-        # Daily volatilities of 1% to 2% and daily expected returns of a few
-        # basis points: the objective is of order 1e-4.
-        mu = np.array([0.0004, 0.0006, 0.0002, 0.0005])
-        vols = np.array([0.010, 0.020, 0.012, 0.016])
-        corr = np.array(
-            [
-                [1.0, 0.3, 0.2, 0.4],
-                [0.3, 1.0, 0.1, 0.5],
-                [0.2, 0.1, 1.0, 0.2],
-                [0.4, 0.5, 0.2, 1.0],
-            ]
-        )
-        cov = corr * np.outer(vols, vols)
-        ra = 3.0
-        w = mean_variance_weights(mu, cov, ra)
-        assert w.sum() == pytest.approx(1.0, abs=1e-12)
-        assert _budget_kkt_violation(w, ra * cov, -mu, long_only=True) < 1e-12
-        np.testing.assert_allclose(w, mean_variance_weights(1e4 * mu, 1e4 * cov, ra), atol=1e-12)
-
-    def test_singular_covariance_long_only_is_solved(self) -> None:
-        rng = np.random.default_rng(4)
-        factors = rng.normal(size=(5, 2))
-        mu, cov = rng.normal(0.02, 0.05, 5), factors @ factors.T
-        w = mean_variance_weights(mu, cov, 3.0)
-        assert w.sum() == pytest.approx(1.0, abs=1e-12)
-        assert w.min() >= 0.0
-        assert _budget_kkt_violation(w, 3.0 * cov, -mu, long_only=True) < 1e-12
-
-    def test_zero_risk_aversion_long_only_picks_the_best_asset(self) -> None:
-        w = mean_variance_weights(np.array([0.01, 0.05, 0.03]), np.eye(3), 0.0)
-        np.testing.assert_array_equal(w, [0.0, 1.0, 0.0])
-
-    def test_single_asset(self) -> None:
-        w = mean_variance_weights(np.array([0.05]), np.array([[0.04]]), 2.0, allow_short=True)
-        np.testing.assert_array_equal(w, [1.0])
-
-
-def _turnover_kkt_violation(
-    weights: FloatArray,
-    hessian: FloatArray,
-    linear: FloatArray,
-    previous_weights: FloatArray,
-    cost: float,
-    long_only: bool,
-) -> float:
-    """Violation of the optimality conditions of the turnover-penalised program.
-
-    The program is `min 0.5*w'Hw + linear'w + cost*||w - previous_weights||_1`
-    subject to `sum(w) = 1` and, if `long_only`, `w >= 0`. With `g` the
-    gradient of the smooth part, buying asset i costs `g[i] + cost` per unit
-    unless it is below its previous weight, where buying refunds the cost;
-    selling it saves `g[i] - cost` unless it is above its previous weight.
-    A point is optimal when one budget multiplier is at most every buying
-    cost and at least every selling saving of an asset that can still be
-    sold. Returns the amount by which no such multiplier exists, relative to
-    the size of the terms the gradient is summed from.
-    """
-    gradient, scale = _gradient_and_scale(weights, hessian, linear)
-    above, below = weights > previous_weights, weights < previous_weights
-    buying = gradient + np.where(below, -cost, cost)
-    selling = gradient - np.where(above, -cost, cost)
-    sellable = weights > 0.0 if long_only else np.ones(weights.size, dtype=bool)
-    gap = float(np.max(selling[sellable]) - np.min(buying))
-    return max(gap, 0.0) / max(scale, cost)
-
-
-class TestL1TurnoverPenalizedWeightsExactness:
-    def test_zero_cost_equals_mean_variance_weights(self) -> None:
-        mu, cov, prev = _random_problem(5)
-        for allow_short in (False, True):
-            np.testing.assert_allclose(
-                l1_turnover_penalized_weights(mu, cov, prev, 0.0, 3.0, allow_short),
-                mean_variance_weights(mu, cov, 3.0, allow_short),
-                atol=1e-12,
-            )
-
-    def test_prohibitive_cost_returns_previous_weights_exactly(self) -> None:
-        mu, cov, prev = _random_problem(6)
-        before = prev.copy()
-        w = l1_turnover_penalized_weights(mu, cov, prev, 1e9, 3.0)
-        np.testing.assert_array_equal(w, prev)
-        assert not np.shares_memory(w, prev)
-        np.testing.assert_array_equal(prev, before)
-
-    def test_no_trade_optimum_is_returned_as_previous_weights_exactly(self) -> None:
-        # Start at the frictionless optimum: any positive cost makes staying
-        # put strictly optimal.
-        mu, cov, _ = _random_problem(13)
-        for allow_short in (False, True):
-            prev = mean_variance_weights(mu, cov, 3.0, allow_short)
-            w = l1_turnover_penalized_weights(mu, cov, prev, 5.0, 3.0, allow_short)
-            np.testing.assert_array_equal(w, prev)
-
-    def test_untraded_assets_keep_their_previous_weight_exactly(self) -> None:
-        mu, cov, prev = _random_problem(7, k=10)
-        w = l1_turnover_penalized_weights(mu, cov, prev, 2000.0, 3.0)
-        untraded = w == prev
-        assert 0 < untraded.sum() < w.size
-
-    @pytest.mark.parametrize("allow_short", [False, True])
-    @pytest.mark.parametrize("cost_bps", [0.0, 1.0, 50.0, 2000.0])
-    @pytest.mark.parametrize("seed", range(4))
-    def test_solution_satisfies_kkt_conditions(
-        self, seed: int, cost_bps: float, allow_short: bool
-    ) -> None:
-        mu, cov, prev = _random_problem(seed, k=10)
-        ra = 3.0
-        w = l1_turnover_penalized_weights(mu, cov, prev, cost_bps, ra, allow_short)
-        assert w.sum() == pytest.approx(1.0, abs=1e-12)
-        if not allow_short:
-            assert w.min() >= 0.0
-        violation = _turnover_kkt_violation(
-            w, ra * cov, -mu, prev, cost_bps / 10000.0, long_only=not allow_short
-        )
-        assert violation < 1e-12
-
-    def test_no_trade_band_condition_holds(self) -> None:
-        # Traded assets sit on the edge of the cost band around the budget
-        # multiplier, untraded ones inside it.
-        mu, cov, prev = _random_problem(8, k=10)
-        ra, cost = 3.0, 2000.0 / 1e4
-        w = l1_turnover_penalized_weights(mu, cov, prev, 2000.0, ra, allow_short=True)
-        marginal = mu - ra * cov @ w
-        bought, sold, untraded = w > prev, w < prev, w == prev
-        assert bought.any() and sold.any() and untraded.any()
-        multiplier = (marginal[bought] - cost).mean()
-        np.testing.assert_allclose(marginal[bought] - cost, multiplier, atol=1e-12)
-        np.testing.assert_allclose(marginal[sold] + cost, multiplier, atol=1e-12)
-        assert np.all(np.abs(marginal[untraded] - multiplier) <= cost + 1e-12)
-
-    @pytest.mark.parametrize("scale", [1e-8, 1e-4, 1e4, 1e8])
-    def test_invariant_to_the_units_of_returns(self, scale: float) -> None:
-        # The cost is in the units of the returns, so it scales with them.
-        mu, cov, prev = _random_problem(3)
-        np.testing.assert_allclose(
-            l1_turnover_penalized_weights(scale * mu, scale * cov, prev, scale * 20.0, 3.0),
-            l1_turnover_penalized_weights(mu, cov, prev, 20.0, 3.0),
-            atol=1e-12,
-        )
-
-    def test_previous_short_position_is_closed_when_long_only(self) -> None:
-        mu, cov, _ = _random_problem(9, k=5)
-        prev = np.array([0.7, 0.6, -0.3, 0.0, 0.0])
-        ra, cost_bps = 3.0, 20.0
-        w = l1_turnover_penalized_weights(mu, cov, prev, cost_bps, ra)
-        assert w.min() >= 0.0
-        assert w.sum() == pytest.approx(1.0, abs=1e-12)
-        violation = _turnover_kkt_violation(
-            w, ra * cov, -mu, prev, cost_bps / 10000.0, long_only=True
-        )
-        assert violation < 1e-12
-
-    @pytest.mark.parametrize("excess", [-5e-7, 5e-7])
-    def test_previous_weights_slightly_off_budget_are_rebalanced_to_one(
-        self, excess: float
-    ) -> None:
-        mu, cov, prev = _random_problem(10)
-        prev = prev * (1.0 + excess)
-        ra, cost_bps = 3.0, 20.0
-        for allow_short in (False, True):
-            w = l1_turnover_penalized_weights(mu, cov, prev, cost_bps, ra, allow_short)
-            assert w.sum() == pytest.approx(1.0, abs=1e-12)
-            violation = _turnover_kkt_violation(
-                w, ra * cov, -mu, prev, cost_bps / 10000.0, long_only=not allow_short
-            )
-            assert violation < 1e-12
-
-    def test_near_singular_covariance_leaves_the_no_trade_point_when_trading_pays(self) -> None:
-        # Two assets that are almost the same bet (one eigenvalue of the
-        # covariance is 1e-6). Their marginal risk differs by 8e-5 at the
-        # previous weights, more than the round-trip cost of 2e-5, so trading
-        # pays although the utility gained is tiny.
-        rng = np.random.default_rng(53269437)
-        orthogonal, _ = np.linalg.qr(rng.normal(size=(2, 2)))
-        cov = (orthogonal * np.array([1e-6, 1.5])) @ orthogonal.T
-        mu = np.array([0.001, -0.002])
-        prev = np.array([0.4, 0.6])
-        ra, cost_bps = 1.0, 0.1
-        w = l1_turnover_penalized_weights(mu, cov, prev, cost_bps, ra, allow_short=True)
-        assert not np.array_equal(w, prev)
-        violation = _turnover_kkt_violation(
-            w, ra * cov, -mu, prev, cost_bps / 10000.0, long_only=False
-        )
-        assert violation < 1e-12
 
 
 def _no_rows(n: int) -> tuple[FloatArray, FloatArray]:
@@ -1283,12 +761,10 @@ class TestNonFiniteInputsAreRejected:
         "solve",
         [
             lambda cov: min_variance_weights(cov),
-            lambda cov: mean_variance_weights(_FINITE_MU, cov, 3.0),
             lambda cov: unconstrained_mean_variance_weights(_FINITE_MU, cov, 3.0),
-            lambda cov: l1_turnover_penalized_weights(_FINITE_MU, cov, _FINITE_PREVIOUS, 5.0, 3.0),
             lambda cov: risk_parity_weights(cov),
         ],
-        ids=["min_variance", "mean_variance", "unconstrained", "l1_turnover", "risk_parity"],
+        ids=["min_variance", "unconstrained", "risk_parity"],
     )
     def test_non_finite_covariance_entry(self, solve, bad):
         cov = _with_entry(_FINITE_COV, (0, 1), bad)
@@ -1300,42 +776,25 @@ class TestNonFiniteInputsAreRejected:
     @pytest.mark.parametrize(
         "solve",
         [
-            lambda mu: mean_variance_weights(mu, _FINITE_COV, 3.0),
             lambda mu: unconstrained_mean_variance_weights(mu, _FINITE_COV, 3.0),
-            lambda mu: l1_turnover_penalized_weights(mu, _FINITE_COV, _FINITE_PREVIOUS, 5.0, 3.0),
         ],
-        ids=["mean_variance", "unconstrained", "l1_turnover"],
+        ids=["unconstrained"],
     )
     def test_non_finite_expected_return(self, solve, bad):
         with pytest.raises(ValueError, match="expected_returns must contain only finite values"):
             solve(_with_entry(_FINITE_MU, (1,), bad))
 
-    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
-    def test_non_finite_previous_weight(self, bad):
-        previous = _with_entry(_FINITE_PREVIOUS, (0,), bad)
-        with pytest.raises(ValueError, match="previous_weights must contain only finite values"):
-            l1_turnover_penalized_weights(_FINITE_MU, _FINITE_COV, previous, 5.0, 3.0)
-
     @pytest.mark.parametrize("bad", [np.nan, np.inf])
     @pytest.mark.parametrize(
         "solve",
         [
-            lambda gamma: mean_variance_weights(_FINITE_MU, _FINITE_COV, gamma),
             lambda gamma: unconstrained_mean_variance_weights(_FINITE_MU, _FINITE_COV, gamma),
-            lambda gamma: l1_turnover_penalized_weights(
-                _FINITE_MU, _FINITE_COV, _FINITE_PREVIOUS, 5.0, gamma
-            ),
         ],
-        ids=["mean_variance", "unconstrained", "l1_turnover"],
+        ids=["unconstrained"],
     )
     def test_non_finite_risk_aversion(self, solve, bad):
         with pytest.raises(ValueError, match="risk_aversion must be finite"):
             solve(bad)
-
-    @pytest.mark.parametrize("bad", [np.nan, np.inf])
-    def test_non_finite_cost(self, bad):
-        with pytest.raises(ValueError, match="cost_bps must be finite"):
-            l1_turnover_penalized_weights(_FINITE_MU, _FINITE_COV, _FINITE_PREVIOUS, bad, 3.0)
 
 
 _RISKY_BLOCK = np.array([[0.04, 0.01, 0.0], [0.01, 0.09, 0.02], [0.0, 0.02, 0.16]])
@@ -1375,22 +834,6 @@ class TestZeroVarianceAsset:
         np.testing.assert_allclose(w[[1, 3]], 0.0, atol=1e-12)
         assert w @ cov @ w == pytest.approx(0.0, abs=1e-24)
 
-    @pytest.mark.parametrize("allow_short", [False, True])
-    def test_mean_variance_without_expected_returns_puts_everything_in_cash(
-        self, allow_short: bool
-    ) -> None:
-        w = mean_variance_weights(np.zeros(4), _with_cash(_RISKY_BLOCK), 2.0, allow_short)
-        np.testing.assert_allclose(w, [1.0, 0.0, 0.0, 0.0], atol=1e-12)
-
-    @pytest.mark.parametrize("allow_short", [False, True])
-    def test_l1_turnover_without_cost_or_expected_returns_moves_into_cash(
-        self, allow_short: bool
-    ) -> None:
-        w = l1_turnover_penalized_weights(
-            np.zeros(4), _with_cash(_RISKY_BLOCK), np.full(4, 0.25), 0.0, 2.0, allow_short
-        )
-        np.testing.assert_allclose(w, [1.0, 0.0, 0.0, 0.0], atol=1e-12)
-
     def test_min_variance_resolves_weights_far_below_the_round_off_of_the_largest(self) -> None:
         # "Cash" with a variance of 1e-30: the risky weights are 1e-30 *
         # Sigma^-1 1, thirteen orders of magnitude below one unit of
@@ -1402,14 +845,6 @@ class TestZeroVarianceAsset:
         np.testing.assert_allclose(
             w[1:], 1e-30 * np.linalg.solve(_RISKY_BLOCK, np.ones(3)), rtol=1e-9
         )
-
-    def test_mean_variance_with_cash_and_expected_returns(self) -> None:
-        # With cash available the budget does not bind the risky weights: they are
-        # the unconstrained optimum Sigma^-1 mu / lambda and cash takes the rest.
-        mu = np.array([0.0, 0.03, 0.02, 0.04])
-        risky = np.linalg.solve(2.0 * _RISKY_BLOCK, mu[1:])
-        w = mean_variance_weights(mu, _with_cash(_RISKY_BLOCK), 2.0, allow_short=True)
-        np.testing.assert_allclose(w, np.concatenate([[1.0 - risky.sum()], risky]), atol=1e-12)
 
 
 _INDEFINITE_COVARIANCES = {
@@ -1434,28 +869,6 @@ class TestCovarianceMustBePositiveSemiDefinite:
         with pytest.raises(ValueError, match="positive semi-definite"):
             min_variance_weights(_INDEFINITE_COVARIANCES[name], allow_short)
 
-    @pytest.mark.parametrize("allow_short", [False, True])
-    @pytest.mark.parametrize("name", list(_INDEFINITE_COVARIANCES))
-    def test_mean_variance_rejects_an_indefinite_covariance(
-        self, name: str, allow_short: bool
-    ) -> None:
-        cov = _INDEFINITE_COVARIANCES[name]
-        for mu in (np.zeros(cov.shape[0]), np.linspace(0.01, 0.03, cov.shape[0])):
-            with pytest.raises(ValueError, match="positive semi-definite"):
-                mean_variance_weights(mu, cov, 1.0, allow_short)
-
-    @pytest.mark.parametrize("allow_short", [False, True])
-    @pytest.mark.parametrize("name", list(_INDEFINITE_COVARIANCES))
-    def test_l1_turnover_rejects_an_indefinite_covariance(
-        self, name: str, allow_short: bool
-    ) -> None:
-        cov = _INDEFINITE_COVARIANCES[name]
-        k = cov.shape[0]
-        with pytest.raises(ValueError, match="positive semi-definite"):
-            l1_turnover_penalized_weights(
-                np.zeros(k), cov, np.full(k, 1.0 / k), 5.0, 1.0, allow_short
-            )
-
     def test_asymmetric_matrix_is_judged_by_its_symmetric_part(self) -> None:
         # w'Aw only involves the symmetric part of A, which is positive
         # definite here although A itself is not symmetric.
@@ -1470,17 +883,11 @@ class TestCovarianceMustBePositiveSemiDefinite:
         rng = np.random.default_rng(k)
         factors = rng.normal(size=(k, 3))
         cov = factors @ factors.T
-        mu = rng.normal(0.02, 0.05, k)
-        previous = rng.dirichlet(np.ones(k))
 
         for allow_short in (False, True):
             w = min_variance_weights(cov, allow_short)
             assert w.sum() == pytest.approx(1.0, abs=1e-10)
             assert _budget_kkt_violation(w, 2.0 * cov, np.zeros(k), not allow_short) < 1e-10
-        w = mean_variance_weights(mu, cov, 3.0)
-        assert _budget_kkt_violation(w, 3.0 * cov, -mu, long_only=True) < 1e-10
-        w = l1_turnover_penalized_weights(mu, cov, previous, 20.0, 3.0)
-        assert _turnover_kkt_violation(w, 3.0 * cov, -mu, previous, 0.002, long_only=True) < 1e-10
 
     def test_zero_covariance_is_accepted(self) -> None:
         w = min_variance_weights(np.zeros((3, 3)))
@@ -1498,29 +905,6 @@ class TestExtremeScales:
         with pytest.raises(RuntimeError, match="not finite"):
             min_variance_weights(np.eye(3) * 1e308)
 
-    def test_mean_variance_raises_when_the_risk_term_overflows(self) -> None:
-        with pytest.raises(RuntimeError, match="not finite"):
-            mean_variance_weights(np.array([0.1, 0.2, 0.3]), np.eye(3) * 1e200, 1e200)
-
-    def test_mean_variance_raises_when_the_weights_overflow(self) -> None:
-        # Variances of 1e-320 against expected returns of 0.1 call for
-        # positions of order 1e319.
-        with pytest.raises(RuntimeError, match="not finite"):
-            mean_variance_weights(np.array([0.1, 0.2, 0.3]), np.eye(3) * 1e-320, 1.0, True)
-
-    @pytest.mark.parametrize("scale", [1e-200, 1e-100, 1e100, 1e200])
-    def test_large_and_small_scales_within_range_are_solved(self, scale: float) -> None:
-        mu = np.array([0.01, 0.02, 0.03])
-        reference = mean_variance_weights(mu, _RISKY_BLOCK, 3.0)
-        np.testing.assert_allclose(
-            mean_variance_weights(scale * mu, scale * _RISKY_BLOCK, 3.0), reference, atol=1e-12
-        )
-        np.testing.assert_allclose(
-            min_variance_weights(scale * _RISKY_BLOCK, allow_short=True),
-            min_variance_weights(_RISKY_BLOCK, allow_short=True),
-            atol=1e-12,
-        )
-
 
 class TestLargeProblems:
     """Hundreds of assets, most of them held: the optimum is still certified exactly."""
@@ -1529,28 +913,12 @@ class TestLargeProblems:
     def test_long_only_solutions_satisfy_kkt_conditions(self, k: int) -> None:
         rng = np.random.default_rng(k)
         cov = np.cov((rng.standard_normal((2 * k, k)) * 0.01).T)
-        mu = rng.standard_normal(k) * 1e-3
-        previous = rng.dirichlet(np.ones(k))
-        ra, cost_bps = 50.0, 5.0
 
         w = min_variance_weights(cov)
         assert np.count_nonzero(w) > k // 2
         assert w.sum() == pytest.approx(1.0, abs=1e-12)
         assert w.min() >= 0.0
         assert _budget_kkt_violation(w, 2.0 * cov, np.zeros(k), long_only=True) < 1e-12
-
-        w = mean_variance_weights(mu, cov, ra)
-        assert w.sum() == pytest.approx(1.0, abs=1e-12)
-        assert w.min() >= 0.0
-        assert _budget_kkt_violation(w, ra * cov, -mu, long_only=True) < 1e-12
-
-        w = l1_turnover_penalized_weights(mu, cov, previous, cost_bps, ra)
-        assert w.sum() == pytest.approx(1.0, abs=1e-12)
-        assert w.min() >= 0.0
-        violation = _turnover_kkt_violation(
-            w, ra * cov, -mu, previous, cost_bps / 10000.0, long_only=True
-        )
-        assert violation < 1e-12
 
 
 class TestLongOnlyStart:

@@ -12,7 +12,6 @@
     "numpy": "2.5.3",
     "pandas": "3.0.6",
     "py_vollib": "1.0.12",
-    "pykalman": "0.11.2",
     "quantstats": "0.0.81",
     "scikit-learn": "1.9.1",
     "scipy": "1.18.1",
@@ -484,27 +483,6 @@
       "tolerance": {
         "atol": 1e-10,
         "justification": "no loosening: the statistic is a closed-form ADF t-statistic and the p-value is a closed-form MacKinnon-table interpolation, so either quantity disagreeing beyond float noise is a defect to report, not something to tolerate.",
-        "rtol": 1e-10
-      }
-    },
-    "ewma_covariance": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 5.55e-16,
-          "max_rel_error": 1.92e-13
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 5.55e-16,
-      "max_rel_error": 1.92e-13,
-      "oracle": "pandas.DataFrame.ewm(alpha=1-lambda_, adjust=False).mean() of the outer products r_t r_t', lagged one observation, with the sample-covariance seed (no demeaning)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-12,
-        "justification": "pandas.DataFrame.ewm(alpha=1-lambda_, adjust=False).mean() of the raw outer products, lagged one observation and re-seeded at the sample covariance -- an independent evaluation of the same zero-mean RiskMetrics recursion. Both sides are sums of at most T positive-weight terms (weights lambda^k*(1-lambda), all non-negative, summing to one) evaluated in a different order, so the accumulated rounding is a few hundred ulps at worst (~T*eps ~ 3e-13 relative for T=1200), inside the closed-form default rtol=1e-10. atol=1e-12 covers off-diagonal entries that cancel to near zero from products of order 1e-4 or smaller.",
         "rtol": 1e-10
       }
     },
@@ -1137,111 +1115,6 @@
         "rtol": 1e-09
       }
     },
-    "kalman_filter_covs": {
-      "by_quantity": {
-        "value": {
-          "cases": 40,
-          "max_abs_error": 1.32e-16,
-          "max_rel_error": 2.85e-15
-        }
-      },
-      "cases": 40,
-      "finding": null,
-      "max_abs_error": 1.32e-16,
-      "max_rel_error": 2.85e-15,
-      "oracle": "pykalman.KalmanFilter (initial state pre-advanced one predict step to match quantcore)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-10,
-        "justification": "as kalman_filter_means; measured max abs difference ~1e-17 (machine precision).",
-        "rtol": 1e-08
-      }
-    },
-    "kalman_filter_means": {
-      "by_quantity": {
-        "value": {
-          "cases": 40,
-          "max_abs_error": 7.11e-15,
-          "max_rel_error": 1.6e-12
-        }
-      },
-      "cases": 40,
-      "finding": null,
-      "max_abs_error": 7.11e-15,
-      "max_rel_error": 1.6e-12,
-      "oracle": "pykalman.KalmanFilter (initial state pre-advanced one predict step to match quantcore)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-10,
-        "justification": "pykalman, with its initial state pre-advanced by one predict step so its 'step 0' matches quantcore's own indexing convention (conformance.targets.filtering module docstring); measured max abs difference ~3e-16 (machine precision) once that adjustment is made -- without it, the two disagree by ~1e-4, a pure indexing artifact, not a numerical one.",
-        "rtol": 1e-08
-      }
-    },
-    "kalman_smooth_covs": {
-      "by_quantity": {
-        "value": {
-          "cases": 40,
-          "max_abs_error": 1.55e-15,
-          "max_rel_error": 2.44e-12
-        }
-      },
-      "cases": 40,
-      "finding": null,
-      "max_abs_error": 1.55e-15,
-      "max_rel_error": 2.44e-12,
-      "oracle": "pykalman.KalmanFilter.smooth (RTS), same initial-state adjustment as the filter",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-10,
-        "justification": "as kalman_filter_means; measured max abs difference ~1e-17 (machine precision).",
-        "rtol": 1e-08
-      }
-    },
-    "kalman_smooth_means": {
-      "by_quantity": {
-        "value": {
-          "cases": 40,
-          "max_abs_error": 1.42e-14,
-          "max_rel_error": 7.81e-13
-        }
-      },
-      "cases": 40,
-      "finding": null,
-      "max_abs_error": 1.42e-14,
-      "max_rel_error": 7.81e-13,
-      "oracle": "pykalman.KalmanFilter.smooth (RTS), same initial-state adjustment as the filter",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-10,
-        "justification": "as kalman_filter_means; measured max abs difference ~2e-16 (machine precision).",
-        "rtol": 1e-08
-      }
-    },
-    "kelly_fraction": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 0.0,
-          "max_rel_error": 0.0
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 0.0,
-      "max_rel_error": 0.0,
-      "oracle": "hand formula (Kelly 1956 / Thorp 2006)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-12,
-        "justification": "hand formula f* = expected_return / variance, a single division.",
-        "rtol": 1e-10
-      }
-    },
     "kpss": {
       "by_quantity": {
         "p_value": {
@@ -1271,32 +1144,6 @@
         "atol": 0.0,
         "justification": "statistic = eta/s^2(l): both sides form the same partial sums and lagged cross products of the same residuals, and differ in the order the Bartlett-weighted terms are added and, for the trend case, in the solver that detrends (SVD least squares against a pseudo-inverse of [1, t], whose condition number is ~n). The relative error is up to eps*n*max|x|/spread, 3e-12 for a 5000-point random walk, and larger when s^2(l) is a small difference of large autocovariances. The p-value is linear interpolation in the published four-point table, so its relative error is at most 7 times the statistic's (slope*statistic/p is largest in the 2.5%-1% segment). rtol covers both. atol is zero: neither quantity is ever near zero, and the third, the at-bound flag (1.0 or 0.0), must match exactly. The automatic lag count is an integer truncation; a different count moves the statistic at the percent level and fails this tolerance.",
         "rtol": 1e-09
-      }
-    },
-    "l1_turnover_penalized_weights": {
-      "by_quantity": {
-        "objective": {
-          "cases": 200,
-          "max_abs_error": 1.32e-08,
-          "max_rel_error": 4.23e-06
-        },
-        "weights": {
-          "cases": 200,
-          "max_abs_error": 0.000253,
-          "max_rel_error": 1.0
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 0.000253,
-      "max_rel_error": 1.0,
-      "oracle": "cvxpy (same QP/L1 program quantcore solves via a smooth buy/sell-slack SLSQP)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "as min_variance_weights, but the QP additionally includes a non-smooth L1 turnover penalty; quantcore reformulates it into smooth buy/sell slacks for SLSQP while the oracle's cvxpy program uses the L1 atom directly -- two genuinely different reformulations of the identical convex program, so the tolerance stays the same as the smooth QPs above rather than being loosened further, on the premise that a correctly-solved convex program's objective does not care which reformulation reached it.",
-        "rtol": 1e-06
       }
     },
     "ledoit_wolf_shrinkage": {
@@ -1386,32 +1233,6 @@
         "atol": 1e-09,
         "justification": "closed-form cumprod/cummax reduction; atol accommodates a true drawdown of exactly 0 (a never-declining path), where relative error is undefined and the comparison must fall back to the absolute term.",
         "rtol": 1e-10
-      }
-    },
-    "mean_variance_weights": {
-      "by_quantity": {
-        "objective": {
-          "cases": 200,
-          "max_abs_error": 8.84e-09,
-          "max_rel_error": 0.000187
-        },
-        "weights": {
-          "cases": 200,
-          "max_abs_error": 6.96e-06,
-          "max_rel_error": 1.0
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 6.96e-06,
-      "max_rel_error": 1.0,
-      "oracle": "cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "as min_variance_weights, for the analogous maximise-utility QP.",
-        "rtol": 1e-06
       }
     },
     "min_variance_weights": {
@@ -1747,27 +1568,6 @@
         "atol": 0.001,
         "justification": "compared directly on WEIGHTS, not an objective (see conformance.targets.portfolio's module docstring): Spinu (2013)'s reformulation is strictly convex, so the risk-parity portfolio is unique and two correct solvers must agree on the weight vector itself. Generous relative to the closed-form default because quantcore's SLSQP least-squares-of-contribution-differences formulation and the oracle's independent log-barrier L-BFGS-B solver (conformance.targets.portfolio._spinu_risk_parity_weights) are very different numerical paths to the same point; measured agreement ~1e-7 on well-behaved cases in an empirical 200-case sweep (seed 100, k in 2..10, well_conditioned family), while quantcore's SLSQP failed to reach an equal-risk-contribution solution (or raised RuntimeError on non-convergence) on 13/200 cases, with weight deviations up to 0.39. This tolerance is tight enough that both outcomes are correctly classified: convergent cases pass, divergent ones fail by orders of magnitude.",
         "rtol": 0.001
-      }
-    },
-    "sample_covariance": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 0.0,
-          "max_rel_error": 0.0
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 0.0,
-      "max_rel_error": 0.0,
-      "oracle": "numpy.cov(returns, rowvar=False, ddof=1)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-09,
-        "justification": "closed-form ddof=1 sample covariance; quantcore's own two-pass formula and numpy.cov(returns, rowvar=False, ddof=1) -- an independent library implementation, not a re-derivation of quantcore's own documented formula -- sum in a different order internally, one order looser than the pure closed-form default to absorb that (measured max relative error ~2e-15 on 300 random panels up to k=10, T=2000).",
-        "rtol": 1e-09
       }
     },
     "select_arima_order": {

@@ -19,14 +19,14 @@ each module cites its entry in its own docstring). At a high level:
 
 | Domain | Examples |
 |---|---|
-| Option pricing | Black-Scholes closed-form, Monte Carlo (antithetic/control variates), Heston stochastic-vol via COS method, analytical Greeks, Brent's-method implied vol |
-| SDE simulation | Euler-Maruyama solver, GBM, Ornstein-Uhlenbeck / Vasicek, CIR, Heston paths; generator-driven price paths (GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion) |
+| Option pricing | Black-Scholes closed-form, analytical Greeks, Brent's-method implied vol |
+| SDE simulation | GBM, Ornstein-Uhlenbeck / Vasicek, CIR; generator-driven price paths (GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion) |
 | Risk | Value at Risk, Conditional VaR (Expected Shortfall), GARCH(1,1) (+ MLE fit), EGARCH(1,1), GJR-GARCH, EWMA volatility |
-| Portfolio | Mean-variance / min-variance / risk-parity weights, Kelly fraction, Black-Litterman, Ledoit-Wolf shrinkage, EWMA covariance |
+| Portfolio | Unconstrained mean-variance / min-variance / risk-parity weights, Black-Litterman, Ledoit-Wolf shrinkage |
 | Time series | ARIMA(p,d,q) by exact Gaussian maximum likelihood (conditional sum of squares optional) with exact conditional-mean forecasts and order selection, VAR(p) + impulse response + Granger causality, Ljung-Box test |
-| Statistics | OLS, Fama-MacBeth, Newey-West HAC errors, factor loadings, ADF unit-root and KPSS stationarity tests, Jarque-Bera normality and ARCH-LM tests, Engle-Granger & Johansen cointegration, OU half-life/z-score |
+| Statistics | OLS, Fama-MacBeth, Newey-West HAC errors, factor loadings, ADF unit-root and KPSS stationarity tests, Jarque-Bera normality and ARCH-LM tests, Engle-Granger cointegration, OU half-life/z-score |
 | Regime detection | Gaussian HMM (Baum-Welch fit, Viterbi decode, forward-filter predict) |
-| Filtering | Kalman filter/smoother (RTS), dynamic hedge ratio estimation |
+| Filtering | Dynamic hedge ratio (Kalman) estimation |
 | Performance | Sharpe, Sortino, Calmar, information ratio, max drawdown, hit rate, profit factor, component VaR, Ulcer Index / Ulcer Performance Index, Serenity index, gain-to-pain, common sense ratio, CPC index, outlier win/loss ratios, risk of ruin |
 
 ## Structure
@@ -34,13 +34,13 @@ each module cites its entry in its own docstring). At a high level:
 ```
 src/quantcore/
 ├── core/          # Numba-optimized kernels: SDE solvers, path simulation; generator-driven price paths
-├── pricing/       # Black-Scholes, Monte Carlo, Heston, Greeks, implied vol
+├── pricing/       # Black-Scholes, Greeks, implied vol
 ├── risk/          # VaR/CVaR, GARCH/EGARCH/GJR-GARCH volatility models
-├── portfolio/      # Mean-variance/risk-parity optimization, Black-Litterman, covariance estimation
+├── portfolio/      # Min-variance/risk-parity optimization, Black-Litterman, Ledoit-Wolf covariance
 ├── time_series/   # ARIMA, VAR, causality/unit-root/autocorrelation tests
 ├── statistics/    # OLS, factor regressions, cointegration, unit-root and diagnostic tests
 ├── regime/        # Gaussian HMM regime detection
-├── filtering/     # Kalman filter/smoother
+├── filtering/     # Dynamic hedge ratio (Kalman)
 └── performance/   # Risk-adjusted return metrics, drawdown/payoff/tail ratios
 tests/             # mirrors src/ 1:1 (unit/ + integration/ + oracle/)
 conformance/       # differential tests against independent oracles on generated inputs, and the builder of docs/CONFORMANCE.md
@@ -120,7 +120,7 @@ re-exports its public functions:
 from quantcore.pricing import black_scholes_call, bs_delta
 from quantcore.risk import value_at_risk, conditional_value_at_risk, garch_11_variance
 from quantcore.core import simulate_gbm_paths, simulate_gbm_price_paths
-from quantcore.portfolio import mean_variance_weights, black_litterman
+from quantcore.portfolio import min_variance_weights, black_litterman
 
 price = black_scholes_call(spot=100, strike=105, rate=0.03, vol=0.2, maturity=1.0)
 ```
@@ -188,16 +188,14 @@ never imported from `src/quantcore`.
 ## Status
 
 - [x] Black-Scholes closed-form pricing + analytical Greeks + implied volatility
-- [x] Monte Carlo option pricer (variance reduction)
-- [x] Heston stochastic-volatility pricing (COS method)
-- [x] Euler-Maruyama SDE solver; GBM, OU/Vasicek, CIR, Heston path simulation
+- [x] GBM, OU/Vasicek and CIR path simulation
 - [x] Generator-driven price paths: GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion
 - [x] VaR / CVaR, component VaR
 - [x] GARCH(1,1), EGARCH(1,1), GJR-GARCH(1,1), EWMA volatility
-- [x] Portfolio optimization (mean-variance, min-variance, risk parity, Kelly), Black-Litterman, covariance shrinkage
+- [x] Portfolio optimization (min-variance, unconstrained mean-variance, risk parity), Black-Litterman, covariance shrinkage
 - [x] ARIMA (exact maximum likelihood), VAR models, Granger causality, Ljung-Box test
 - [x] OLS, Fama-MacBeth, Newey-West, cointegration, ADF/KPSS/Jarque-Bera/ARCH-LM tests
 - [x] Gaussian HMM regime detection
-- [x] Kalman filter/smoother, dynamic hedge ratio
+- [x] Dynamic hedge ratio (Kalman)
 - [x] Performance metrics (Sharpe, Sortino, Calmar, drawdown, Ulcer/Serenity/gain-to-pain ratios, etc.)
 - [x] Conformance suite against independent oracles

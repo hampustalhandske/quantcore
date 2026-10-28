@@ -19,7 +19,7 @@ each module cites its entry in its own docstring). At a high level:
 
 | Domain | Examples |
 |---|---|
-| Option pricing | Black-Scholes closed-form, analytical Greeks, Brent's-method implied vol |
+| Option pricing | Black-Scholes closed-form, analytical Greeks, protective-put sizing, roll schedule |
 | SDE simulation | GBM, Ornstein-Uhlenbeck / Vasicek, CIR; generator-driven price paths (GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion) |
 | Risk | Value at Risk, Conditional VaR (Expected Shortfall), GARCH(1,1) (+ MLE fit), EGARCH(1,1), GJR-GARCH, EWMA volatility |
 | Portfolio | Unconstrained mean-variance / min-variance / risk-parity weights, Black-Litterman, Ledoit-Wolf shrinkage |
@@ -34,7 +34,7 @@ each module cites its entry in its own docstring). At a high level:
 ```
 src/quantcore/
 ├── core/          # Numba-optimized kernels: SDE solvers, path simulation; generator-driven price paths
-├── pricing/       # Black-Scholes, Greeks, implied vol
+├── pricing/       # Black-Scholes, Greeks, protective-put sizing, roll schedule
 ├── risk/          # VaR/CVaR, GARCH/EGARCH/GJR-GARCH volatility models
 ├── portfolio/      # Min-variance/risk-parity optimization, Black-Litterman, Ledoit-Wolf covariance
 ├── time_series/   # ARIMA, VAR, causality/unit-root/autocorrelation tests
@@ -187,7 +187,7 @@ never imported from `src/quantcore`.
 
 ## Status
 
-- [x] Black-Scholes closed-form pricing + analytical Greeks + implied volatility
+- [x] Black-Scholes closed-form pricing + analytical Greeks
 - [x] GBM, OU/Vasicek and CIR path simulation
 - [x] Generator-driven price paths: GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion
 - [x] VaR / CVaR, component VaR

@@ -5,12 +5,9 @@ from quantcore.pricing.greeks import (
     bs_rho,
     bs_theta,
     bs_vega,
-    implied_volatility,
 )
 from quantcore.pricing.options_positions import (
     ProtectivePutSizing,
-    option_expiry_payoff,
-    option_position_pnl,
     option_roll_schedule,
     protective_put_sizing,
 )
@@ -24,9 +21,6 @@ __all__ = [
     "bs_rho",
     "bs_theta",
     "bs_vega",
-    "implied_volatility",
-    "option_expiry_payoff",
-    "option_position_pnl",
     "option_roll_schedule",
     "protective_put_sizing",
 ]

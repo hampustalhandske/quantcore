@@ -1,7 +1,7 @@
 """Oracle tests for C12/C13 (owner follow-up 2b): dividend yield / cost-of-carry.
 
 `dividend_yield` (q) added additively to `black_scholes_call`/`_put`, every
-Greek and `implied_volatility`.
+Greek.
 q=0.0 (every function's default) must reproduce the pre-existing q-less
 formulas exactly (checked in tests/unit/pricing/); this file checks q > 0
 against independent oracles.
@@ -19,7 +19,6 @@ Oracles:
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 pytest.importorskip("QuantLib")
@@ -40,7 +39,6 @@ from quantcore.pricing.greeks import (
     bs_rho,
     bs_theta,
     bs_vega,
-    implied_volatility,
 )
 
 pytestmark = pytest.mark.oracle
@@ -188,39 +186,3 @@ class TestGreeksMatchQuantLibAndVollib:
         assert actual == pytest.approx(ql_result["rho"], rel=1e-6)
         # py_vollib scales rho per 1% rate move.
         assert actual == pytest.approx(vollib_result * 100.0, rel=1e-4)
-
-
-class TestImpliedVolatilityRoundTripsWithDividendYield:
-    def test_round_trip_matches_true_sigma(self) -> None:
-        true_sigma = 0.27
-        market_price = black_scholes_call(**{**BASE, "volatility": true_sigma}, dividend_yield=Q)
-        recovered = implied_volatility(
-            market_price=market_price,
-            spot=BASE["spot"],
-            strike=BASE["strike"],
-            rate=BASE["rate"],
-            time_to_maturity=BASE["time_to_maturity"],
-            option_type="call",
-            dividend_yield=Q,
-        )
-        assert recovered == pytest.approx(true_sigma, abs=1e-6)
-
-    def test_grid_of_moneyness_and_maturities(self) -> None:
-        rng = np.random.default_rng(20240921)
-        for _ in range(20):
-            spot = 100.0
-            strike = float(rng.uniform(70.0, 130.0))
-            time_to_maturity = float(rng.uniform(0.05, 2.0))
-            sigma = float(rng.uniform(0.05, 0.6))
-            q = float(rng.uniform(0.0, 0.08))
-            price = black_scholes_call(spot, strike, BASE["rate"], sigma, time_to_maturity, q)
-            recovered = implied_volatility(
-                market_price=price,
-                spot=spot,
-                strike=strike,
-                rate=BASE["rate"],
-                time_to_maturity=time_to_maturity,
-                option_type="call",
-                dividend_yield=q,
-            )
-            assert recovered == pytest.approx(sigma, abs=1e-5)

@@ -748,46 +748,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "factor of K*T) would produce."
         ),
     ),
-    "implied_volatility": Tolerance(
-        rtol=1e-8,
-        atol=1e-8,
-        justification=(
-            "Brent's method (Brent 1973) inverting the same BSM closed form quantcore inverts, "
-            "to a requested xtol of 1e-8 on sigma itself (both quantcore's brentq call and the "
-            "oracle use the identical bracket [1e-9, 10.0] and xtol=1e-8); the "
-            "price round-trip (price -> implied_volatility -> black_scholes_merton_price) agrees "
-            "to float64 precision once sigma itself agrees to the requested root-finding "
-            "tolerance, so rtol/atol are set to that tolerance rather than the closed-form "
-            "default, which would be tighter than either root-finder promises to achieve. Deep "
-            "ITM/OTM cases where vega is negligible (no reliably identifiable root) are excluded "
-            "from the differential sweep -- both quantcore and the oracle raise "
-            "ValueError there by design (see implied_volatility's docstring), and "
-            "conformance.harness.check() treats a raising oracle as a build failure, "
-            "not a recordable case; quantcore's ValueError on negligible vega is instead tested "
-            "by test_extreme_moneyness_with_negligible_vega_raises in "
-            "tests/unit/pricing/test_greeks.py."
-        ),
-    ),
-    "option_expiry_payoff": Tolerance(
-        rtol=1e-12,
-        atol=1e-10,
-        justification=(
-            "closed form: one max(), one subtraction, two multiplications; quantcore and the "
-            "hand-derived reference compute the identical arithmetic in the identical order, so "
-            "disagreement is only ever float64 rounding noise."
-        ),
-    ),
-    "option_position_pnl": Tolerance(
-        rtol=1e-9,
-        atol=1e-9,
-        justification=(
-            "per-day BSM closed-form repricing (same formula as black_scholes_merton_price, "
-            "looped over the path) minus a constant entry price, scaled by contracts*multiplier; "
-            "one order looser than the pure closed-form default to absorb that per-day BSM "
-            "evaluation's own rounding (see black_scholes_merton_price's tolerance) propagated "
-            "through the multiplication by contracts*multiplier."
-        ),
-    ),
     "option_roll_schedule": Tolerance(
         rtol=0.0,
         atol=0.0,

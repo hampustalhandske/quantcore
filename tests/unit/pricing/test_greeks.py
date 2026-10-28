@@ -1,17 +1,16 @@
-"""Tests for Black-Scholes Greeks and implied volatility inversion."""
+"""Tests for Black-Scholes Greeks."""
 
 from __future__ import annotations
 
 import pytest
 
-from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
+from quantcore.pricing.black_scholes import black_scholes_call
 from quantcore.pricing.greeks import (
     bs_delta,
     bs_gamma,
     bs_rho,
     bs_theta,
     bs_vega,
-    implied_volatility,
 )
 
 _ATM = dict(spot=100.0, strike=100.0, rate=0.05, volatility=0.2, time_to_maturity=1.0)
@@ -313,170 +312,6 @@ class TestBsRho:
         assert rho == 0.0
 
 
-class TestImpliedVolatility:
-    def test_invalid_spot(self) -> None:
-        with pytest.raises(ValueError):
-            implied_volatility(
-                market_price=10.0,
-                spot=-1.0,
-                strike=100.0,
-                rate=0.05,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    def test_invalid_strike(self) -> None:
-        with pytest.raises(ValueError):
-            implied_volatility(
-                market_price=10.0,
-                spot=100.0,
-                strike=-1.0,
-                rate=0.05,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    def test_invalid_time_to_maturity(self) -> None:
-        with pytest.raises(ValueError):
-            implied_volatility(
-                market_price=10.0,
-                spot=100.0,
-                strike=100.0,
-                rate=0.05,
-                time_to_maturity=-1.0,
-                option_type="call",
-            )
-
-    def test_invalid_option_type(self) -> None:
-        with pytest.raises(ValueError):
-            implied_volatility(
-                market_price=10.0,
-                spot=100.0,
-                strike=100.0,
-                rate=0.05,
-                time_to_maturity=1.0,
-                option_type="foo",
-            )
-
-    def test_round_trip_recovers_volatility(self) -> None:
-        true_sigma = 0.25
-        price = black_scholes_call(
-            spot=100.0, strike=100.0, rate=0.05, volatility=true_sigma, time_to_maturity=1.0
-        )
-        recovered = implied_volatility(
-            market_price=price,
-            spot=100.0,
-            strike=100.0,
-            rate=0.05,
-            time_to_maturity=1.0,
-            option_type="call",
-        )
-        assert recovered == pytest.approx(true_sigma, abs=1e-6)
-
-    def test_round_trip_recovers_volatility_put(self) -> None:
-        true_sigma = 0.25
-        price = black_scholes_put(
-            spot=100.0, strike=100.0, rate=0.05, volatility=true_sigma, time_to_maturity=1.0
-        )
-        recovered = implied_volatility(
-            market_price=price,
-            spot=100.0,
-            strike=100.0,
-            rate=0.05,
-            time_to_maturity=1.0,
-            option_type="put",
-        )
-        assert recovered == pytest.approx(true_sigma, abs=1e-6)
-
-    def test_price_below_intrinsic_value_raises(self) -> None:
-        # Intrinsic value of an ITM call with spot=110, strike=100 is 10.0;
-        # a quoted price below that admits no arbitrage-free volatility.
-        with pytest.raises(ValueError):
-            implied_volatility(
-                market_price=5.0,
-                spot=110.0,
-                strike=100.0,
-                rate=0.05,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    def test_price_at_intrinsic_value_raises_not_returns_boundary(self) -> None:
-        # C14 contract: a price exactly at intrinsic value implies sigma=0
-        # (which the search domain excludes -- _IV_LOWER_BOUND is > 0), so
-        # this must raise rather than silently return the lower boundary
-        # value as if it were a real volatility.
-        with pytest.raises(ValueError):
-            implied_volatility(
-                market_price=10.0,  # exactly spot - strike
-                spot=110.0,
-                strike=100.0,
-                rate=0.05,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    @pytest.mark.parametrize(("spot", "strike"), [(100.0, 60.0), (100.0, 160.0)])
-    def test_moderately_deep_moneyness_round_trips(self, spot: float, strike: float) -> None:
-        # Moneyness deep enough to matter (0.6x / 1.6x) but not so extreme
-        # that vega is degenerate (see the "negligible vega" test below for
-        # that boundary case) -- a real round trip must still work here.
-        true_sigma = 0.3
-        price = black_scholes_call(
-            spot=spot, strike=strike, rate=0.05, volatility=true_sigma, time_to_maturity=1.0
-        )
-        recovered = implied_volatility(
-            market_price=price,
-            spot=spot,
-            strike=strike,
-            rate=0.05,
-            time_to_maturity=1.0,
-            option_type="call",
-        )
-        assert recovered == pytest.approx(true_sigma, abs=1e-4)
-
-    @pytest.mark.parametrize(("spot", "strike"), [(100.0, 1.0), (100.0, 1000.0)])
-    def test_extreme_moneyness_with_negligible_vega_raises(
-        self, spot: float, strike: float
-    ) -> None:
-        # spot/strike = 100 or 1/100: vega is ~0 in float64 at these
-        # parameters, so the price equation has no numerically identifiable
-        # root -- must raise, not silently return a boundary value.
-        true_sigma = 0.3
-        price = black_scholes_call(
-            spot=spot, strike=strike, rate=0.05, volatility=true_sigma, time_to_maturity=1.0
-        )
-        with pytest.raises(ValueError):
-            implied_volatility(
-                market_price=price,
-                spot=spot,
-                strike=strike,
-                rate=0.05,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    def test_very_short_expiry_round_trips_or_raises_explicitly(self) -> None:
-        true_sigma = 0.3
-        time_to_maturity = 1.0 / 365.0  # one calendar day
-        price = black_scholes_call(
-            spot=100.0,
-            strike=100.0,
-            rate=0.05,
-            volatility=true_sigma,
-            time_to_maturity=time_to_maturity,
-        )
-        recovered = implied_volatility(
-            market_price=price,
-            spot=100.0,
-            strike=100.0,
-            rate=0.05,
-            time_to_maturity=time_to_maturity,
-            option_type="call",
-        )
-        assert recovered == pytest.approx(true_sigma, abs=1e-4)
-
-
 _DIV_KWARGS = dict(spot=100.0, strike=100.0, rate=0.05, volatility=0.2, time_to_maturity=1.0)
 _DIV_Q = 0.03
 _DIV_EPS = 1e-4
@@ -536,19 +371,3 @@ class TestDividendYield:
         expected = (up - down) / (2.0 * _DIV_EPS)
         actual = bs_rho(**_DIV_KWARGS, option_type="call", dividend_yield=_DIV_Q)
         assert actual == pytest.approx(expected, abs=1e-4)
-
-    def test_implied_volatility_round_trips_with_dividend_yield(self) -> None:
-        true_sigma = 0.22
-        price = black_scholes_call(
-            **{**_DIV_KWARGS, "volatility": true_sigma}, dividend_yield=_DIV_Q
-        )
-        recovered = implied_volatility(
-            market_price=price,
-            spot=_DIV_KWARGS["spot"],
-            strike=_DIV_KWARGS["strike"],
-            rate=_DIV_KWARGS["rate"],
-            time_to_maturity=_DIV_KWARGS["time_to_maturity"],
-            option_type="call",
-            dividend_yield=_DIV_Q,
-        )
-        assert recovered == pytest.approx(true_sigma, abs=1e-6)

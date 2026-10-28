@@ -23,6 +23,8 @@ to see exactly what changed and why before upgrading.
   project calls them. `simulate_heston_price_paths`, `dynamic_hedge_ratio`,
   `min_variance_weights`, `unconstrained_mean_variance_weights` and
   `ledoit_wolf_shrinkage` are unchanged.
+- `implied_volatility`, `option_expiry_payoff` and `option_position_pnl`. No
+  project calls them.
 
 ### Changed — default behaviour changed
 

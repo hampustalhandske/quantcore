@@ -1026,27 +1026,6 @@
         "rtol": 1e-10
       }
     },
-    "implied_volatility": {
-      "by_quantity": {
-        "value": {
-          "cases": 500,
-          "max_abs_error": 1.52e-12,
-          "max_rel_error": 3.04e-11
-        }
-      },
-      "cases": 500,
-      "finding": null,
-      "max_abs_error": 1.52e-12,
-      "max_rel_error": 3.04e-11,
-      "oracle": "Brent's method (bracket [1e-9, 10], xtol 1e-8) on the Black-Scholes-Merton closed form; second oracle py_vollib.black_scholes_merton.implied_volatility.implied_volatility",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "Brent's method (Brent 1973) inverting the same BSM closed form quantcore inverts, to a requested xtol of 1e-8 on sigma itself (both quantcore's brentq call and the oracle use the identical bracket [1e-9, 10.0] and xtol=1e-8); the price round-trip (price -> implied_volatility -> black_scholes_merton_price) agrees to float64 precision once sigma itself agrees to the requested root-finding tolerance, so rtol/atol are set to that tolerance rather than the closed-form default, which would be tighter than either root-finder promises to achieve. Deep ITM/OTM cases where vega is negligible (no reliably identifiable root) are excluded from the differential sweep -- both quantcore and the oracle raise ValueError there by design (see implied_volatility's docstring), and conformance.harness.check() treats a raising oracle as a build failure, not a recordable case; quantcore's ValueError on negligible vega is instead tested by test_extreme_moneyness_with_negligible_vega_raises in tests/unit/pricing/test_greeks.py.",
-        "rtol": 1e-08
-      }
-    },
     "impulse_response": {
       "by_quantity": {
         "value": {
@@ -1343,48 +1322,6 @@
         "atol": 1e-08,
         "justification": "same lstsq-vs-pseudo-inverse rounding margin as ols_coefficients.",
         "rtol": 1e-08
-      }
-    },
-    "option_expiry_payoff": {
-      "by_quantity": {
-        "value": {
-          "cases": 300,
-          "max_abs_error": 0.0,
-          "max_rel_error": 0.0
-        }
-      },
-      "cases": 300,
-      "finding": null,
-      "max_abs_error": 0.0,
-      "max_rel_error": 0.0,
-      "oracle": "hand-derived intrinsic-value formula",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-10,
-        "justification": "closed form: one max(), one subtraction, two multiplications; quantcore and the hand-derived reference compute the identical arithmetic in the identical order, so disagreement is only ever float64 rounding noise.",
-        "rtol": 1e-12
-      }
-    },
-    "option_position_pnl": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 2.33e-10,
-          "max_rel_error": 8.47e+287
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 2.33e-10,
-      "max_rel_error": 8.47e+287,
-      "oracle": "hand-derived daily BSM repricing",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-09,
-        "justification": "per-day BSM closed-form repricing (same formula as black_scholes_merton_price, looped over the path) minus a constant entry price, scaled by contracts*multiplier; one order looser than the pure closed-form default to absorb that per-day BSM evaluation's own rounding (see black_scholes_merton_price's tolerance) propagated through the multiplication by contracts*multiplier.",
-        "rtol": 1e-09
       }
     },
     "option_roll_schedule": {

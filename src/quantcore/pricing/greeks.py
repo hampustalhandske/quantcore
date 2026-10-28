@@ -1,4 +1,4 @@
-"""Black-Scholes-Merton option Greeks and implied volatility inversion.
+"""Black-Scholes-Merton option Greeks.
 
     d1 = (ln(S/K) + (r - q + 0.5*sigma^2)*T) / (sigma*sqrt(T))
     d2 = d1 - sigma*sqrt(T)
@@ -28,19 +28,13 @@ References:
     of Economics and Management Science*, 4(1), 141-183. (Continuous
     dividend yield extension used by `dividend_yield` throughout.)
 
-    Brent, R.P. (1973). *Algorithms for Minimization Without Derivatives*.
-    Prentice-Hall. (Root-finding used by `implied_volatility`.)
-
     See docs/REFERENCES.md.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import brentq
 from scipy.stats import norm
-
-from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
 
 _VALID_OPTION_TYPES = ("call", "put")
 
@@ -376,117 +370,3 @@ def _bs_rho(
     if option_type == "call":
         return float(strike * time_to_maturity * discount * norm.cdf(d2))
     return float(-strike * time_to_maturity * discount * norm.cdf(-d2))
-
-
-_IV_LOWER_BOUND = 1e-9
-_IV_UPPER_BOUND = 10.0
-# Below this vega (relative to spot), the price equation has no reliably
-# identifiable root: for deep ITM/OTM options the price is essentially flat
-# in sigma across most of [_IV_LOWER_BOUND, _IV_UPPER_BOUND] at double
-# precision, so Brent's method can "converge" to a sigma indistinguishable
-# from the search boundary even though the true sigma is elsewhere entirely
-# -- see `_implied_volatility`'s post-hoc check.
-_IV_MIN_RELATIVE_VEGA = 1e-8
-
-
-def _validate_implied_volatility(
-    market_price: float,
-    spot: float,
-    strike: float,
-    rate: float,
-    time_to_maturity: float,
-    option_type: str,
-) -> None:
-    if spot <= 0.0:
-        raise ValueError("spot must be strictly positive")
-    if strike <= 0.0:
-        raise ValueError("strike must be strictly positive")
-    if time_to_maturity < 0.0:
-        raise ValueError("time_to_maturity must be non-negative")
-    _validate_option_type(option_type)
-
-
-def implied_volatility(
-    market_price: float,
-    spot: float,
-    strike: float,
-    rate: float,
-    time_to_maturity: float,
-    option_type: str,
-    tol: float = 1e-8,
-    max_iter: int = 100,
-    dividend_yield: float = 0.0,
-) -> float:
-    """Invert the Black-Scholes-Merton formula to recover the implied volatility.
-
-    Args:
-        market_price: Observed option price.
-        spot: Current price of the underlying asset (S).
-        strike: Strike price (K).
-        rate: Risk-free interest rate, continuously compounded (r).
-        time_to_maturity: Time to expiry in years (T).
-        option_type: "call" or "put".
-        tol: Root-finding tolerance for `scipy.optimize.brentq`.
-        max_iter: Maximum number of `brentq` iterations.
-        dividend_yield: Continuously compounded dividend yield / cost-of-
-            carry adjustment (q). 0.0 (default) is plain Black-Scholes.
-
-    Returns:
-        The volatility sigma such that the Black-Scholes-Merton price
-        equals `market_price`.
-
-    Raises:
-        ValueError: If no root exists in [1e-9, 10.0] (e.g. `market_price` is
-            below intrinsic value or otherwise outside no-arbitrage bounds),
-            or if the root found is not reliably identifiable because vega
-            is negligible there (deep ITM/OTM and/or very short expiry: the
-            price is essentially flat in sigma, so a boundary value would
-            otherwise be returned as if it were a real answer).
-    """
-    _validate_implied_volatility(market_price, spot, strike, rate, time_to_maturity, option_type)
-    return _implied_volatility(
-        market_price,
-        spot,
-        strike,
-        rate,
-        time_to_maturity,
-        option_type,
-        tol,
-        max_iter,
-        dividend_yield,
-    )
-
-
-def _implied_volatility(
-    market_price: float,
-    spot: float,
-    strike: float,
-    rate: float,
-    time_to_maturity: float,
-    option_type: str,
-    tol: float,
-    max_iter: int,
-    dividend_yield: float = 0.0,
-) -> float:
-    pricer = black_scholes_call if option_type == "call" else black_scholes_put
-
-    def objective(sigma: float) -> float:
-        return pricer(spot, strike, rate, sigma, time_to_maturity, dividend_yield) - market_price
-
-    lo, hi = objective(_IV_LOWER_BOUND), objective(_IV_UPPER_BOUND)
-    if lo * hi > 0.0:
-        raise ValueError(
-            "implied_volatility: no root in [1e-9, 10.0] -- market_price is outside "
-            "no-arbitrage bounds for the given parameters"
-        )
-    sigma = float(brentq(objective, _IV_LOWER_BOUND, _IV_UPPER_BOUND, xtol=tol, maxiter=max_iter))
-
-    vega = _bs_vega(spot, strike, rate, sigma, time_to_maturity, dividend_yield)
-    if vega < _IV_MIN_RELATIVE_VEGA * spot:
-        raise ValueError(
-            "implied_volatility: no reliably identifiable root -- vega is negligible "
-            f"at the candidate sigma={sigma:.6g} (deep ITM/OTM and/or very short expiry "
-            "make the option price essentially insensitive to volatility here, so no "
-            "root-finder can recover a meaningful implied volatility)"
-        )
-    return sigma

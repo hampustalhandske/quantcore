@@ -27,7 +27,7 @@ dependencies and stays an oracle in the `oracle` extra.
 `min_variance_weights` still uses it. Replacing it with something smaller could move
 `min_variance_weights` results, so it is left as it is.
 
-### QC-3b: Remove unused option helpers — open
+### QC-3b: Remove unused option helpers — in progress
 `implied_volatility`, `option_expiry_payoff`, `option_position_pnl`.
 
 ### QC-4: Remove Johansen — open

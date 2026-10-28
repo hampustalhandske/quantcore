@@ -100,14 +100,10 @@ cite the relevant entry in their docstrings.
   → `core/price_paths.py` (jump diffusion with compensated drift,
   `simulate_jump_diffusion_price_paths`)
 
-## Option Greeks and implied volatility
+## Option Greeks
 
 - Black, F. and Scholes, M. (1973). Already cited under Option pricing.
   → `pricing/greeks.py` (analytical Greeks derived from BS formula)
-
-- Brent, R.P. (1973). *Algorithms for Minimization Without Derivatives*.
-  Prentice-Hall.
-  → `pricing/greeks.py` (Brent's method for implied volatility inversion)
 
 ## Volatility modeling (asymmetric)
 

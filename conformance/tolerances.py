@@ -441,14 +441,6 @@ TOLERANCES: dict[str, Tolerance] = {
         atol=1e-9,
         justification="closed-form floor(4*(n/100)^(2/9)); atol covers the lags=0 case exactly.",
     ),
-    "ljung_box_test": Tolerance(
-        rtol=1e-9,
-        atol=1e-9,
-        justification=(
-            "closed-form Q-statistic and a chi-squared survival function; one order looser than "
-            "the closed-form default to absorb the chi2.sf evaluation's own numerical rounding."
-        ),
-    ),
     "adf_test": Tolerance(
         rtol=1e-8,
         atol=1e-11,
@@ -481,40 +473,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "above the closed-form default. The p-value's relative error is half the statistic's "
             "absolute error, below 1e-11 wherever p exceeds atol (JB < 55). atol covers a "
             "statistic near zero and makes any two p-values below 1e-12 equal."
-        ),
-    ),
-    "arch_lm": Tolerance(
-        rtol=1e-8,
-        atol=1e-8,
-        justification=(
-            "LM = (n - m)*R^2 with R^2 = 1 - SSR/SST from an auxiliary regression that quantcore "
-            "solves by SVD least squares on residuals scaled to unit maximum and statsmodels by a "
-            "pseudo-inverse on the raw squares. R^2 carries an absolute error of a few eps times "
-            "the conditioning of the fit, so LM's absolute error grows with the sample, to ~1e-10 "
-            "at n=5000, and its relative error is unbounded as LM -> 0, where 1 - SSR/SST "
-            "cancels: there atol is the bound, not rtol. The p-value inherits that absolute error "
-            "times the chi-squared density, which for one lag is unbounded at zero "
-            "(dp ~ dLM/sqrt(2*pi*LM)): an error of 1e-11 in an LM of 1e-6 moves p by 4e-9. Both "
-            "terms sit above that at 1e-8; a wrong lag count, a scaling by n instead of n - m, or "
-            "demeaning the input moves LM at the percent level."
-        ),
-    ),
-    "kpss": Tolerance(
-        rtol=1e-9,
-        atol=0.0,
-        justification=(
-            "statistic = eta/s^2(l): both sides form the same partial sums and lagged cross "
-            "products of the same residuals, and differ in the order the Bartlett-weighted terms "
-            "are added and, for the trend case, in the solver that detrends (SVD least squares "
-            "against a pseudo-inverse of [1, t], whose condition number is ~n). The relative "
-            "error is up to eps*n*max|x|/spread, 3e-12 for a 5000-point random walk, and larger "
-            "when s^2(l) is a small difference of large autocovariances. The p-value is linear "
-            "interpolation in the published four-point table, so its relative error is at most 7 "
-            "times the statistic's (slope*statistic/p is largest in the 2.5%-1% segment). rtol "
-            "covers both. atol is zero: neither quantity is ever near zero, and the third, the "
-            "at-bound flag (1.0 or 0.0), must match exactly. The automatic lag count is an "
-            "integer truncation; a different count moves the statistic at the percent level and "
-            "fails this tolerance."
         ),
     ),
     "ewma_variance": Tolerance(

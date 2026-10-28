@@ -11,7 +11,7 @@ ARCH-LM test for conditional heteroskedasticity (Engle 1982):
     regress u_t on [1, u_{t-1}, ..., u_{t-m}] for t = m+1..n
     LM = (n - m) * R^2,  R^2 the centred R-squared of that regression
     Under no ARCH effects LM is asymptotically chi-squared with m degrees of
-    freedom.
+    freedom. Computed by `statsmodels.stats.diagnostic.het_arch`.
 
 KPSS stationarity test (Kwiatkowski, Phillips, Schmidt & Shin 1992):
     e_t = residual of x_t regressed on a constant (level null) or on a
@@ -23,6 +23,7 @@ KPSS stationarity test (Kwiatkowski, Phillips, Schmidt & Shin 1992):
     The null hypothesis is stationarity, so a small p-value rejects it. The
     statistic's null distribution is not a standard one; p-values are
     interpolated in the paper's table of four upper-tail critical values.
+    Computed by `statsmodels.tsa.stattools.kpss`.
 
 References:
     Jarque, C.M. and Bera, A.K. (1980). "Efficient Tests for Normality,
@@ -45,12 +46,13 @@ References:
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import chi2
-
-from quantcore.statistics.regression import _ols
+from statsmodels.stats.diagnostic import het_arch
+from statsmodels.tsa.stattools import kpss
 
 # ---------------------------------------------------------------------------
 # Shared input checks
@@ -219,59 +221,41 @@ def arch_lm_test(
 
 
 def _arch_lm_test(residuals: npt.NDArray[np.float64], n_lags: int) -> tuple[float, float]:
-    n = residuals.size
-    n_rows = n - n_lags
     constant_message = (
         "squared residuals are constant over the regression sample; "
         "the ARCH-LM statistic is undefined"
     )
 
-    # R^2 is unchanged by rescaling the residuals, but the least-squares
-    # solver is not: beside a column of ones, squares of order 1e-16 or
-    # 1e+16 are treated as rank-deficient and dropped. Unit maximum keeps
-    # every column within [0, 1].
+    # The statistic does not depend on the scale of the residuals. Unit
+    # maximum keeps their squares within [0, 1], clear of underflow and
+    # overflow.
     scale = float(np.max(np.abs(residuals)))
     if scale == 0.0:
         raise ValueError(constant_message)
-    squared = (residuals / scale) ** 2
-    dependent = squared[n_lags:]
-    if np.ptp(dependent) == 0.0:
+    scaled = residuals / scale
+    if np.ptp(scaled[n_lags:] ** 2) == 0.0:
         raise ValueError(constant_message)
 
-    design = np.empty((n_rows, n_lags + 1), dtype=np.float64)
-    design[:, 0] = 1.0
-    for lag in range(1, n_lags + 1):
-        design[:, lag] = squared[n_lags - lag : n - lag]
-    _, _, r_squared = _ols(dependent, design)
-
-    # R^2 = 1 - SSR/SST can round a hair below zero when the lags explain
-    # nothing.
-    statistic = max(n_rows * r_squared, 0.0)
-    return statistic, float(chi2.sf(statistic, df=n_lags))
+    statistic, p_value, _, _ = het_arch(scaled, nlags=n_lags, store=False, ddof=0)
+    return max(float(statistic), 0.0), float(p_value)
 
 
 # ---------------------------------------------------------------------------
 # KPSS stationarity test
 # ---------------------------------------------------------------------------
 
-# Kwiatkowski, Phillips, Schmidt & Shin (1992), Table 1: upper-tail critical
-# values of the statistic at the significance levels below, for the level
-# ("c") and the trend ("ct") null hypothesis.
-_KPSS_SIGNIFICANCE_LEVELS: npt.NDArray[np.float64] = np.array([0.10, 0.05, 0.025, 0.01])
-_KPSS_CRITICAL_VALUES: dict[str, npt.NDArray[np.float64]] = {
-    "c": np.array([0.347, 0.463, 0.574, 0.739]),
-    "ct": np.array([0.119, 0.146, 0.176, 0.216]),
-}
+_KPSS_TRENDS = ("c", "ct")
 # Deterministic terms removed under each null; the series needs two more
 # observations than that for the statistic to vary with the data at all.
 _KPSS_DETERMINISTIC_TERMS: dict[str, int] = {"c": 1, "ct": 2}
-# Bartlett-kernel constant of the Newey & West (1994) plug-in bandwidth.
-_KPSS_BANDWIDTH_CONSTANT = 1.1447
+# Relative size below which the sum of the leading autocovariances counts as
+# zero when the automatic lag count is chosen.
+_KPSS_BANDWIDTH_TOLERANCE = 1e-12
 
 
 def _validate_kpss_inputs(series: npt.NDArray[np.float64], n_lags: int | None, trend: str) -> None:
-    if trend not in _KPSS_CRITICAL_VALUES:
-        raise ValueError(f"trend must be one of {tuple(_KPSS_CRITICAL_VALUES)}")
+    if trend not in _KPSS_TRENDS:
+        raise ValueError(f"trend must be one of {_KPSS_TRENDS}")
     _validate_series(series, "series", _KPSS_DETERMINISTIC_TERMS[trend] + 2)
     if n_lags is not None and not 0 <= n_lags < series.size:
         raise ValueError("n_lags must satisfy 0 <= n_lags < len(series)")
@@ -353,102 +337,75 @@ def kpss_test(
     return _kpss_test(series, n_lags, trend)
 
 
-def _kpss_residuals(series: npt.NDArray[np.float64], trend: str) -> npt.NDArray[np.float64]:
-    """Residuals of `series` about its mean ("c") or its OLS linear trend ("ct").
+def _check_kpss_is_defined(scaled: npt.NDArray[np.float64], n_lags: int | None, trend: str) -> None:
+    """Raise `ValueError` for the series on which the KPSS statistic is undefined.
 
-    The residuals are returned divided by a power of two that brings their
-    largest magnitude into [1, 2). The KPSS statistic and the automatic lag
-    count are ratios that the units cancel out of, and order-one residuals
-    keep the sums of squares and cross products they are built from inside
-    float64 whatever the units of `series`.
-
-    Raises:
-        ValueError: No residual exceeds the rounding error of the series,
-            taken as `4 * n * eps * max|series|` (the worst case for a sum
-            of `n` terms): the statistic would be a ratio of rounding
-            residue.
+    `scaled` is the series divided by a power of two. The statistic is undefined
+    when no residual about the null's deterministic terms exceeds the rounding
+    error of the series (a constant series, or under `"ct"` an exactly linear
+    one), and, when `n_lags` is `None`, when the automatic bandwidth is a
+    division by zero. These are checked here so the contract does not depend on
+    what the installed statsmodels does with them.
     """
-    n = series.size
-    largest = float(np.max(np.abs(series)))
+    n = scaled.size
+    largest = float(np.max(np.abs(scaled)))
     if largest == 0.0:
         raise ValueError(
             "series is constant to within rounding error; the KPSS statistic is undefined"
         )
-    scale = _power_of_two_scale(largest)
-    scaled = series / scale
     if trend == "c":
-        residuals: npt.NDArray[np.float64] = scaled - scaled.mean()
+        residuals = scaled - scaled.mean()
     else:
-        time = np.arange(1, n + 1, dtype=np.float64)
-        _, residuals, _ = _ols(scaled, np.column_stack((np.ones(n), time)))
-
+        design = np.column_stack((np.ones(n), np.arange(1, n + 1, dtype=np.float64)))
+        residuals = scaled - design @ np.linalg.lstsq(design, scaled, rcond=None)[0]
     largest_residual = float(np.max(np.abs(residuals)))
-    resolution = 4.0 * n * float(np.finfo(np.float64).eps) * (largest / scale)
-    if largest_residual <= resolution:
+    # Worst-case rounding error of a sum of n terms.
+    if largest_residual <= 4.0 * n * float(np.finfo(np.float64).eps) * largest:
         shape = "constant" if trend == "c" else "a linear trend"
         raise ValueError(
             f"series is {shape} to within rounding error; the KPSS statistic is undefined"
         )
-    return residuals / _power_of_two_scale(largest_residual)
-
-
-def _kpss_automatic_lags(residuals: npt.NDArray[np.float64]) -> int:
-    """Data-dependent lag count for the Bartlett-kernel long-run variance.
-
-    See `kpss_test`'s `n_lags` for the formula.
-
-    Raises:
-        ValueError: `s0` is exactly zero, so the bandwidth is undefined.
-    """
-    n = residuals.size
-    n_autocovariances = int(n ** (2.0 / 9.0))
-    s0 = float(np.sum(residuals**2)) / n
-    s1 = 0.0
-    for j in range(1, n_autocovariances + 1):
-        autocovariance = float(np.dot(residuals[j:], residuals[: n - j])) / n
-        s0 += 2.0 * autocovariance
-        s1 += 2.0 * j * autocovariance
-    if s0 == 0.0:
-        raise ValueError(
-            "the automatic lag count is undefined for this series (its leading "
-            "autocovariances sum to zero); pass n_lags explicitly"
-        )
-    ratio = s1 / s0
-    bandwidth = _KPSS_BANDWIDTH_CONSTANT * (ratio * ratio) ** (1.0 / 3.0) * n ** (1.0 / 3.0)
-    # Lags beyond n - 1 have no cross products.
-    return n - 1 if bandwidth >= n - 1 else int(bandwidth)
-
-
-def _bartlett_long_run_variance(residuals: npt.NDArray[np.float64], n_lags: int) -> float:
-    """Bartlett-kernel estimate `s^2(l)` of the long-run variance of `residuals`.
-
-    `s^2(l) = gamma_0 + 2 * sum_{j=1}^{l} (1 - j / (l + 1)) * gamma_j` with the
-    autocovariances `gamma_j = (1 / n) * sum_t e_t * e_{t-j}`.
-    """
-    n = residuals.size
-    total = float(np.dot(residuals, residuals))
-    for j in range(1, n_lags + 1):
-        weight = 1.0 - j / (n_lags + 1.0)
-        total += 2.0 * weight * float(np.dot(residuals[j:], residuals[: n - j]))
-    return total / n
+    if n_lags is None:
+        e = residuals / _power_of_two_scale(largest_residual)
+        gamma0 = float(np.sum(e**2)) / n
+        s0 = gamma0
+        for j in range(1, int(n ** (2.0 / 9.0)) + 1):
+            s0 += 2.0 * float(np.dot(e[j:], e[: n - j])) / n
+        # s0 is a sum of terms of size gamma0; a result within rounding of
+        # zero relative to gamma0 is zero, and the bandwidth ratio s1/s0 would
+        # be rounding residue.
+        if abs(s0) <= _KPSS_BANDWIDTH_TOLERANCE * gamma0:
+            raise ValueError(
+                "the automatic lag count is undefined for this series (its leading "
+                "autocovariances sum to zero to within rounding); pass n_lags explicitly"
+            )
 
 
 def _kpss_test(
     series: npt.NDArray[np.float64], n_lags: int | None, trend: str
 ) -> tuple[float, float, bool]:
-    n = series.size
-    residuals = _kpss_residuals(series, trend)
-    lags = _kpss_automatic_lags(residuals) if n_lags is None else n_lags
-
-    eta = float(np.sum(np.cumsum(residuals) ** 2)) / n**2
-    long_run_variance = _bartlett_long_run_variance(residuals, lags)
-    if not long_run_variance > 0.0:
-        raise ValueError(
-            "long-run variance estimate is not positive; the KPSS statistic is undefined"
+    # The statistic and the automatic lag count are ratios from which the
+    # units cancel; a power-of-two rescaling keeps every digit and brings the
+    # sums of squares into range.
+    scaled = series / _power_of_two_scale(float(np.max(np.abs(series))))
+    _check_kpss_is_defined(scaled, n_lags, trend)
+    with warnings.catch_warnings():
+        # statsmodels warns when the statistic lies outside the table; the
+        # caller gets that information as `p_value_at_bound`.
+        warnings.simplefilter("ignore")
+        statistic, p_value, _, critical_values = kpss(
+            scaled,
+            regression=trend,
+            nlags="auto" if n_lags is None else n_lags,
+            store=False,
         )
-    statistic = eta / long_run_variance
-
-    critical_values = _KPSS_CRITICAL_VALUES[trend]
-    p_value = float(np.interp(statistic, critical_values, _KPSS_SIGNIFICANCE_LEVELS))
-    p_value_at_bound = bool(statistic <= critical_values[0] or statistic >= critical_values[-1])
-    return statistic, p_value, p_value_at_bound
+    if not (math.isfinite(statistic) and math.isfinite(p_value)):
+        raise ValueError(
+            "the KPSS statistic is undefined for this series (no variation left "
+            "after removing the deterministic terms, or a zero long-run variance); "
+            "pass n_lags explicitly"
+        )
+    p_value_at_bound = bool(
+        statistic <= critical_values["10%"] or statistic >= critical_values["1%"]
+    )
+    return float(statistic), float(p_value), p_value_at_bound

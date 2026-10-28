@@ -37,8 +37,13 @@ dependencies and the `oracle` extra; the dividend-yield oracle test uses py_voll
 
 Every delegated call passes every option explicitly.
 
-### QC-5: Ljung-Box, KPSS, ARCH-LM to statsmodels — open
+### QC-5: Ljung-Box, KPSS, ARCH-LM to statsmodels — code done, gates pending
 Moves: edgelab `stats/diagnostics`; agentic `arima_forecast_analyst` (Ljung-Box).
+`statsmodels` is now a runtime dependency (`>=0.14,<0.16`). Every option is passed
+explicitly; the conformance targets for the three are replaced by convention tests
+(`TestStatsmodelsConventions`, `test_ljung_box_passes_every_statsmodels_option_explicitly`).
+Unit tests that need running: the KPSS hand-computed values, the scale-invariance
+cases down to 1e-300, and the constant-series errors.
 
 ### QC-6: ADF and Engle-Granger to statsmodels — open
 Moves: ADF tail p-values (edgelab diagnostics; agentic pair admission, including

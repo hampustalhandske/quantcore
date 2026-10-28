@@ -84,7 +84,7 @@ import numba
 import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
-from scipy.stats import chi2
+from statsmodels.stats.diagnostic import acorr_ljungbox
 
 from quantcore.risk.volatility import ConvergenceError
 
@@ -123,7 +123,8 @@ def ljung_box_test(
 
     Returns:
         Tuple (q_statistic, p_value), with p_value from
-        `chi2.sf(Q, df=n_lags - model_df)`.
+        the chi-squared survival function of Q with `n_lags - model_df`
+        degrees of freedom. Computed by `statsmodels`' `acorr_ljungbox`.
 
     References:
         Ljung, G.M. and Box, G.E.P. (1978). "On a Measure of Lack of Fit
@@ -141,18 +142,16 @@ def ljung_box_test(
 def _ljung_box_test(
     residuals: npt.NDArray[np.float64], n_lags: int, model_df: int = 0
 ) -> tuple[float, float]:
-    n = residuals.size
-    centered = residuals - residuals.mean()
-    denom = float(np.sum(centered**2))
-
-    autocorr = np.empty(n_lags, dtype=np.float64)
-    for k in range(1, n_lags + 1):
-        autocorr[k - 1] = float(np.sum(centered[k:] * centered[:-k])) / denom
-
-    lags = np.arange(1, n_lags + 1, dtype=np.float64)
-    q_statistic = float(n * (n + 2) * np.sum(autocorr**2 / (n - lags)))
-    p_value = float(chi2.sf(q_statistic, df=n_lags - model_df))
-    return q_statistic, p_value
+    table = acorr_ljungbox(
+        residuals,
+        lags=[n_lags],
+        boxpierce=False,
+        model_df=model_df,
+        period=None,
+        return_df=True,
+        auto_lag=False,
+    )
+    return float(table["lb_stat"].iloc[0]), float(table["lb_pvalue"].iloc[0])
 
 
 def _validate_arima_series(series: npt.NDArray[np.float64]) -> None:

@@ -45,32 +45,6 @@
         "rtol": 1e-08
       }
     },
-    "arch_lm": {
-      "by_quantity": {
-        "p_value": {
-          "cases": 200,
-          "max_abs_error": 6.86e-13,
-          "max_rel_error": 7.43e-13
-        },
-        "statistic": {
-          "cases": 200,
-          "max_abs_error": 1.5e-12,
-          "max_rel_error": 1.79e-11
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 1.5e-12,
-      "max_rel_error": 1.79e-11,
-      "oracle": "statsmodels.stats.diagnostic.het_arch",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "LM = (n - m)*R^2 with R^2 = 1 - SSR/SST from an auxiliary regression that quantcore solves by SVD least squares on residuals scaled to unit maximum and statsmodels by a pseudo-inverse on the raw squares. R^2 carries an absolute error of a few eps times the conditioning of the fit, so LM's absolute error grows with the sample, to ~1e-10 at n=5000, and its relative error is unbounded as LM -> 0, where 1 - SSR/SST cancels: there atol is the bound, not rtol. The p-value inherits that absolute error times the chi-squared density, which for one lag is unbounded at zero (dp ~ dLM/sqrt(2*pi*LM)): an error of 1e-11 in an LM of 1e-6 moves p by 4e-9. Both terms sit above that at 1e-8; a wrong lag count, a scaling by n instead of n - m, or demeaning the input moves LM at the percent level.",
-        "rtol": 1e-08
-      }
-    },
     "arima_fit": {
       "by_quantity": {
         "log_likelihood": {
@@ -1093,37 +1067,6 @@
         "rtol": 1e-09
       }
     },
-    "kpss": {
-      "by_quantity": {
-        "p_value": {
-          "cases": 400,
-          "max_abs_error": 9.23e-16,
-          "max_rel_error": 2.07e-14
-        },
-        "p_value_at_bound": {
-          "cases": 400,
-          "max_abs_error": 0.0,
-          "max_rel_error": 0.0
-        },
-        "statistic": {
-          "cases": 400,
-          "max_abs_error": 6.39e-14,
-          "max_rel_error": 7.45e-15
-        }
-      },
-      "cases": 400,
-      "finding": null,
-      "max_abs_error": 6.39e-14,
-      "max_rel_error": 2.07e-14,
-      "oracle": "statsmodels.tsa.stattools.kpss",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 0.0,
-        "justification": "statistic = eta/s^2(l): both sides form the same partial sums and lagged cross products of the same residuals, and differ in the order the Bartlett-weighted terms are added and, for the trend case, in the solver that detrends (SVD least squares against a pseudo-inverse of [1, t], whose condition number is ~n). The relative error is up to eps*n*max|x|/spread, 3e-12 for a 5000-point random walk, and larger when s^2(l) is a small difference of large autocovariances. The p-value is linear interpolation in the published four-point table, so its relative error is at most 7 times the statistic's (slope*statistic/p is largest in the 2.5%-1% segment). rtol covers both. atol is zero: neither quantity is ever near zero, and the third, the at-bound flag (1.0 or 0.0), must match exactly. The automatic lag count is an integer truncation; a different count moves the statistic at the percent level and fails this tolerance.",
-        "rtol": 1e-09
-      }
-    },
     "ledoit_wolf_shrinkage": {
       "by_quantity": {
         "value": {
@@ -1143,32 +1086,6 @@
         "atol": 1e-06,
         "justification": "matrix quantity: sklearn.covariance.LedoitWolf(assume_centered=False) matches quantcore's population (1/T) normalisation and sample-mean centering exactly (both documented in quantcore.portfolio.covariance's module docstring); measured max abs error ~1.2e-15 on a 200x5 standard-normal panel, well inside the closed-form default. shrinkage quantity: recovered from quantcore's returned matrix by projecting (cov - sample) onto (target - sample) in the Frobenius inner product (see _recovered_shrinkage's docstring); this projection is itself an extra division by a sum of squared matrix entries, so rtol/atol are loosened four orders from the closed-form default to absorb that division's amplification of the matrix comparison's own ~1e-15 noise on a small-k panel, while still catching a shrinkage intensity that is wrong at any practically meaningful scale; measured shrinkage agreement ~1e-13 on the same panel.",
         "rtol": 1e-06
-      }
-    },
-    "ljung_box_test": {
-      "by_quantity": {
-        "p_value": {
-          "cases": 200,
-          "max_abs_error": 1.33e-15,
-          "max_rel_error": 1.88e-14
-        },
-        "statistic": {
-          "cases": 200,
-          "max_abs_error": 1.14e-13,
-          "max_rel_error": 2.34e-14
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 1.14e-13,
-      "max_rel_error": 2.34e-14,
-      "oracle": "statsmodels",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-09,
-        "justification": "closed-form Q-statistic and a chi-squared survival function; one order looser than the closed-form default to absorb the chi2.sf evaluation's own numerical rounding.",
-        "rtol": 1e-09
       }
     },
     "margin_financing_cost": {

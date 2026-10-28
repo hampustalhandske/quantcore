@@ -1568,3 +1568,27 @@ class TestArimaForecastConditionalMean:
             arima_forecast(np.array([]), np.array([0.5]), np.array([0.3]), d=0, h=3)
         with pytest.raises(ValueError):
             arima_forecast(np.array([1.0, 2.0]), np.array([0.5, 0.1]), np.array([0.3]), d=0, h=3)
+
+
+def test_ljung_box_passes_every_statsmodels_option_explicitly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pandas as pd
+
+    seen: dict[str, object] = {}
+
+    def spy(residuals: np.ndarray, **kwargs: object) -> pd.DataFrame:
+        seen.update(kwargs)
+        return pd.DataFrame({"lb_stat": [4.5], "lb_pvalue": [0.25]})
+
+    monkeypatch.setattr(arima_module, "acorr_ljungbox", spy)
+    result = ljung_box_test(np.random.default_rng(0).standard_normal(50), 8, model_df=2)
+    assert result == (4.5, 0.25)
+    assert seen == {
+        "lags": [8],
+        "boxpierce": False,
+        "model_df": 2,
+        "period": None,
+        "return_df": True,
+        "auto_lag": False,
+    }

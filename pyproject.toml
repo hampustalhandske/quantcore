@@ -11,7 +11,9 @@ dependencies = [
     # Default backends of two functions, each imported on first use:
     # fit_garch_11 (arch) and
     # conditional_value_at_risk(method="historical") (empyrical).
+    # statsmodels computes the Ljung-Box, ARCH-LM and KPSS tests.
     "arch>=7.0",
+    "statsmodels>=0.14,<0.16",
     "empyrical-reloaded>=0.5.11",
 ]
 
@@ -118,7 +120,7 @@ disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
 # empyrical (a default backend) ships no type information.
-module = ["empyrical"]
+module = ["empyrical", "statsmodels.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

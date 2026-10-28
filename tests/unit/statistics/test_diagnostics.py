@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 from quantcore.statistics import arch_lm_test, diagnostics, jarque_bera_test, kpss_test
-from quantcore.statistics.diagnostics import _KPSS_CRITICAL_VALUES, _KPSS_SIGNIFICANCE_LEVELS
 
 RNG_SEED = 12345
 
@@ -269,13 +268,6 @@ def _reference_kpss_statistic(series: np.ndarray, n_lags: int, trend: str) -> fl
 
 
 class TestKpssTest:
-    def test_critical_values_are_the_published_table(self) -> None:
-        # Kwiatkowski, Phillips, Schmidt & Shin (1992), Table 1: upper-tail
-        # critical values at the 10%, 5%, 2.5% and 1% levels.
-        np.testing.assert_array_equal(_KPSS_SIGNIFICANCE_LEVELS, [0.10, 0.05, 0.025, 0.01])
-        np.testing.assert_array_equal(_KPSS_CRITICAL_VALUES["c"], [0.347, 0.463, 0.574, 0.739])
-        np.testing.assert_array_equal(_KPSS_CRITICAL_VALUES["ct"], [0.119, 0.146, 0.176, 0.216])
-
     def test_hand_computed_value_with_automatic_lags(self) -> None:
         # Residuals (1, -8, 7)/30. The automatic rule uses int(3^(2/9)) = 1
         # autocovariance: s0 = -14/2700, s1 = -128/2700, so the bandwidth is
@@ -424,6 +416,8 @@ class TestKpssTest:
     def test_series_with_undefined_automatic_bandwidth_raises(self) -> None:
         # Residuals (0, -1, 1): the variance 2/3 and twice the lag-1
         # autocovariance -1/3 cancel, so the bandwidth is a division by zero.
+        # The guard is a tolerance relative to the variance, so the outcome does
+        # not depend on whether the sum rounds to 0 or to 1e-17.
         series = np.array([2.0, 1.0, 3.0])
         with pytest.raises(ValueError, match="n_lags"):
             kpss_test(series)
@@ -464,16 +458,6 @@ class TestKpssTest:
     def test_non_contiguous_view_gives_the_same_result_as_its_copy(self) -> None:
         series = _random_walk(120)
         assert kpss_test(series[::2]) == kpss_test(series[::2].copy())
-
-    def test_non_positive_long_run_variance_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The Bartlett estimate is positive for any non-zero residuals in
-        # exact arithmetic; a zero is forced here to reach the guard that
-        # stands in front of the division.
-        monkeypatch.setattr(
-            diagnostics, "_bartlett_long_run_variance", lambda residuals, n_lags: 0.0
-        )
-        with pytest.raises(ValueError, match="long-run variance"):
-            kpss_test(_white_noise(30), n_lags=2)
 
     def test_returns_python_floats_and_bool(self) -> None:
         statistic, p_value, at_bound = kpss_test(_white_noise(50))
@@ -521,18 +505,35 @@ class TestScaleInvarianceAtExtremeMagnitudes:
         assert at_bound == expected[2]
 
 
-class TestBartlettLongRunVariance:
-    def test_matches_the_definition_term_by_term(self) -> None:
-        e = np.array([0.5, -1.0, 0.25, 2.0, -0.75])
-        n, lags = e.size, 2
-        gamma = [sum(e[t] * e[t - j] for t in range(j, n)) / n for j in range(lags + 1)]
-        expected = gamma[0] + 2.0 * ((1.0 - 1.0 / 3.0) * gamma[1] + (1.0 - 2.0 / 3.0) * gamma[2])
-        assert diagnostics._bartlett_long_run_variance(e, lags) == pytest.approx(
-            expected, rel=1e-14
-        )
+class TestStatsmodelsConventions:
+    """The statsmodels calls receive every option explicitly, in the units quantcore documents."""
 
-    def test_zero_lags_is_the_mean_square(self) -> None:
-        e = _white_noise(40)
-        assert diagnostics._bartlett_long_run_variance(e, 0) == pytest.approx(
-            float(np.mean(e**2)), rel=1e-14
-        )
+    def test_arch_lm_passes_the_resolved_lag_count_and_no_degrees_of_freedom_correction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, object] = {}
+
+        def spy(resid: np.ndarray, **kwargs: object) -> tuple[float, float, float, float]:
+            seen.update(kwargs)
+            seen["n"] = resid.size
+            return 3.0, 0.5, 0.0, 0.0
+
+        monkeypatch.setattr(diagnostics, "het_arch", spy)
+        assert arch_lm_test(_white_noise(37)) == (3.0, 0.5)
+        assert seen == {"nlags": 7, "store": False, "ddof": 0, "n": 37}
+
+    @pytest.mark.parametrize(("n_lags", "expected"), [(None, "auto"), (4, 4)])
+    @pytest.mark.parametrize("trend", ["c", "ct"])
+    def test_kpss_passes_trend_lags_and_store(
+        self, monkeypatch: pytest.MonkeyPatch, trend: str, n_lags: int | None, expected: object
+    ) -> None:
+        seen: dict[str, object] = {}
+
+        def spy(series: np.ndarray, **kwargs: object) -> tuple[float, float, int, dict[str, float]]:
+            seen.update(kwargs)
+            return 0.2, 0.1, 0, {"10%": 0.347, "5%": 0.463, "2.5%": 0.574, "1%": 0.739}
+
+        monkeypatch.setattr(diagnostics, "kpss", spy)
+        statistic, p_value, at_bound = kpss_test(_white_noise(50), n_lags, trend)
+        assert seen == {"regression": trend, "nlags": expected, "store": False}
+        assert (statistic, p_value, at_bound) == (0.2, 0.1, True)

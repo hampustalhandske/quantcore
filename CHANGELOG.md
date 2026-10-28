@@ -8,6 +8,13 @@ to see exactly what changed and why before upgrading.
 
 ## [0.3.0] — Unreleased
 
+### Changed
+
+- `ljung_box_test`, `arch_lm_test` and `kpss_test` are computed by `statsmodels`
+  (`acorr_ljungbox`, `het_arch`, `kpss`), with every option passed explicitly.
+  Signatures and return values are unchanged. `statsmodels` is a runtime
+  dependency.
+
 ### Removed
 
 - `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price` and

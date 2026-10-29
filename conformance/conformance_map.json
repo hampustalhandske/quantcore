@@ -407,32 +407,6 @@
         "rtol": 1e-06
       }
     },
-    "egarch_fit": {
-      "by_quantity": {
-        "log_likelihood": {
-          "cases": 200,
-          "max_abs_error": 19400.0,
-          "max_rel_error": 28.7
-        },
-        "params": {
-          "cases": 200,
-          "max_abs_error": 16.3,
-          "max_rel_error": 9.84e+299
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 19400.0,
-      "max_rel_error": 9.84e+299,
-      "oracle": "arch, evaluated under a shared Gaussian log-likelihood built from egarch_11_variance",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 0.01,
-        "justification": "as fit_garch_11: EGARCH(1,1) has four free parameters and, per quantcore's own docstring, a 5-8% non-convergence rate on short windows even for a single optimizer, so its `log_likelihood` quantity (evaluated under a shared likelihood built from egarch_11_variance) is disagreement-prone across a wider range of families than GARCH(1,1)/GJR-GARCH(1,1)'s; measured relative difference ~1.7e-6 on a 600-observation well-specified series. `params` is reported, never compared.",
-        "rtol": 0.001
-      }
-    },
     "engle_granger_test": {
       "by_quantity": {
         "p_value": {
@@ -648,32 +622,6 @@
         "rtol": 1e-07
       }
     },
-    "fit_garch_11": {
-      "by_quantity": {
-        "log_likelihood": {
-          "cases": 200,
-          "max_abs_error": 1530.0,
-          "max_rel_error": 39.8
-        },
-        "params": {
-          "cases": 200,
-          "max_abs_error": 1.0,
-          "max_rel_error": 4.6e+298
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 1530.0,
-      "max_rel_error": 4.6e+298,
-      "oracle": "arch, evaluated under a shared Gaussian log-likelihood built from garch_11_variance",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 0.01,
-        "justification": "iterative MLE: quantcore's multi-start SLSQP and arch's own optimizer are two different local optimizers of the same (famously flat-near-the-optimum) GARCH log-likelihood surface: an iterative estimator without a unique optimum. This tolerance governs only the `log_likelihood` quantity -- both parameter sets evaluated under one shared Gaussian log-likelihood built from garch_11_variance (itself verified); measured relative difference ~5e-4 on a 1500-observation well-specified simulated series. `params` is reported but never compared against this (or any) tolerance -- see `conformance.compare.DecisiveFloatArrayComparator`.",
-        "rtol": 0.001
-      }
-    },
     "gain_to_pain": {
       "by_quantity": {
         "value": {
@@ -735,32 +683,6 @@
         "atol": 1e-08,
         "justification": "as garch_11_variance, with the same burn-in-excluded comparison.",
         "rtol": 1e-06
-      }
-    },
-    "gjr_garch_fit": {
-      "by_quantity": {
-        "log_likelihood": {
-          "cases": 200,
-          "max_abs_error": 73200.0,
-          "max_rel_error": 5.3
-        },
-        "params": {
-          "cases": 200,
-          "max_abs_error": 2.0,
-          "max_rel_error": 1e+300
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 73200.0,
-      "max_rel_error": 1e+300,
-      "oracle": "arch, evaluated under a shared Gaussian log-likelihood built from gjr_garch_11_variance",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 0.01,
-        "justification": "as fit_garch_11, evaluated under a shared Gaussian log-likelihood built from gjr_garch_11_variance; measured relative difference ~2.9e-6 on a 600-observation well-specified series. `params` is reported, never compared.",
-        "rtol": 0.001
       }
     },
     "hit_rate": {

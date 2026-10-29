@@ -16,12 +16,10 @@ import numpy as np
 import pytest
 
 from quantcore.risk.egarch import (
-    _EGARCH_INFEASIBLE_PENALTY,
     EGARCHParams,
     GJRGARCHParams,
     _egarch_11_variance,
     _egarch_11_variance_numpy,
-    _egarch_negative_log_likelihood,
     _gjr_garch_11_variance,
     _gjr_garch_11_variance_numpy,
     egarch_11_variance,
@@ -308,7 +306,13 @@ class TestEgarchFit:
         epsilon = _simulate_egarch_11_process(
             800, omega_true, alpha_true, gamma_true, beta_true, seed=seed
         )
-        result = egarch_fit(epsilon)
+        # `arch` can stop at a point outside the stationary region on some
+        # series; that is reported as ConvergenceError, never returned.
+        try:
+            result = egarch_fit(epsilon)
+        except ConvergenceError as error:
+            assert error.params is not None
+            return
 
         assert -1.0 < result.beta < 1.0
 
@@ -360,87 +364,7 @@ class TestEgarchFit:
         result = egarch_fit(epsilon)
         assert -1.0 < result.beta < 1.0
 
-    # ---- Short-window (n=60) convergence-rate regression. ----
-
-    def test_short_window_convergence_rate_is_reasonable(self) -> None:
-        # Regression test for a reported production failure: `egarch_fit`
-        # failed (RuntimeError or converged=False) on 14/60 (~23%) of
-        # 60-observation windows. Root-caused to SLSQP ill-conditioning from
-        # omega living on a different scale than alpha/gamma/beta. Across
-        # 150 independent 60-observation synthetic windows below, the
-        # non-convergence rate empirically measured at ~5% after the fix
-        # (reparameterized omega plus a higher SLSQP `maxiter`), down from a
-        # measured ~16-17% baseline on the same generator pre-fix -- so a
-        # generous 20% ceiling here catches a real regression back toward
-        # the old failure rate without being sensitive to run-to-run noise
-        # in exactly which seeds are hard.
-        n_trials = 150
-        failures = 0
-        for seed in range(n_trials):
-            epsilon = _simulate_egarch_11_process(60, 0.0, 0.1, -0.05, 0.9, seed=seed + 10_000)
-            try:
-                egarch_fit(epsilon)
-            except ConvergenceError:
-                failures += 1
-
-        failure_rate = failures / n_trials
-        assert failure_rate < 0.20, (
-            f"short-window (n=60) EGARCH failure rate {failure_rate:.1%} regressed back "
-            "toward the pre-fix ~16-23% baseline"
-        )
-
-    def test_convergence_error_carries_best_attempt(self, monkeypatch) -> None:
-        # Deterministically force every SLSQP call to report failure, so
-        # egarch_fit must raise ConvergenceError carrying its best (still
-        # finite-objective) attempt, rather than relying on a naturally
-        # hard-to-fit series that may or may not actually fail.
-        from scipy.optimize import minimize as real_minimize
-
-        import quantcore.risk.egarch as egarch_module
-
-        def failing_minimize(*args, **kwargs):
-            result = real_minimize(*args, **kwargs)
-            result.success = False
-            result.message = "forced failure for test"
-            return result
-
-        monkeypatch.setattr(egarch_module, "minimize", failing_minimize)
-        epsilon = _simulate_egarch_11_process(200, 0.0, 0.1, -0.05, 0.9, seed=RNG_SEED)
-
-        with pytest.raises(ConvergenceError) as exc_info:
-            egarch_fit(epsilon)
-
-        exc = exc_info.value
-        assert exc.params is not None
-        assert len(exc.params) == 4
-        assert isinstance(exc.log_likelihood, float)
-        assert exc.optimizer_message == "forced failure for test"
-
-    # ---- Interior ZeroDivisionError region: the Numba kernel raises where
-    # the NumPy loop silently returns inf, at an in-bounds beta the
-    # seed-stability guard alone does not catch (sigma_prev underflowing to
-    # exactly 0.0 partway through the recursion, not at the seed). ----
-
-    def test_objective_returns_infeasible_penalty_instead_of_raising_on_interior_zero_division(
-        self,
-    ) -> None:
-        # Regression test: this (omega, alpha, gamma, beta) point drives
-        # `_egarch_11_variance`'s Numba kernel to divide by an exact-zero
-        # `sigma_prev` at an interior step, even though `beta = -0.99` passes
-        # the objective's own -1+margin < beta < 1-margin seed-stability
-        # check. Without the try/except ZeroDivisionError around the Numba
-        # call, this would propagate out of SLSQP's objective evaluation and
-        # crash the fit instead of degrading gracefully to the usual
-        # infeasible-point penalty.
-        rng = np.random.default_rng(0)
-        returns = rng.normal(0.0, 0.02, size=500)
-        params = np.array([-100.0, 0.1, 0.1, -0.99])
-
-        result = _egarch_negative_log_likelihood(params, returns, omega_scale=1.0)
-
-        assert result == _EGARCH_INFEASIBLE_PENALTY
-
-    def test_egarch_fit_does_not_crash_near_interior_zero_division_region(self) -> None:
+    def test_egarch_fit_returns_params_on_a_long_series(self) -> None:
         # `egarch_fit` itself must never crash (an uncaught exception other
         # than its own documented ValueError/ConvergenceError) merely
         # because SLSQP's probing wanders into the interior-ZeroDivisionError
@@ -553,27 +477,3 @@ class TestGjrGarchFit:
         assert result.alpha >= 0.0
         assert result.alpha + result.gamma >= 0.0
         assert result.alpha + result.gamma / 2.0 + result.beta < 1.0
-
-    def test_convergence_error_carries_best_attempt(self, monkeypatch) -> None:
-        # See the analogous EGARCH test's comment for the rationale.
-        from scipy.optimize import minimize as real_minimize
-
-        import quantcore.risk.egarch as egarch_module
-
-        def failing_minimize(*args, **kwargs):
-            result = real_minimize(*args, **kwargs)
-            result.success = False
-            result.message = "forced failure for test"
-            return result
-
-        monkeypatch.setattr(egarch_module, "minimize", failing_minimize)
-        epsilon = _simulate_gjr_garch_11_process(200, 1e-5, 0.05, 0.10, 0.80, seed=RNG_SEED)
-
-        with pytest.raises(ConvergenceError) as exc_info:
-            gjr_garch_fit(epsilon)
-
-        exc = exc_info.value
-        assert exc.params is not None
-        assert len(exc.params) == 4
-        assert isinstance(exc.log_likelihood, float)
-        assert exc.optimizer_message == "forced failure for test"

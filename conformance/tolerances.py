@@ -512,42 +512,6 @@ TOLERANCES: dict[str, Tolerance] = {
         atol=1e-8,
         justification="as garch_11_variance, with the same burn-in-excluded comparison.",
     ),
-    "fit_garch_11": Tolerance(
-        rtol=1e-3,
-        atol=1e-2,
-        justification=(
-            "iterative MLE: quantcore's multi-start SLSQP and arch's own optimizer are two "
-            "different local optimizers of the same (famously flat-near-the-optimum) GARCH "
-            "log-likelihood surface: an iterative estimator without a unique optimum. This "
-            "tolerance governs only the `log_likelihood` quantity -- "
-            "both parameter sets evaluated under one shared Gaussian log-likelihood built from "
-            "garch_11_variance (itself verified); measured relative difference ~5e-4 on a "
-            "1500-observation well-specified simulated series. `params` is reported but never "
-            "compared against this (or any) tolerance -- see "
-            "`conformance.compare.DecisiveFloatArrayComparator`."
-        ),
-    ),
-    "egarch_fit": Tolerance(
-        rtol=1e-3,
-        atol=1e-2,
-        justification=(
-            "as fit_garch_11: EGARCH(1,1) has four free parameters and, per quantcore's own "
-            "docstring, a 5-8% non-convergence rate on short windows even for a single optimizer, "
-            "so its `log_likelihood` quantity (evaluated under a shared likelihood built from "
-            "egarch_11_variance) is disagreement-prone across a wider range of families than "
-            "GARCH(1,1)/GJR-GARCH(1,1)'s; measured relative difference ~1.7e-6 on a "
-            "600-observation well-specified series. `params` is reported, never compared."
-        ),
-    ),
-    "gjr_garch_fit": Tolerance(
-        rtol=1e-3,
-        atol=1e-2,
-        justification=(
-            "as fit_garch_11, evaluated under a shared Gaussian log-likelihood built from "
-            "gjr_garch_11_variance; measured relative difference ~2.9e-6 on a 600-observation "
-            "well-specified series. `params` is reported, never compared."
-        ),
-    ),
     "hmm_fit_transition_matrix": Tolerance(
         rtol=0.05,
         atol=0.05,

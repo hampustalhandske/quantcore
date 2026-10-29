@@ -50,7 +50,6 @@ import numpy.typing as npt
 import pandas as pd
 import quantstats.stats as qs_stats
 import statsmodels.api as sm
-from arch import arch_model
 from filterpy.kalman import KalmanFilter
 from scipy.stats import jarque_bera
 from sklearn.covariance import LedoitWolf
@@ -92,8 +91,6 @@ from quantcore.portfolio import (
 )
 from quantcore.risk import (
     conditional_value_at_risk,
-    fit_garch_11,
-    garch_11_variance,
     value_at_risk,
 )
 from quantcore.risk.volatility import _garch_11_variance_numba_kernel, _garch_11_variance_numpy
@@ -516,57 +513,6 @@ def _simulate_garch_percent_returns(n: int, seed: int) -> FloatArray:
         returns[t] = np.sqrt(variance) * shocks[t]
         variance = omega + alpha * returns[t] ** 2 + beta * variance
     return returns
-
-
-def _gaussian_garch_loglik(epsilon: FloatArray, omega: float, alpha: float, beta: float) -> float:
-    variance = garch_11_variance(epsilon, omega=omega, alpha=alpha, beta=beta)
-    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance))
-
-
-def bench_garch_fit() -> list[Row]:
-    """`fit_garch_11(backend="quantcore")` against `arch` on the same percent-return series.
-
-    `fit_garch_11`'s default backend is `arch` itself, so the rows time
-    quantcore's own optimizer.
-
-    Agreement follows the edgelab conformance rule for this estimator: both
-    fitted parameter sets are scored under one shared Gaussian log-likelihood
-    built from `garch_11_variance`, and the two scores must match to
-    rtol 1e-3 / atol 1e-2. Raw parameters are not compared, because the two
-    optimisers differ and the likelihood is flat near its maximum.
-    """
-    rows = []
-    for n in (1_000, 2_520, 10_000):
-        returns = _simulate_garch_percent_returns(n, SEED)
-        epsilon = returns - returns.mean()
-
-        def fit_quantcore(returns: FloatArray = returns) -> tuple[float, float, float]:
-            return fit_garch_11(returns, backend="quantcore")
-
-        def fit_arch(epsilon: FloatArray = epsilon) -> FloatArray:
-            model = arch_model(
-                epsilon, mean="Zero", vol="GARCH", p=1, q=1, dist="normal", rescale=False
-            )
-            return np.asarray(model.fit(disp="off").params, dtype=np.float64)
-
-        t_quantcore = median_seconds(fit_quantcore)
-        t_arch = median_seconds(fit_arch)
-        ll_quantcore = _gaussian_garch_loglik(epsilon, *fit_quantcore())
-        ll_arch = _gaussian_garch_loglik(epsilon, *fit_arch())
-        agree = bool(np.isclose(ll_quantcore, ll_arch, rtol=1e-3, atol=1e-2))
-        rows.append(
-            Row(
-                'fit_garch_11(backend="quantcore")',
-                f"{n:,} obs",
-                t_quantcore,
-                "arch",
-                t_arch,
-                yes_no(agree, f"log-lik {ll_quantcore:.3f} vs {ll_arch:.3f}, rtol 1e-3"),
-                "yes: Gaussian MLE of the same 3 parameters; quantcore runs several "
-                "SLSQP starts, arch one; start-up variance conventions differ",
-            )
-        )
-    return rows
 
 
 def _simulate_arma(n: int, phi: float, theta: float, integrate: bool, seed: int) -> FloatArray:
@@ -1309,7 +1255,6 @@ def main() -> None:
     print("\n## Results")
     bench_kernels()
     bench_throughput()
-    print_table("GARCH(1,1) fit: quantcore vs arch", bench_garch_fit())
     print_table("ARIMA fit and forecast: quantcore vs statsmodels", bench_arima())
     print_table("OLS and Newey-West: quantcore vs statsmodels", bench_regression())
     print_table("Engle-Granger: quantcore vs statsmodels", bench_engle_granger())

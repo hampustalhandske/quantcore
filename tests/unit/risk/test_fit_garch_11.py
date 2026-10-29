@@ -10,8 +10,7 @@ internally with the sample mean (mu_hat = returns.mean()), and estimates
 the same stationarity constraints `garch_11_variance` already validates:
 omega > 0, alpha >= 0, beta >= 0, alpha + beta < 1.
 
-Since we cannot run the (not-yet-implemented) optimizer ourselves to
-hand-calibrate exact expected numbers, these tests are structured around
+These tests are structured around
 invariants that must hold for ANY correct MLE implementation of this model,
 per the house convention established in test_volatility.py and
 test_gbm_garch_var_pipeline.py (testing recursion/structural relationships
@@ -29,17 +28,10 @@ rather than pinning magic numbers):
 
 from __future__ import annotations
 
-from functools import partial
-
 import numpy as np
 import pytest
 
-from quantcore.risk import volatility
-from quantcore.risk.volatility import ConvergenceError, garch_11_variance
-
-# These tests exercise quantcore's own optimizer; the default backend (`arch`)
-# is tested in test_fit_garch_11_arch_backend.py.
-fit_garch_11 = partial(volatility.fit_garch_11, backend="quantcore")
+from quantcore.risk.volatility import fit_garch_11, garch_11_variance, variance_backcast
 
 RNG_SEED = 2024
 
@@ -236,37 +228,6 @@ def test_fit_garch_11_empty_returns_raises() -> None:
         fit_garch_11(np.array([]))
 
 
-def test_fit_garch_11_raises_convergence_error_with_best_attempt(monkeypatch) -> None:
-    # Owner follow-up: GARCH-family fitters unified on raising
-    # ConvergenceError (a RuntimeError subclass carrying the best attempt
-    # found) rather than any of them silently returning a partial/
-    # unconverged result. Deterministically forces every SLSQP call to
-    # report failure so this doesn't depend on finding a naturally
-    # hard-to-fit series.
-    from scipy.optimize import minimize as real_minimize
-
-    import quantcore.risk.volatility as volatility_module
-
-    def failing_minimize(*args, **kwargs):
-        result = real_minimize(*args, **kwargs)
-        result.success = False
-        result.message = "forced failure for test"
-        return result
-
-    monkeypatch.setattr(volatility_module, "minimize", failing_minimize)
-    epsilon, _ = _simulate_garch_11_process(200, 1e-5, 0.1, 0.85, seed=RNG_SEED)
-
-    with pytest.raises(ConvergenceError) as exc_info:
-        fit_garch_11(epsilon)
-
-    exc = exc_info.value
-    assert isinstance(exc, RuntimeError)
-    assert exc.params is not None
-    assert len(exc.params) == 3
-    assert isinstance(exc.log_likelihood, float)
-    assert exc.optimizer_message == "forced failure for test"
-
-
 # ---------------------------------------------------------------------------
 # Determinism: no hidden randomness in the optimizer itself, given a fixed
 # input array (the input data below is generated once, with a fixed seed,
@@ -284,31 +245,23 @@ def test_fit_garch_11_deterministic_given_fixed_input() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Numerical conditioning regression: omega lives on a ~1e-4 to 1e-6 scale
-# while alpha/beta live on an O(0.01-1) scale. Handing SLSQP this raw,
-# badly-mismatched parameter vector is a known cause of poor convergence,
-# including degenerate corner solutions -- an omega far from its true
-# optimum with alpha and beta both near zero. When alpha = beta = 0 exactly,
-# the model reduces to a constant-variance Gaussian, whose MLE-optimal omega
-# is EXACTLY mean(epsilon**2) in closed form, so this is directly checkable
-# without needing to run the optimizer ahead of time to calibrate a
-# tolerance.
+# Constant-variance data: the model nests a constant-variance Gaussian
+# (alpha = beta = 0, omega = mean(epsilon**2)), so the fitted likelihood
+# cannot fall below that model's.
 # ---------------------------------------------------------------------------
 
 
-def test_fit_garch_11_recovers_sample_variance_on_near_constant_variance_data() -> None:
-    # iid Gaussian noise, i.e. alpha_true = beta_true = 0: the generating
-    # process has no ARCH/GARCH structure at all, so a correctly-converged
-    # fit should land close to the constant-variance corner rather than
-    # drifting to some other omega under the mistaken impression it found a
-    # better fit elsewhere.
+def test_fit_garch_11_likelihood_is_at_least_that_of_constant_variance() -> None:
     rng = np.random.default_rng(0)
-    true_var = 4e-4
-    epsilon = rng.normal(0.0, np.sqrt(true_var), size=2000)
-    expected_omega = float(np.mean(epsilon**2))
+    epsilon = rng.normal(0.0, np.sqrt(4e-4), size=2000)
+    epsilon = epsilon - epsilon.mean()
 
     omega_hat, alpha_hat, beta_hat = fit_garch_11(epsilon)
 
-    assert omega_hat == pytest.approx(expected_omega, rel=0.2)
-    assert alpha_hat < 0.05
-    assert beta_hat < 0.05
+    variance = garch_11_variance(
+        epsilon, omega_hat, alpha_hat, beta_hat, presample_variance=variance_backcast(epsilon)
+    )
+    fitted = -0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance)
+    constant = float(np.mean(epsilon**2))
+    constant_ll = -0.5 * np.sum(np.log(2.0 * np.pi) + np.log(constant) + epsilon**2 / constant)
+    assert fitted >= constant_ll - 1e-6

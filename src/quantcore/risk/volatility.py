@@ -31,14 +31,11 @@ References:
 from __future__ import annotations
 
 import warnings
-from typing import Literal
+from typing import Any, Literal
 
 import numba
 import numpy as np
 import numpy.typing as npt
-from scipy.optimize import NonlinearConstraint, minimize
-
-GarchBackend = Literal["arch", "quantcore"]
 
 
 class ConvergenceError(RuntimeError):
@@ -105,6 +102,7 @@ def garch_11_variance(
     omega: float,
     alpha: float,
     beta: float,
+    presample_variance: float | None = None,
 ) -> npt.NDArray[np.float64]:
     """Compute the GARCH(1,1) conditional variance series.
 
@@ -117,6 +115,12 @@ def garch_11_variance(
             (alpha >= 0).
         beta: GARCH term weight — persistence of past variance (beta >= 0).
             Requires alpha + beta < 1 for covariance stationarity.
+        presample_variance: The variance and squared residual assumed before
+            the first observation, strictly positive: sigma_0^2 is then
+            `omega + (alpha + beta) * presample_variance`. `None` (default)
+            starts at the unconditional variance `omega / (1 - alpha - beta)`.
+            Pass `variance_backcast(returns)` to reproduce the path
+            `fit_garch_11`'s parameters were fitted to.
 
     Returns:
         Conditional variance series sigma_t^2, same length as `returns`.
@@ -126,7 +130,18 @@ def garch_11_variance(
         Heteroskedasticity." See REFERENCES.md.
     """
     _validate_garch_inputs(returns, omega, alpha, beta)
-    return _garch_11_variance(returns, omega, alpha, beta)
+    presample = _checked_presample(presample_variance)
+    initial = float("nan") if presample is None else omega + (alpha + beta) * presample
+    return _garch_11_variance(returns, omega, alpha, beta, initial)
+
+
+def _checked_presample(presample_variance: float | None) -> float | None:
+    """Validate the optional pre-sample variance (`None` selects the unconditional variance)."""
+    if presample_variance is not None and not (
+        np.isfinite(presample_variance) and presample_variance > 0.0
+    ):
+        raise ValueError("presample_variance must be finite and strictly positive")
+    return None if presample_variance is None else float(presample_variance)
 
 
 def _garch_11_variance_numpy(
@@ -134,6 +149,7 @@ def _garch_11_variance_numpy(
     omega: float,
     alpha: float,
     beta: float,
+    initial_variance: float = float("nan"),
 ) -> npt.NDArray[np.float64]:
     """Plain NumPy reference implementation of the GARCH(1,1) recursion.
 
@@ -152,7 +168,7 @@ def _garch_11_variance_numpy(
     # anchoring to the theoretical stationary variance (rather than, e.g.,
     # the sample variance of `returns`) keeps the series purely a function
     # of the given model parameters.
-    variance[0] = omega / (1.0 - alpha - beta)
+    variance[0] = omega / (1.0 - alpha - beta) if np.isnan(initial_variance) else initial_variance
 
     for t in range(1, n):
         variance[t] = omega + alpha * returns[t - 1] ** 2 + beta * variance[t - 1]
@@ -166,11 +182,15 @@ def _garch_11_variance_numba_kernel(
     omega: float,
     alpha: float,
     beta: float,
+    initial_variance: float = np.nan,
 ) -> npt.NDArray[np.float64]:
     """Numba-accelerated GARCH(1,1) recursion, identical to the NumPy reference."""
     n = returns.shape[0]
     variance = np.empty(n, dtype=np.float64)
-    variance[0] = omega / (1.0 - alpha - beta)
+    if np.isnan(initial_variance):
+        variance[0] = omega / (1.0 - alpha - beta)
+    else:
+        variance[0] = initial_variance
 
     for t in range(1, n):
         variance[t] = omega + alpha * returns[t - 1] ** 2 + beta * variance[t - 1]
@@ -183,52 +203,11 @@ def _garch_11_variance(
     omega: float,
     alpha: float,
     beta: float,
+    initial_variance: float = float("nan"),
 ) -> npt.NDArray[np.float64]:
     # No silent fallback: if the Numba kernel fails to compile/run, this
     # raises rather than transparently falling back to the NumPy reference.
-    return _garch_11_variance_numba_kernel(returns, omega, alpha, beta)
-
-
-_STATIONARITY_MARGIN = 1e-6
-_MIN_OMEGA = 1e-10
-
-
-_INFEASIBLE_PENALTY = 1e10
-
-
-def _negative_log_likelihood(
-    params: npt.NDArray[np.float64],
-    epsilon: npt.NDArray[np.float64],
-    sample_var: float,
-) -> float:
-    # SLSQP's line search and finite-difference Jacobian routinely probe
-    # points outside the feasible region (e.g. alpha + beta >= 1, which
-    # drives the recursion's seed variance omega / (1 - alpha - beta)
-    # negative). Feeding such a point through log(variance) produces NaN,
-    # which SLSQP cannot recover from and aborts on -- so every infeasible
-    # or non-finite evaluation returns a large finite penalty instead,
-    # keeping the objective well-defined everywhere the optimizer might look.
-    #
-    # `params[0]` is omega_scaled = omega / sample_var, not omega itself --
-    # SLSQP's quasi-Newton Hessian approximation starts at identity and its
-    # finite-difference gradient step is not adapted per-parameter, so
-    # handing it omega on its natural ~1e-4-1e-6 scale alongside alpha/beta
-    # on an O(0.01-1) scale causes severe ill-conditioning (degenerate
-    # corner solutions, false convergence). Rescaling by sample_var puts
-    # omega_scaled at O(1) too, matching alpha/beta; the recursion and
-    # likelihood still need the true omega, so it's unscaled right here,
-    # at the one point where the objective touches the actual model.
-    omega_scaled, alpha, beta = params
-    omega = omega_scaled * sample_var
-    if omega <= 0.0 or alpha < 0.0 or beta < 0.0 or alpha + beta >= 1.0:
-        return _INFEASIBLE_PENALTY
-    variance = _garch_11_variance(epsilon, omega, alpha, beta)
-    if np.any(variance <= 0.0) or not np.all(np.isfinite(variance)):
-        return _INFEASIBLE_PENALTY
-    log_likelihood = -0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance)
-    if not np.isfinite(log_likelihood):
-        return _INFEASIBLE_PENALTY
-    return float(-log_likelihood)
+    return _garch_11_variance_numba_kernel(returns, omega, alpha, beta, initial_variance)
 
 
 def _validate_fit_garch_inputs(returns: npt.NDArray[np.float64]) -> None:
@@ -236,17 +215,96 @@ def _validate_fit_garch_inputs(returns: npt.NDArray[np.float64]) -> None:
         raise ValueError("returns must be non-empty")
 
 
-def fit_garch_11(
-    returns: npt.NDArray[np.float64], *, backend: GarchBackend = "arch"
-) -> tuple[float, float, float]:
-    """Estimate GARCH(1,1) parameters (omega, alpha, beta) via Gaussian MLE.
+def variance_backcast(returns: npt.NDArray[np.float64]) -> float:
+    """Pre-sample variance `arch` uses when fitting a GARCH-family model to `returns`.
 
-    `backend="arch"` (default) fits with the `arch` package;
-    `backend="quantcore"` fits with this module's own optimizer. Both
-    maximize the same Gaussian likelihood of the same model on the same
-    demeaned series and reach the same likelihood to about 1e-3 relative;
-    the parameters differ slightly, because the optimizers differ and the
-    two treat the first variance differently (below).
+    The mean-adjusted returns' first squared values, `min(75, n)` of them,
+    averaged with exponentially decaying weights `0.94**j`. `fit_garch_11`,
+    `egarch_fit` and `gjr_garch_fit` start their recursions from this value
+    (as the variance and squared residual before the first observation), so
+    passing it as `presample_variance` to `garch_11_variance`,
+    `egarch_11_variance` or `gjr_garch_11_variance` (on the same
+    mean-adjusted returns) reproduces the variance path the parameters were
+    fitted to. `arch` is imported on first use.
+
+    Args:
+        returns: Raw (not mean-adjusted) return series, non-empty.
+
+    Returns:
+        The backcast variance, in the units of `returns` squared.
+
+    Raises:
+        ValueError: If `returns` is empty.
+    """
+    _validate_fit_garch_inputs(returns)
+    from arch.univariate import GARCH
+
+    return float(GARCH().backcast(returns - returns.mean()))
+
+
+def _fit_with_arch(
+    returns: npt.NDArray[np.float64], caller: str, vol: Literal["GARCH", "EGARCH"], o: int
+) -> tuple[Any, npt.NDArray[np.float64], float]:
+    """Fit a Gaussian zero-mean `arch` model to the mean-adjusted `returns`.
+
+    The residuals are fitted in units of their standard deviation, where
+    `arch`'s optimizer is well scaled. `arch` is imported on first use, so
+    importing `quantcore.risk` does not load it (and pandas with it).
+
+    Returns:
+        The fitted `arch` result, the mean-adjusted returns and their
+        standard deviation.
+
+    Raises:
+        ValueError: The mean-adjusted returns are all zero.
+    """
+    import arch
+
+    epsilon = returns - returns.mean()
+    spread = float(np.std(epsilon))
+    if not spread > 0.0:
+        raise ValueError(f"returns have no variation; {caller} cannot be fit to them")
+    model = arch.arch_model(
+        epsilon / spread, mean="Zero", vol=vol, p=1, o=o, q=1, dist="normal", rescale=False
+    )
+    with warnings.catch_warnings():
+        # Non-convergence is reported by raising, not by a warning.
+        from arch.utility.exceptions import ConvergenceWarning
+
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        fitted = model.fit(disp="off", options={"maxiter": 1000})
+    return fitted, epsilon, spread
+
+
+def _raise_unless_converged(
+    fitted: Any,
+    caller: str,
+    params: tuple[float, ...],
+    feasible: bool,
+    n_obs: int,
+    spread: float,
+) -> None:
+    """Raise `ConvergenceError` carrying `params` unless `arch` converged to a feasible point.
+
+    `arch` can report convergence at a point outside the model's parameter
+    region (for EGARCH, `|beta| >= 1`); `feasible` says whether `params` lie
+    inside it, and a point that does not is treated as non-convergence.
+    """
+    if fitted.convergence_flag != 0 or not feasible:
+        raise ConvergenceError(
+            f"{caller}: arch's maximum-likelihood optimization did not converge "
+            "to a feasible point",
+            params=params,
+            # Likelihood of the residuals in their own units: the fit is on
+            # residuals divided by `spread`, which shifts the log-density of
+            # each observation by log(spread).
+            log_likelihood=float(fitted.loglikelihood) - n_obs * float(np.log(spread)),
+            optimizer_message=str(fitted.optimization_result.message),
+        )
+
+
+def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]:
+    """Estimate GARCH(1,1) parameters (omega, alpha, beta) via Gaussian MLE, using `arch`.
 
     `returns` is the raw (not pre-mean-adjusted) return series. It is
     demeaned internally with the sample mean, `mu_hat = returns.mean()`,
@@ -255,45 +313,34 @@ def fit_garch_11(
 
         sigma_t^2 = omega + alpha * epsilon_{t-1}^2 + beta * sigma_{t-1}^2
 
-    Parameters are estimated by maximizing
-    the Gaussian log-likelihood
+    Parameters are estimated by maximizing the Gaussian log-likelihood
 
         log L = -0.5 * sum_t [ log(2*pi) + log(sigma_t^2) + epsilon_t^2 / sigma_t^2 ]
 
     subject to the covariance-stationarity constraints omega > 0, alpha >=
-    0, beta >= 0, alpha + beta < 1.
-
-    The `"quantcore"` backend seeds the recursion at the unconditional
-    variance `sigma_0^2 = omega / (1 - alpha - beta)`, matching
-    `garch_11_variance`'s convention, and runs SLSQP from several starting
-    points. The `"arch"` backend seeds it with `arch`'s backcast (an
-    exponentially weighted average of the first squared residuals) and runs
-    one SLSQP solve; the residuals are divided by their standard deviation
-    before the fit and `omega` is converted back afterwards, so the result
-    does not depend on the units of `returns`.
+    0, beta >= 0, alpha + beta < 1. The pre-sample variance is `arch`'s backcast
+    (`variance_backcast`), and `arch` runs one SLSQP solve on the residuals
+    divided by their standard deviation; `omega` is converted back
+    afterwards, so the result does not depend on the units of `returns`.
 
     Args:
         returns: Raw (not mean-adjusted) return series.
-        backend: `"arch"` (default) or `"quantcore"`.
 
     Returns:
         Tuple (omega_hat, alpha_hat, beta_hat) of fitted GARCH(1,1)
-        parameters.
+        parameters. `garch_11_variance(returns - returns.mean(), *params,
+        presample_variance=variance_backcast(returns))` is the variance path
+        they were fitted to.
 
     Raises:
-        ValueError: If `returns` is empty, `backend` is not one of the two
-            documented values, or (`"arch"` backend) the returns have no
-            variation.
-        ConvergenceError: If maximum-likelihood optimization fails to
-            converge to a feasible solution, from any of its starting
-            points for the `"quantcore"` backend (a `RuntimeError`
-            subclass — see `ConvergenceError`).
+        ValueError: If `returns` is empty or has no variation.
+        ConvergenceError: If `arch`'s optimization does not report
+            convergence (a `RuntimeError` subclass — see `ConvergenceError`).
             No silent fallback and no partial result is returned in this
             case; catch `ConvergenceError` and read its `params` if you
             need the best attempt anyway. `egarch_fit`/`gjr_garch_fit`
             (`risk/egarch.py`) raise the same exception in the analogous
-            case — all three GARCH-family fitters use this one
-            convergence convention.
+            case.
 
     References:
         Bollerslev, T. (1986), "Generalized Autoregressive Conditional
@@ -302,157 +349,15 @@ def fit_garch_11(
         REFERENCES.md.
     """
     _validate_fit_garch_inputs(returns)
-    if backend not in ("arch", "quantcore"):
-        raise ValueError('backend must be "arch" or "quantcore"')
-    if backend == "arch":
-        return _fit_garch_11_arch(returns)
-    return _fit_garch_11(returns)
-
-
-def _fit_garch_11_arch(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]:
-    """Gaussian GARCH(1,1) fit of the demeaned returns by the `arch` package.
-
-    The residuals are fitted in units of their standard deviation, where
-    `arch`'s optimizer is well scaled, and `omega` is returned in the units
-    of `returns` squared. `arch` is imported on first use, so importing
-    `quantcore.risk` does not load it (and statsmodels and pandas with it).
-
-    Raises:
-        ValueError: The demeaned returns are all zero.
-        ConvergenceError: `arch`'s optimizer did not report convergence.
-    """
-    import arch
-    from arch.utility.exceptions import ConvergenceWarning
-
-    epsilon = returns - returns.mean()
-    spread = float(np.std(epsilon))
-    if not spread > 0.0:
-        raise ValueError("returns have no variation; a GARCH(1,1) model cannot be fit to them")
-
-    model = arch.arch_model(
-        epsilon / spread, mean="Zero", vol="GARCH", p=1, q=1, dist="normal", rescale=False
-    )
-    with warnings.catch_warnings():
-        # Non-convergence is reported below by raising, not by a warning.
-        warnings.simplefilter("ignore", ConvergenceWarning)
-        fitted = model.fit(disp="off")
-
-    omega, alpha, beta = (float(value) for value in np.asarray(fitted.params, dtype=np.float64))
+    fitted, epsilon, spread = _fit_with_arch(returns, "fit_garch_11", vol="GARCH", o=0)
+    omega, alpha, beta = (float(v) for v in np.asarray(fitted.params, dtype=np.float64))
     params = (omega * spread * spread, alpha, beta)
-    if fitted.convergence_flag != 0:
-        raise ConvergenceError(
-            "fit_garch_11: arch's GARCH(1,1) maximum-likelihood optimization did not converge",
-            params=params,
-            # Likelihood of the residuals in their own units: the fit is on
-            # residuals divided by `spread`, which shifts the log-density of
-            # each observation by log(spread).
-            log_likelihood=float(fitted.loglikelihood) - epsilon.size * float(np.log(spread)),
-            optimizer_message=str(fitted.optimization_result.message),
-        )
-    return params
-
-
-# Several starting points spanning low/typical/high persistence, so a poor
-# choice of x0 for a given series doesn't silently masquerade as "the" MLE
-# fit. SLSQP is a local optimizer with no restart logic of its own.
-_STARTING_POINTS = (
-    (0.05, 0.90),
-    (0.10, 0.80),
-    (0.20, 0.60),
-    (0.05, 0.50),
-    (0.01, 0.01),
-)
-
-
-def _fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]:
-    mu_hat = float(returns.mean())
-    epsilon = returns - mu_hat
-    sample_var = max(float(np.var(epsilon)), _MIN_OMEGA)
-
-    bounds = [
-        (_MIN_OMEGA / sample_var, None),
-        (0.0, None),
-        (0.0, None),
-    ]
-    # alpha + beta <= 1 - margin, i.e. keep strictly inside the stationarity
-    # region rather than allowing the optimizer to land exactly on the
-    # boundary alpha + beta == 1.
-    stationarity_constraint = NonlinearConstraint(
-        lambda params: params[1] + params[2],
-        -np.inf,
-        1.0 - _STATIONARITY_MARGIN,
+    feasible = (
+        all(np.isfinite(params))
+        and params[0] > 0.0
+        and alpha >= 0.0
+        and beta >= 0.0
+        and alpha + beta < 1.0
     )
-
-    best_result = None
-    best_converged = False
-    for alpha0, beta0 in _STARTING_POINTS:
-        omega0 = sample_var * (1.0 - alpha0 - beta0)
-        omega0 = max(omega0, _MIN_OMEGA)
-        x0 = np.array([omega0 / sample_var, alpha0, beta0], dtype=np.float64)
-
-        result = minimize(
-            _negative_log_likelihood,
-            x0,
-            args=(epsilon, sample_var),
-            method="SLSQP",
-            bounds=bounds,
-            constraints=[stationarity_constraint],
-        )
-        if not np.isfinite(result.fun):
-            continue
-
-        omega_candidate = float(result.x[0]) * sample_var
-        alpha_candidate, beta_candidate = float(result.x[1]), float(result.x[2])
-        feasible = (
-            omega_candidate > 0.0
-            and alpha_candidate >= 0.0
-            and beta_candidate >= 0.0
-            and alpha_candidate + beta_candidate < 1.0
-        )
-        converged = bool(result.success) and feasible
-        is_better = (
-            best_result is None
-            or (converged and not best_converged)
-            or (converged == best_converged and result.fun < best_result.fun)
-        )
-        if is_better:
-            best_result = result
-            best_converged = converged
-
-    if best_result is None:
-        raise ConvergenceError(
-            "fit_garch_11: GARCH(1,1) maximum-likelihood optimization produced no "
-            "usable (finite-objective) result from any starting point",
-            params=None,
-            log_likelihood=None,
-            optimizer_message=None,
-        )
-    if not best_converged:
-        raise ConvergenceError(
-            "fit_garch_11: GARCH(1,1) maximum-likelihood optimization failed to "
-            "converge to a feasible solution from any starting point",
-            params=(
-                float(best_result.x[0]) * sample_var,
-                float(best_result.x[1]),
-                float(best_result.x[2]),
-            ),
-            log_likelihood=-float(best_result.fun),
-            optimizer_message=str(best_result.message),
-        )
-
-    omega_raw = best_result.x[0] * sample_var
-    alpha_raw, beta_raw = best_result.x[1], best_result.x[2]
-
-    # Guard against boundary-adjacent floating point fuzz only (the
-    # optimality check above already confirms the raw result is feasible and
-    # converged) -- not a correction for non-convergence, which is raised
-    # above instead of being silently patched over.
-    omega_hat = max(float(omega_raw), _MIN_OMEGA)
-    alpha_hat = max(float(alpha_raw), 0.0)
-    beta_hat = max(float(beta_raw), 0.0)
-    if alpha_hat + beta_hat >= 1.0:
-        scale = (1.0 - _STATIONARITY_MARGIN) / (alpha_hat + beta_hat)
-        alpha_hat *= scale
-        beta_hat *= scale
-
-    return omega_hat, alpha_hat, beta_hat
+    _raise_unless_converged(fitted, "fit_garch_11", params, bool(feasible), epsilon.size, spread)
+    return params

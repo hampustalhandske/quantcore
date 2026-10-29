@@ -71,10 +71,42 @@ scores it with Lutkepohl's criteria from `sigma_u_mle`; selections equal the pre
 480 seeded cases, tiny samples included. `var_fit` and `select_var_lag_order` now raise for a
 single series (statsmodels' `VAR` needs two); no caller passes one.
 
-### QC-9: EGARCH and GJR to arch — open
+### QC-9: EGARCH and GJR to arch, `backend` removed from fit_garch_11 — code done, gates pending
 Parameterisation pinned; `ConvergenceError` stays the exception raised on non-convergence.
 Moves: agentic egarch and gjr analysts, and the GARCH overlay (together with the
 `fit_garch_11` default already in this tree).
+The fit options are explicit (`mean="Zero"`, normal innovations, `rescale=False`, residuals
+divided by their standard deviation, `maxiter=1000`) and the constant is converted back to the
+units of `returns`. The variance kernels take `presample_variance`, the fit returns the value it
+used, and the kernel path equals arch's `conditional_volatility**2` to 1e-10 (pinned in
+`tests/unit/risk/test_arch_fits.py`).
+
+Decision: arch is kept as the only implementation. agentic fits on the last 750 returns
+(`risk_window_garch`) and requires at least 250 (`min_garch_observations`), so every window is
+250 observations or more. Non-convergence or an infeasible point (raised as `ConvergenceError`,
+which agentic treats as "analyst unavailable that day"), 100 seeded windows each, previous
+SLSQP fitters against arch:
+
+| model | n=60 | n=120 | n=250 | n=500 | n=750 |
+|---|---|---|---|---|---|
+| EGARCH, previous | 0% | 0% | 0% | 0% | 0% |
+| EGARCH, arch | 10% | 4% | 1% | 1% | 0% |
+| GJR-GARCH, previous | 0% | 0% | 0% | 0% | 0% |
+| GJR-GARCH, arch | 17% | 9% | 3% | 0% | 0% |
+
+GARCH(1,1) already used arch: 2%, 0%, 0% at n=60, 120, 500. The two fitters maximise
+different likelihoods (the first variance is the unconditional variance, or arch's backcast
+for the pre-sample term), so each wins under its own seeding. Fitted parameters of both,
+evaluated under each seeding, at n=750: under arch's seeding arch's parameters have the higher
+log-likelihood by more than 1e-4 in 92 of 98 EGARCH and 99 of 100 GJR cases (median 6e-3 and
+0.1); under the unconditional seeding the previous parameters do in 94 of 98 and 100 of 100
+(median 8e-3 and 0.1). At n=250 the medians are 4e-3 (EGARCH) and 0.3 (GJR). Fitted parameters
+therefore move by the seeding rule, not by a worse optimum. Previous EGARCH parameters could
+not be evaluated under arch's recursion in 2 of 100 windows at n=750 and 18 at n=250, where the
+recursion divides by an underflowed standard deviation.
+Consumers that recompute the variance path from a fit pass `presample_variance` (the fitted
+`EGARCHParams`/`GJRGARCHParams` field, or `variance_backcast(returns)` for `fit_garch_11`);
+without it the path starts from the unconditional variance and differs from the fitted path.
 
 ### QC-10: Historical CVaR without empyrical — open
 Closed form that reproduces `empyrical.conditional_value_at_risk`, ties included, bit-identical

@@ -21,7 +21,6 @@ import quantcore.risk.volatility as qc_volatility
 from conformance.compare import (
     ArrayComparator,
     ConformanceTarget,
-    DecisiveFloatArrayComparator,
     Tolerance,
 )
 
@@ -75,67 +74,8 @@ def _garch_gaussian_loglik(
     return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance))
 
 
-def _gjr_garch_gaussian_loglik(
-    epsilon: npt.NDArray[np.float64], omega: float, alpha: float, gamma: float, beta: float
-) -> float:
-    variance = qc_egarch.gjr_garch_11_variance(epsilon, omega, alpha, gamma, beta)
-    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance))
-
-
-def _egarch_gaussian_loglik(
-    epsilon: npt.NDArray[np.float64], omega: float, alpha: float, gamma: float, beta: float
-) -> float:
-    log_variance = qc_egarch.egarch_11_variance(epsilon, omega, alpha, gamma, beta)
-    # EGARCH places no bound on omega/alpha (module docstring), so a poorly-identified fit can
-    # drive the exponentiated variance to overflow; this is an expected, handled condition (the
-    # caller filters non-finite results), not a real numerical bug worth a RuntimeWarning.
-    with np.errstate(over="ignore"):
-        variance = np.exp(log_variance)
-    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance))
-
-
 _STATIONARITY_CLIP_MARGIN = 1e-6
 _MIN_OMEGA_CLIP = 1e-10
-
-
-def _clip_garch_stationary(omega: float, alpha: float, beta: float) -> tuple[float, float, float]:
-    """Rescale (alpha, beta) to keep alpha+beta<1 if arch's unconstrained fit landed outside it.
-
-    `arch`'s own optimizer has no covariance-stationarity constraint (unlike quantcore's), so its
-    fitted (alpha, beta) can occasionally sum to >= 1 on a difficult series. The shared
-    log-likelihood evaluator (`_garch_gaussian_loglik`, built on `garch_11_variance`) requires
-    stationarity to seed its recursion; this keeps the *comparison* well-defined by nudging such a
-    fit back inside the feasible region, the same boundary-fuzz correction quantcore's own
-    `fit_garch_11` applies to its own output (see quantcore.risk.volatility._fit_garch_11).
-    """
-    omega = max(omega, _MIN_OMEGA_CLIP)
-    if alpha + beta >= 1.0:
-        scale = (1.0 - _STATIONARITY_CLIP_MARGIN) / (alpha + beta)
-        return omega, alpha * scale, beta * scale
-    return omega, alpha, beta
-
-
-def _clip_gjr_garch_stationary(
-    omega: float, alpha: float, gamma: float, beta: float
-) -> tuple[float, float, float, float]:
-    """As `_clip_garch_stationary`, for GJR-GARCH's `alpha + gamma/2 + beta < 1` constraint."""
-    omega = max(omega, _MIN_OMEGA_CLIP)
-    alpha = max(alpha, 0.0)
-    if alpha + gamma < 0.0:
-        gamma = -alpha
-    persistence = alpha + gamma / 2.0 + beta
-    if persistence >= 1.0:
-        scale = (1.0 - _STATIONARITY_CLIP_MARGIN) / persistence
-        return omega, alpha * scale, gamma * scale, beta * scale
-    return omega, alpha, gamma, beta
-
-
-def _clip_egarch_stationary(
-    omega: float, alpha: float, gamma: float, beta: float
-) -> tuple[float, float, float, float]:
-    """As `_clip_garch_stationary`, for EGARCH's `|beta| < 1` constraint."""
-    bound = 1.0 - _STATIONARITY_CLIP_MARGIN
-    return omega, alpha, gamma, max(-bound, min(bound, beta))
 
 
 def _build_arch_model(
@@ -301,105 +241,3 @@ _GJR_GARCH_11_VARIANCE = ConformanceTarget(
 
 FitResult = tuple[float, npt.NDArray[np.float64]]
 """`(log_likelihood, params)`, as every fitter's quantcore adapter and oracle return it."""
-
-
-def _fit_garch_11_quantcore(returns: npt.NDArray[np.float64]) -> FitResult:
-    """`fit_garch_11` with quantcore's own optimizer; its default backend is `arch`, the oracle."""
-    epsilon = returns - returns.mean()
-    omega, alpha, beta = qc_volatility.fit_garch_11(returns, backend="quantcore")
-    log_likelihood = _garch_gaussian_loglik(epsilon, omega, alpha, beta)
-    return log_likelihood, np.array([omega, alpha, beta], dtype=np.float64)
-
-
-def _fit_garch_11_reference(returns: npt.NDArray[np.float64]) -> FitResult:
-    epsilon = returns - returns.mean()
-    fit = _fit_with_arch(epsilon, vol="GARCH")
-    fit_params = fit.params
-    omega, alpha, beta = _clip_garch_stationary(
-        float(fit_params["omega"]), float(fit_params["alpha[1]"]), float(fit_params["beta[1]"])
-    )
-    log_likelihood = _garch_gaussian_loglik(epsilon, omega, alpha, beta)
-    return log_likelihood, np.array([omega, alpha, beta], dtype=np.float64)
-
-
-_FIT_GARCH_11 = ConformanceTarget(
-    name="fit_garch_11",
-    tier=1,
-    oracle="arch, evaluated under a shared Gaussian log-likelihood built from garch_11_variance",
-    citation="Bollerslev (1986). Full citation in docs/REFERENCES.md.",
-    compare=DecisiveFloatArrayComparator(),
-    quantcore=_fit_garch_11_quantcore,
-    reference=_fit_garch_11_reference,
-)
-
-
-def _egarch_fit_quantcore(returns: npt.NDArray[np.float64]) -> FitResult:
-    epsilon = returns - returns.mean()
-    fitted = qc_egarch.egarch_fit(returns)
-    log_likelihood = _egarch_gaussian_loglik(
-        epsilon, fitted.omega, fitted.alpha, fitted.gamma, fitted.beta
-    )
-    params = np.array([fitted.omega, fitted.alpha, fitted.gamma, fitted.beta], dtype=np.float64)
-    return log_likelihood, params
-
-
-def _egarch_fit_reference(returns: npt.NDArray[np.float64]) -> FitResult:
-    epsilon = returns - returns.mean()
-    fit = _fit_with_arch(epsilon, vol="EGARCH", o=1)
-    fit_params = fit.params
-    omega, alpha, gamma, beta = _clip_egarch_stationary(
-        float(fit_params["omega"]),
-        float(fit_params["alpha[1]"]),
-        float(fit_params["gamma[1]"]),
-        float(fit_params["beta[1]"]),
-    )
-    log_likelihood = _egarch_gaussian_loglik(epsilon, omega, alpha, gamma, beta)
-    return log_likelihood, np.array([omega, alpha, gamma, beta], dtype=np.float64)
-
-
-_EGARCH_FIT = ConformanceTarget(
-    name="egarch_fit",
-    tier=2,
-    oracle="arch, evaluated under a shared Gaussian log-likelihood built from egarch_11_variance",
-    citation="Nelson (1991). Full citation in docs/REFERENCES.md.",
-    compare=DecisiveFloatArrayComparator(),
-    quantcore=_egarch_fit_quantcore,
-    reference=_egarch_fit_reference,
-)
-
-
-def _gjr_garch_fit_quantcore(returns: npt.NDArray[np.float64]) -> FitResult:
-    epsilon = returns - returns.mean()
-    fitted = qc_egarch.gjr_garch_fit(returns)
-    log_likelihood = _gjr_garch_gaussian_loglik(
-        epsilon, fitted.omega, fitted.alpha, fitted.gamma, fitted.beta
-    )
-    params = np.array([fitted.omega, fitted.alpha, fitted.gamma, fitted.beta], dtype=np.float64)
-    return log_likelihood, params
-
-
-def _gjr_garch_fit_reference(returns: npt.NDArray[np.float64]) -> FitResult:
-    epsilon = returns - returns.mean()
-    fit = _fit_with_arch(epsilon, vol="GARCH", o=1)
-    fit_params = fit.params
-    omega, alpha, gamma, beta = _clip_gjr_garch_stationary(
-        float(fit_params["omega"]),
-        float(fit_params["alpha[1]"]),
-        float(fit_params["gamma[1]"]),
-        float(fit_params["beta[1]"]),
-    )
-    log_likelihood = _gjr_garch_gaussian_loglik(epsilon, omega, alpha, gamma, beta)
-    return log_likelihood, np.array([omega, alpha, gamma, beta], dtype=np.float64)
-
-
-_GJR_GARCH_FIT = ConformanceTarget(
-    name="gjr_garch_fit",
-    tier=2,
-    oracle=(
-        "arch, evaluated under a shared Gaussian log-likelihood built from gjr_garch_11_variance"
-    ),
-    citation="Glosten, Jagannathan & Runkle (1993). Full citation in docs/REFERENCES.md.",
-    compare=DecisiveFloatArrayComparator(),
-    quantcore=_gjr_garch_fit_quantcore,
-    reference=_gjr_garch_fit_reference,
-)

@@ -19,6 +19,16 @@ to see exactly what changed and why before upgrading.
   two). `statsmodels` is a runtime
   dependency (`>=0.15,<0.16`).
 
+- `egarch_fit` and `gjr_garch_fit` are fitted by `arch` (`vol="EGARCH"` and `vol="GARCH"` with
+  `o=1`), `fit_garch_11` loses its `backend` argument and always uses `arch`, and
+  quantcore's own multi-start SLSQP fitters are deleted. `arch` starts the variance
+  recursion from a backcast, returned as `EGARCHParams.presample_variance` and
+  `GJRGARCHParams.presample_variance` and available for `fit_garch_11` as
+  `variance_backcast(returns)`. `garch_11_variance`, `egarch_11_variance` and
+  `gjr_garch_11_variance` take it as the new keyword `presample_variance`, which reproduces the
+  fitted variance path to 1e-10; the default is unchanged. An `arch` fit that lands outside the
+  stationary region raises `ConvergenceError` like a non-converged one.
+
 ### Removed
 
 - `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price` and

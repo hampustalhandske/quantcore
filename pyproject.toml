@@ -8,10 +8,10 @@ dependencies = [
     "numba>=0.67.0",
     "numpy>=1.26",
     "scipy>=1.13",
-    # Default backends of two functions, each imported on first use:
-    # fit_garch_11 (arch) and
-    # conditional_value_at_risk(method="historical") (empyrical).
-    # statsmodels computes the Ljung-Box, ARCH-LM and KPSS tests.
+    # arch fits GARCH, EGARCH and GJR-GARCH (imported when a fit runs);
+    # statsmodels computes the ADF, Engle-Granger, KPSS, ARCH-LM and
+    # Ljung-Box tests and the VAR functions; empyrical is the default backend
+    # of conditional_value_at_risk(method="historical"), imported on first use.
     "arch>=7.0",
     "statsmodels>=0.15,<0.16",
     "empyrical-reloaded>=0.5.11",

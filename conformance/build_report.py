@@ -381,9 +381,6 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "garch_11_variance": (tier2_risk_models, "GARCH_11_VARIANCE"),
     "egarch_11_variance": (tier2_risk_models, "EGARCH_11_VARIANCE"),
     "gjr_garch_11_variance": (tier2_risk_models, "GJR_GARCH_11_VARIANCE"),
-    "fit_garch_11": (tier2_risk_models, "FIT_GARCH_11"),
-    "egarch_fit": (tier2_risk_models, "EGARCH_FIT"),
-    "gjr_garch_fit": (tier2_risk_models, "GJR_GARCH_FIT"),
     "hmm_fit_transition_matrix": (tier2_regime, "HMM_FIT"),
     "hmm_fit_means": (tier2_regime, "HMM_FIT"),
     "hmm_fit_variances": (tier2_regime, "HMM_FIT"),
@@ -578,11 +575,6 @@ _ALL_COVARIANCE_FAMILIES = frozenset(COVARIANCE_FAMILIES)
 # program minimises, and mean-variance utility for the unconstrained optimiser, which it
 # maximises.
 ITERATIVE_ESTIMATORS: dict[str, IterativeEstimator] = {
-    "fit_garch_11": IterativeEstimator(_GAUSSIAN_INNOVATION_FAMILIES, "log_likelihood", "maximize"),
-    "egarch_fit": IterativeEstimator(_GAUSSIAN_INNOVATION_FAMILIES, "log_likelihood", "maximize"),
-    "gjr_garch_fit": IterativeEstimator(
-        _GAUSSIAN_INNOVATION_FAMILIES, "log_likelihood", "maximize"
-    ),
     "min_variance_weights": IterativeEstimator(_ALL_COVARIANCE_FAMILIES, "objective", "minimize"),
     "unconstrained_mean_variance_weights": IterativeEstimator(
         _ALL_COVARIANCE_FAMILIES, "objective", "maximize"
@@ -1533,65 +1525,6 @@ REPRO_CONFIGS: dict[str, ReproCallConfig] = {
     # registered oracle applies first; where `arch`'s fit lands outside that region the shared
     # likelihood cannot be evaluated, the snippet exits non-zero, and `verify_repro` reports it
     # instead of writing a finding.
-    "fit_garch_11": ReproCallConfig(
-        module_import=(
-            "import quantcore.risk.volatility as qc\n\n\n"
-            "def _ll(eps, omega, alpha, beta):\n"
-            "    v = qc.garch_11_variance(eps, omega, alpha, beta)\n"
-            "    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(v) + eps**2 / v))"
-        ),
-        quantcore_call=(
-            '_ll(returns - returns.mean(), *qc.fit_garch_11(returns, backend="quantcore"))'
-        ),
-        oracle_import="from arch.univariate import arch_model",
-        oracle_call=(
-            "_ll(returns - returns.mean(), *[float(arch_model(returns - returns.mean(), "
-            'mean="Zero", vol="GARCH", p=1, q=1, dist="normal").fit(disp="off").params[k]) '
-            'for k in ["omega", "alpha[1]", "beta[1]"]])'
-        ),
-        arg_names=("returns",),
-        quantity_index={"log_likelihood": (None, None)},
-    ),
-    "egarch_fit": ReproCallConfig(
-        module_import=(
-            "import quantcore.risk.egarch as qc\n\n\n"
-            "def _ll(eps, omega, alpha, gamma, beta):\n"
-            "    v = np.exp(qc.egarch_11_variance(eps, omega, alpha, gamma, beta))\n"
-            "    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(v) + eps**2 / v))"
-        ),
-        quantcore_call=(
-            "_ll(returns - returns.mean(), *(lambda f: (f.omega, f.alpha, f.gamma, f.beta))"
-            "(qc.egarch_fit(returns)))"
-        ),
-        oracle_import="from arch.univariate import arch_model",
-        oracle_call=(
-            "_ll(returns - returns.mean(), *[float(arch_model(returns - returns.mean(), "
-            'mean="Zero", vol="EGARCH", p=1, o=1, q=1, dist="normal").fit(disp="off").params[k]) '
-            'for k in ["omega", "alpha[1]", "gamma[1]", "beta[1]"]])'
-        ),
-        arg_names=("returns",),
-        quantity_index={"log_likelihood": (None, None)},
-    ),
-    "gjr_garch_fit": ReproCallConfig(
-        module_import=(
-            "import quantcore.risk.egarch as qc\n\n\n"
-            "def _ll(eps, omega, alpha, gamma, beta):\n"
-            "    v = qc.gjr_garch_11_variance(eps, omega, alpha, gamma, beta)\n"
-            "    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(v) + eps**2 / v))"
-        ),
-        quantcore_call=(
-            "_ll(returns - returns.mean(), *(lambda f: (f.omega, f.alpha, f.gamma, f.beta))"
-            "(qc.gjr_garch_fit(returns)))"
-        ),
-        oracle_import="from arch.univariate import arch_model",
-        oracle_call=(
-            "_ll(returns - returns.mean(), *[float(arch_model(returns - returns.mean(), "
-            'mean="Zero", vol="GARCH", p=1, o=1, q=1, dist="normal").fit(disp="off").params[k]) '
-            'for k in ["omega", "alpha[1]", "gamma[1]", "beta[1]"]])'
-        ),
-        arg_names=("returns",),
-        quantity_index={"log_likelihood": (None, None)},
-    ),
     "dynamic_hedge_ratio": ReproCallConfig(
         module_import="import quantcore.filtering.kalman as qc",
         quantcore_call="qc.dynamic_hedge_ratio(y, x, obs_var, proc_var)[-1]",
@@ -2124,9 +2057,6 @@ REGEN_RECIPES: dict[str, RegenRecipe] = {
     "calmar_ratio": _RETURNS_RECIPE,
     "calmar_ratio_arithmetic": _RETURNS_RECIPE,
     "adf_test": RegenRecipe(lines=_adf_series_regen_lines, arrays=("series",)),
-    "fit_garch_11": _RETURNS_RECIPE,
-    "egarch_fit": _RETURNS_RECIPE,
-    "gjr_garch_fit": _RETURNS_RECIPE,
     "dynamic_hedge_ratio": RegenRecipe(lines=_hedge_ratio_regen_lines, arrays=("y", "x")),
 }
 

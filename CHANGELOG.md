@@ -8,6 +8,9 @@ to see exactly what changed and why before upgrading.
 
 ## [0.3.0] — Unreleased
 
+The changes on the `trim` branch were gated (full tests, mypy, conformance, conformance map) on
+the final tree only, not on each intermediate commit.
+
 ### Changed
 
 - `ljung_box_test`, `arch_lm_test`, `kpss_test`, `adf_test` and `engle_granger_test`
@@ -72,7 +75,12 @@ variation raise `ValueError` (0.2.0 returned (1e-10, 0.0, 0.0) for them).
 mean in NumPy; `empyrical` is not a dependency). 0.2.0 averaged every return
 at or below the interpolated VaR threshold. The two are equal unless returns tie
 at the threshold: for `[-0.05, -0.02, -0.02, -0.02, 0.0, 0.01, 0.01, 0.02, 0.03, 0.04]`
-at 80% it now gives 0.035 and 0.2.0 gave 0.0275.
+at 80% it now gives 0.035 and 0.2.0 gave 0.0275. The new convention is `empyrical`'s (the mean
+of the `int((n - 1) * (1 - alpha)) + 1` smallest returns); the old one was the mean of every
+return at or below the interpolated VaR. The change shows on rounded or discrete returns
+(betting, prices in ticks): in 117 of 480 seeded cases with returns rounded to 3 decimals, a
+tie sat at the tail edge and the CVaR moved by up to 9% relative; continuous returns are
+unaffected.
 
 **`arima_fit` estimates by exact Gaussian maximum likelihood by default.** It
 previously minimised a conditional sum of squares (CSS), whose optimum

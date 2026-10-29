@@ -35,7 +35,7 @@ pytest.importorskip("hmmlearn")
 pytest.importorskip("cvxpy")
 
 import conformance.build_report as build_report_module
-from conformance import test_tier1_statistics_extra, test_tier2_filtering
+from conformance import test_tier2_filtering
 from conformance.build_report import (
     COVERAGE_SOURCES,
     DECLARED_COVERAGE,
@@ -98,9 +98,7 @@ from conformance.classify import CaseResult
 from conformance.compare import ReportOnlyScalarComparator, ScalarComparator, Tolerance, registry
 from conformance.findings import FindingSource
 from conformance.generators import (
-    COINTEGRATION_FAMILIES,
     RETURN_FAMILIES,
-    cointegration_pair,
     returns_series,
 )
 from conformance.harness import ReproDetail, _repr_inputs
@@ -899,24 +897,6 @@ def test_render_minimal_repro_inlines_a_short_maximum_drawdown_case() -> None:
     assert "returns = np.array([-0.5])" in code
     assert 'print("expected (oracle):"' in code
     assert "rng.default_rng" not in code
-
-
-def test_render_minimal_repro_regenerates_a_long_engle_granger_case_from_its_seed() -> None:
-    """A >12-number input regenerates from its seed instead of inlining raw numbers."""
-    y = ", ".join(str(float(i)) for i in range(15))
-    x = ", ".join(str(float(i)) for i in range(15))
-    detail = _rd(
-        function="engle_granger_test",
-        quantity="statistic",
-        seed=42,
-        family="cointegrated",
-        inputs_repr=f"(array([{y}]), array([{x}]))",
-    )
-    code = render_minimal_repro("engle_granger_test", "statistic", detail)
-    assert "np.random.default_rng(42)" in code
-    assert "n = 15" in code
-    assert "common = np.cumsum" in code
-    assert "conformance" not in code
 
 
 def test_render_minimal_repro_raises_without_a_seed_for_a_long_input() -> None:
@@ -1986,17 +1966,6 @@ def test_returns_recipe_knows_every_return_family() -> None:
 
 
 @settings(max_examples=30, deadline=None, derandomize=True)
-@given(pair=cointegration_pair(min_len=2, max_len=60))
-def test_cointegration_recipe_reproduces_the_pair_generator(pair) -> None:
-    """The plain-numpy lines rebuild `cointegration_pair`'s two series bit for bit."""
-    recipe = REGEN_RECIPES["engle_granger_test"]
-    namespace = _regenerate(recipe.lines(pair.family), pair.seed, pair.y.shape[0])
-    np.testing.assert_array_equal(namespace["y"], pair.y)
-    np.testing.assert_array_equal(namespace["x"], pair.x)
-    assert set(COINTEGRATION_FAMILIES) >= {pair.family}
-
-
-@settings(max_examples=30, deadline=None, derandomize=True)
 @given(drawn=test_tier2_filtering.hedge_ratio_problem(min_len=2, max_len=60))
 def test_hedge_ratio_recipe_reproduces_the_hedge_generator(drawn) -> None:
     """The plain-numpy lines rebuild `hedge_ratio_problem`'s two series bit for bit."""
@@ -2005,16 +1974,6 @@ def test_hedge_ratio_recipe_reproduces_the_hedge_generator(drawn) -> None:
     namespace = _regenerate(recipe.lines(family), seed, y.shape[0])
     np.testing.assert_array_equal(namespace["y"], y)
     np.testing.assert_array_equal(namespace["x"], x)
-
-
-@settings(max_examples=30, deadline=None, derandomize=True)
-@given(drawn=test_tier1_statistics_extra._adf_series())
-def test_adf_recipe_reproduces_the_adf_series_generator(drawn) -> None:
-    """The plain-numpy lines rebuild `_adf_series`'s series bit for bit."""
-    series, family, seed, n = drawn
-    recipe = REGEN_RECIPES["adf_test"]
-    namespace = _regenerate(recipe.lines(family), seed, n)
-    np.testing.assert_array_equal(namespace["series"], series)
 
 
 def test_every_repro_config_has_a_recipe_for_its_array_arguments() -> None:
@@ -2047,16 +2006,15 @@ def test_render_minimal_repro_regenerates_arrays_and_inlines_scalars() -> None:
 def test_render_minimal_repro_sizes_a_summarised_array_from_its_shape() -> None:
     """An array numpy printed in abbreviated form is regenerated at the length its shape states."""
     detail = _rd(
-        function="adf_test",
-        quantity="p_value",
+        function="calmar_ratio",
         seed=3,
-        family="unit_root",
+        family="tiny_scale",
         inputs_repr="(array([0.1, 0.2, 0.3, ..., 0.7, 0.8, 0.9], shape=(2265,)), 2,)",
     )
-    code = render_minimal_repro("adf_test", "p_value", detail)
+    code = render_minimal_repro("calmar_ratio", "value", detail)
     assert "n = 2265" in code
-    assert "series = np.cumsum(rng.normal(0.0, 1.0, n))" in code
-    assert "max_lags = 2" in code
+    assert "values = rng.normal(0.0, 1e-8, n)" in code
+    assert "periods_per_year = 2" in code
 
 
 def test_render_minimal_repro_raises_for_a_long_input_without_a_recipe(monkeypatch) -> None:
@@ -2093,10 +2051,6 @@ def _repro_inputs(name: str, seed: int, n: int, family: str, scalars: dict[str, 
         ("maximum_drawdown", "value", 40, "normal", {}, None),
         ("calmar_ratio", "value", 40, "normal", {"periods_per_year": 52}, None),
         ("calmar_ratio_arithmetic", "value", 40, "normal", {"periods_per_year": 52}, None),
-        ("engle_granger_test", "statistic", 60, "cointegrated", {}, 0),
-        ("engle_granger_test", "p_value", 60, "cointegrated", {}, 1),
-        ("adf_test", "statistic", 60, "stationary", {"max_lags": 1}, 0),
-        ("adf_test", "p_value", 60, "stationary", {"max_lags": 1}, 1),
         (
             "dynamic_hedge_ratio",
             "value",

@@ -1,17 +1,15 @@
-"""Tier-1 statistics targets: OLS, the Newey-West lag rule, ADF and Jarque-Bera.
+"""Tier-1 statistics targets: OLS, the Newey-West lag rule and Jarque-Bera.
 
 OLS is two targets, `ols_coefficients` and `ols_r_squared` (centred R-squared with a constant
 column, else uncentred). The Newey-West lag count is the rule of thumb
-`floor(4 * (n/100)^(2/9))`, not the data-driven procedure. The ADF test is constant-only,
-fixed-lag, with MacKinnon (1994) p-values. `jarque_bera` is checked against
-`scipy.stats.jarque_bera`.
+`floor(4 * (n/100)^(2/9))`, not the data-driven procedure. `jarque_bera` is checked
+against `scipy.stats.jarque_bera`.
 """
 
 import numpy as np
 import numpy.typing as npt
 import statsmodels.api as sm
 from scipy.stats import jarque_bera as _scipy_jarque_bera
-from statsmodels.tsa.stattools import adfuller
 
 import quantcore.statistics as qc_statistics
 from conformance.compare import (
@@ -96,38 +94,6 @@ _NEWEY_WEST_OPTIMAL_LAGS = ConformanceTarget(
 
 
 # --- Ljung-Box ------------------------------------------------------------------------------------
-
-
-# --- Augmented Dickey-Fuller ---------------------------------------------------------------
-
-
-def _adf_test_quantcore(series: npt.NDArray[np.float64], max_lags: int) -> tuple[float, float]:
-    statistic, p_value = qc_statistics.adf_test(series, max_lags, trend="c", autolag=None)
-    return float(statistic), float(p_value)
-
-
-def _adf_test_reference(series: npt.NDArray[np.float64], max_lags: int) -> tuple[float, float]:
-    # `autolag=None` makes adfuller return the 5-tuple (statistic, p_value, used_lag, n_obs,
-    # critical_values).
-    result = adfuller(series, maxlag=max_lags, regression="c", autolag=None, result_object=False)
-    statistic, p_value = result[0], result[1]
-    return float(statistic), float(p_value)
-
-
-_ADF_TEST = ConformanceTarget(
-    name="adf_test",
-    tier=1,
-    oracle="statsmodels",
-    citation=(
-        "Dickey, D.A. and Fuller, W.A. (1979), 'Distribution of the Estimators for "
-        "Autoregressive Time Series with a Unit Root.' JASA, 74(366a), 427-431; MacKinnon, J.G. "
-        "(1994), 'Approximate Asymptotic Distribution Functions for Unit-Root and Cointegration "
-        "Tests.' Journal of Business & Economic Statistics, 12(2), 167-176."
-    ),
-    compare=TupleComparator(ScalarComparator(), ScalarComparator()),
-    quantcore=_adf_test_quantcore,
-    reference=_adf_test_reference,
-)
 
 
 # --- Jarque-Bera ----------------------------------------------------------------------------------

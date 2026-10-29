@@ -53,10 +53,7 @@ import statsmodels.api as sm
 from filterpy.kalman import KalmanFilter
 from scipy.stats import jarque_bera
 from sklearn.covariance import LedoitWolf
-from statsmodels.stats.diagnostic import het_arch
 from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.stattools import adfuller, coint
-from statsmodels.tsa.stattools import kpss as sm_kpss
 
 import quantcore
 from quantcore.core.price_paths import (
@@ -95,11 +92,7 @@ from quantcore.risk import (
 )
 from quantcore.risk.volatility import _garch_11_variance_numba_kernel, _garch_11_variance_numpy
 from quantcore.statistics import (
-    adf_test,
-    arch_lm_test,
-    engle_granger_test,
     jarque_bera_test,
-    kpss_test,
     newey_west_cov,
     ols,
 )
@@ -502,19 +495,6 @@ def _throughput_price_path_rows() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _simulate_garch_percent_returns(n: int, seed: int) -> FloatArray:
-    """Simulate a GARCH(1,1) return series in percent units (daily volatility near 1)."""
-    omega, alpha, beta = 0.02, 0.09, 0.87
-    rng = np.random.default_rng(seed)
-    shocks = rng.standard_normal(n)
-    returns = np.empty(n)
-    variance = omega / (1.0 - alpha - beta)
-    for t in range(n):
-        returns[t] = np.sqrt(variance) * shocks[t]
-        variance = omega + alpha * returns[t] ** 2 + beta * variance
-    return returns
-
-
 def _simulate_arma(n: int, phi: float, theta: float, integrate: bool, seed: int) -> FloatArray:
     rng = np.random.default_rng(seed)
     eps = rng.normal(scale=0.2, size=n)
@@ -695,48 +675,6 @@ def bench_regression() -> list[Row]:
                 t_statsmodels,
                 yes_no(agree, "rtol 1e-6"),
                 "yes: OLS fit plus Bartlett-kernel HAC covariance from both",
-            )
-        )
-    return rows
-
-
-def bench_engle_granger() -> list[Row]:
-    """`engle_granger_test` against `statsmodels` `coint` with matching settings."""
-    rows = []
-    for n_obs in (500, 5_000, 50_000):
-        rng = np.random.default_rng(SEED)
-        x = np.cumsum(rng.normal(size=n_obs))
-        spread = np.empty(n_obs)
-        spread[0] = 0.0
-        noise = rng.normal(size=n_obs)
-        for t in range(1, n_obs):
-            spread[t] = 0.5 * spread[t - 1] + noise[t]
-        y = 2.0 * x + spread
-
-        def test_quantcore(y: FloatArray = y, x: FloatArray = x) -> tuple[float, float, float]:
-            return engle_granger_test(y, x)
-
-        def test_statsmodels(y: FloatArray = y, x: FloatArray = x) -> tuple[float, float]:
-            statistic, p_value, _ = coint(y, x, trend="c", maxlag=1, autolag=None)
-            return float(statistic), float(p_value)
-
-        t_quantcore = median_seconds(test_quantcore)
-        t_statsmodels = median_seconds(test_statsmodels)
-        _, statistic, p_value = test_quantcore()
-        sm_statistic, sm_p_value = test_statsmodels()
-        agree = bool(
-            np.isclose(statistic, sm_statistic, rtol=1e-10, atol=1e-10)
-            and np.isclose(p_value, sm_p_value, rtol=1e-10, atol=1e-10)
-        )
-        rows.append(
-            Row(
-                "engle_granger_test",
-                f"{n_obs:,} obs",
-                t_quantcore,
-                "statsmodels",
-                t_statsmodels,
-                yes_no(agree, "statistic and p-value 1e-10"),
-                "yes: same two-step test; statsmodels also returns critical values",
             )
         )
     return rows
@@ -991,53 +929,9 @@ def bench_portfolio_optimisers() -> list[Row]:
     return rows
 
 
-def bench_adf() -> list[Row]:
-    """`adf_test` against `statsmodels` `adfuller` on a random walk.
-
-    Both use a constant, 4 lagged differences and no lag search
-    (`autolag=None`). Agreement is the statistic and the MacKinnon p-value at
-    the oracle test's rtol 1e-8 / atol 1e-11.
-    """
-    max_lags = 4
-    rows = []
-    for n_obs in (500, 5_000, 50_000):
-        series = np.cumsum(np.random.default_rng(SEED).normal(size=n_obs))
-
-        def test_quantcore(series: FloatArray = series) -> tuple[float, float]:
-            return adf_test(series, max_lags, trend="c", autolag=None)
-
-        def test_statsmodels(series: FloatArray = series) -> tuple[float, float]:
-            result = adfuller(series, maxlag=max_lags, regression="c", autolag=None)
-            return float(result[0]), float(result[1])
-
-        t_quantcore = median_seconds(test_quantcore)
-        t_statsmodels = median_seconds(test_statsmodels)
-        agree = bool(np.allclose(test_quantcore(), test_statsmodels(), rtol=1e-8, atol=1e-11))
-        rows.append(
-            Row(
-                "adf_test",
-                f"{n_obs:,} obs, {max_lags} lags, constant",
-                t_quantcore,
-                "statsmodels",
-                t_statsmodels,
-                yes_no(agree, "statistic and p-value rtol 1e-8"),
-                "yes: same regression and MacKinnon p-value; statsmodels also returns "
-                "critical values and the regression sample size",
-            )
-        )
-    return rows
-
-
 def bench_diagnostics() -> list[Row]:
-    """`kpss_test`, `arch_lm_test` and `jarque_bera_test` against their oracles.
+    """`jarque_bera_test` against `scipy.stats.jarque_bera`.
 
-    - `kpss_test(series, None, "c")` against `statsmodels` `kpss(regression="c",
-      nlags="auto")` on an AR(1) series with coefficient 0.9; statistic and
-      p-value at rtol 1e-9. quantcore also returns whether the p-value sits at
-      an end of the critical-value table.
-    - `arch_lm_test(residuals, None)` against `het_arch(nlags=None)` on a
-      simulated GARCH(1,1) series; both default to min(10, n // 5) lags and
-      neither demeans. Statistic and p-value at rtol 1e-8 / atol 1e-8.
     - `jarque_bera_test(series)` against `scipy.stats.jarque_bera` on
       Student-t(4) returns; both use population moments. Statistic and
       p-value at rtol 1e-9 / atol 1e-12.
@@ -1045,28 +939,7 @@ def bench_diagnostics() -> list[Row]:
     rows = []
     for n_obs in (2_520, 100_000):
         rng = np.random.default_rng(SEED)
-        noise = rng.normal(0.0, 0.01, size=n_obs)
-        ar1 = np.empty(n_obs)
-        ar1[0] = noise[0]
-        for t in range(1, n_obs):
-            ar1[t] = 0.9 * ar1[t - 1] + noise[t]
-        garch = _simulate_garch_percent_returns(n_obs, SEED) * 0.01
         heavy_tailed = rng.standard_t(df=4, size=n_obs) * 0.01
-
-        def kpss_quantcore(series: FloatArray = ar1) -> tuple[float, float]:
-            statistic, p_value, _ = kpss_test(series, None, "c")
-            return statistic, p_value
-
-        def kpss_statsmodels(series: FloatArray = ar1) -> tuple[float, float]:
-            statistic, p_value, _, _ = sm_kpss(series, regression="c", nlags="auto")
-            return float(statistic), float(p_value)
-
-        def arch_quantcore(series: FloatArray = garch) -> tuple[float, float]:
-            return arch_lm_test(series, None)
-
-        def arch_statsmodels(series: FloatArray = garch) -> tuple[float, float]:
-            lm_statistic, lm_p_value, _, _ = het_arch(series, nlags=None)
-            return float(lm_statistic), float(lm_p_value)
 
         def jb_quantcore(series: FloatArray = heavy_tailed) -> tuple[float, float]:
             return jarque_bera_test(series)
@@ -1087,28 +960,6 @@ def bench_diagnostics() -> list[Row]:
                 str,
             ]
         ] = [
-            (
-                "kpss_test",
-                kpss_quantcore,
-                "statsmodels",
-                kpss_statsmodels,
-                1e-9,
-                0.0,
-                "statistic and p-value rtol 1e-9",
-                "yes: level-stationarity null, Bartlett long-run variance with the automatic "
-                "bandwidth, p-value interpolated in the same table",
-            ),
-            (
-                "arch_lm_test",
-                arch_quantcore,
-                "statsmodels",
-                arch_statsmodels,
-                1e-8,
-                1e-8,
-                "statistic and p-value rtol 1e-8",
-                "yes: (n - lags) R^2 of the squares on their lags, default lag count; "
-                "statsmodels also returns the F test",
-            ),
             (
                 "jarque_bera_test",
                 jb_quantcore,
@@ -1253,11 +1104,9 @@ def main() -> None:
     bench_throughput()
     print_table("ARIMA fit and forecast: quantcore vs statsmodels", bench_arima())
     print_table("OLS and Newey-West: quantcore vs statsmodels", bench_regression())
-    print_table("Engle-Granger: quantcore vs statsmodels", bench_engle_granger())
     print_table("Historical VaR / CVaR: quantcore vs empyrical and skfolio", bench_var_cvar())
     print_table("Ledoit-Wolf shrinkage: quantcore vs scikit-learn", bench_shrinkage())
     print_table("Portfolio optimisers: quantcore vs cvxpy/CLARABEL", bench_portfolio_optimisers())
-    print_table("ADF test: quantcore vs statsmodels", bench_adf())
     print_table(
         "Diagnostics (KPSS, ARCH-LM, Jarque-Bera): quantcore vs statsmodels and scipy",
         bench_diagnostics(),

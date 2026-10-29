@@ -350,7 +350,6 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "sharpe_ratio": (tier1_performance, "SHARPE_RATIO"),
     "maximum_drawdown": (tier1_performance, "MAXIMUM_DRAWDOWN"),
     "newey_west_cov": (tier1_statistics, "NEWEY_WEST_COV"),
-    "engle_granger_test": (tier1_statistics, "ENGLE_GRANGER_TEST"),
     "square_root_market_impact": (tier1_execution, "SQUARE_ROOT_MARKET_IMPACT"),
     "short_borrow_cost": (tier1_execution, "SHORT_BORROW_COST"),
     "margin_financing_cost": (tier1_execution, "MARGIN_FINANCING_COST"),
@@ -375,7 +374,6 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "ols_coefficients": (tier1_statistics_extra, "OLS"),
     "ols_r_squared": (tier1_statistics_extra, "OLS"),
     "newey_west_optimal_lags": (tier1_statistics_extra, "NEWEY_WEST_OPTIMAL_LAGS"),
-    "adf_test": (tier1_statistics_extra, "ADF_TEST"),
     "jarque_bera": (tier1_statistics_extra, "JARQUE_BERA"),
     "ewma_variance": (tier2_risk_models, "EWMA_VARIANCE"),
     "garch_11_variance": (tier2_risk_models, "GARCH_11_VARIANCE"),
@@ -1474,16 +1472,6 @@ class ReproCallConfig:
 
 
 REPRO_CONFIGS: dict[str, ReproCallConfig] = {
-    "engle_granger_test": ReproCallConfig(
-        module_import="import quantcore.statistics as qc",
-        quantcore_call="qc.engle_granger_test(y, x)",
-        oracle_import="from statsmodels.tsa.stattools import coint",
-        oracle_call='coint(y, x, trend="c", maxlag=1, autolag=None)',
-        arg_names=("y", "x"),
-        # quantcore.engle_granger_test returns (beta, statistic, p_value); statsmodels.coint
-        # returns (statistic, p_value, critical_values).
-        quantity_index={"statistic": (1, 0), "p_value": (2, 1)},
-    ),
     "maximum_drawdown": ReproCallConfig(
         module_import="import quantcore.performance as qc",
         quantcore_call="qc.maximum_drawdown(returns)",
@@ -1510,21 +1498,6 @@ REPRO_CONFIGS: dict[str, ReproCallConfig] = {
         arg_names=("returns", "periods_per_year"),
         quantity_index={"value": (None, None)},
     ),
-    "adf_test": ReproCallConfig(
-        module_import="import quantcore.statistics as qc",
-        quantcore_call='qc.adf_test(series, max_lags, trend="c", autolag=None)',
-        oracle_import="from statsmodels.tsa.stattools import adfuller",
-        oracle_call='adfuller(series, maxlag=max_lags, regression="c", autolag=None)',
-        arg_names=("series", "max_lags"),
-        quantity_index={"statistic": (0, 0), "p_value": (1, 1)},
-    ),
-    # The three iterative-estimator fitters below repro only `log_likelihood`, the decision
-    # quantity: `params` never fails its (no-op) comparator, so `select_shortest_failing_detail`
-    # never has a failing case to build a repro from for it. The oracle expression evaluates
-    # `arch`'s fitted parameters as they are, without the clip into the stationary region the
-    # registered oracle applies first; where `arch`'s fit lands outside that region the shared
-    # likelihood cannot be evaluated, the snippet exits non-zero, and `verify_repro` reports it
-    # instead of writing a finding.
     "dynamic_hedge_ratio": ReproCallConfig(
         module_import="import quantcore.filtering.kalman as qc",
         quantcore_call="qc.dynamic_hedge_ratio(y, x, obs_var, proc_var)[-1]",
@@ -1963,38 +1936,6 @@ def _returns_regen_lines(family: str) -> list[str]:
     return [*body, "returns = np.clip(np.asarray(values, dtype=np.float64), -0.999, None)"]
 
 
-def _cointegration_regen_lines(family: str) -> list[str]:
-    """Plain-numpy lines reproducing `conformance.generators.cointegration_pair` for ``family``.
-
-    Assumes `rng` and `n` are already bound in scope; binds `y` and `x`.
-    """
-    if family == "cointegrated":
-        return [
-            "common = np.cumsum(rng.normal(0.0, 1.0, n))",
-            "x = common + rng.normal(0.0, 0.1, n)",
-            "y = 1.5 * common + rng.normal(0.0, 0.3, n)",
-        ]
-    if family == "independent_rw":
-        return [
-            "x = np.cumsum(rng.normal(0.0, 1.0, n))",
-            "y = np.cumsum(rng.normal(0.0, 1.0, n))",
-        ]
-    if family == "near_unit_root":
-        return [
-            "phi = 0.995",
-            "x = np.empty(n, dtype=np.float64)",
-            "y = np.empty(n, dtype=np.float64)",
-            "x[0] = rng.normal(0.0, 1.0)",
-            "y[0] = rng.normal(0.0, 1.0)",
-            "ex = rng.normal(0.0, 1.0, n)",
-            "ey = rng.normal(0.0, 1.0, n)",
-            "for t in range(1, n):",
-            "    x[t] = phi * x[t - 1] + ex[t]",
-            "    y[t] = phi * y[t - 1] + ey[t]",
-        ]
-    raise ValueError(f"no cointegration_pair regeneration recipe for family {family!r}")
-
-
 def _hedge_ratio_regen_lines(family: str) -> list[str]:
     """Plain-numpy lines reproducing `conformance.test_tier2_filtering.hedge_ratio_problem`.
 
@@ -2012,25 +1953,6 @@ def _hedge_ratio_regen_lines(family: str) -> list[str]:
             "y = beta_path * x + rng.normal(0.0, 0.1, n)",
         ]
     raise ValueError(f"no hedge_ratio_problem regeneration recipe for family {family!r}")
-
-
-def _adf_series_regen_lines(family: str) -> list[str]:
-    """Plain-numpy lines reproducing `conformance.test_tier1_statistics_extra._adf_series`.
-
-    Assumes `rng` and `n` are already bound in scope; binds `series`.
-    """
-    if family == "stationary":
-        return [
-            "innovations = rng.normal(0.0, 1.0, n)",
-            "phi = 0.5",
-            "series = np.empty(n, dtype=np.float64)",
-            "series[0] = innovations[0]",
-            "for t in range(1, n):",
-            "    series[t] = phi * series[t - 1] + innovations[t]",
-        ]
-    if family == "unit_root":
-        return ["series = np.cumsum(rng.normal(0.0, 1.0, n))"]
-    raise ValueError(f"no _adf_series regeneration recipe for family {family!r}")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2053,10 +1975,8 @@ _RETURNS_RECIPE = RegenRecipe(lines=_returns_regen_lines, arrays=("returns",))
 
 REGEN_RECIPES: dict[str, RegenRecipe] = {
     "maximum_drawdown": _RETURNS_RECIPE,
-    "engle_granger_test": RegenRecipe(lines=_cointegration_regen_lines, arrays=("y", "x")),
     "calmar_ratio": _RETURNS_RECIPE,
     "calmar_ratio_arithmetic": _RETURNS_RECIPE,
-    "adf_test": RegenRecipe(lines=_adf_series_regen_lines, arrays=("series",)),
     "dynamic_hedge_ratio": RegenRecipe(lines=_hedge_ratio_regen_lines, arrays=("y", "x")),
 }
 

@@ -50,13 +50,6 @@ REGRESSION_FAMILIES: tuple[RegressionFamily, ...] = (
     "autocorrelated",
 )
 
-type CointegrationFamily = Literal["cointegrated", "independent_rw", "near_unit_root"]
-COINTEGRATION_FAMILIES: tuple[CointegrationFamily, ...] = (
-    "cointegrated",
-    "independent_rw",
-    "near_unit_root",
-)
-
 # Returns are clipped to this floor so a compounded path (cumprod(1 + r)) never touches or
 # crosses zero; -0.999 keeps even the "huge_scale" family's extreme draws strictly > -1.
 _MIN_RETURN = -0.999
@@ -153,23 +146,6 @@ class TaggedRegression:
         y: Dependent variable, shape `(T,)`.
         x: Regressors including an intercept column, shape `(T, k)`.
         family: Which error-generating process produced `y`.
-        seed: Seed reproducing the draw.
-    """
-
-    y: FloatArray
-    x: FloatArray
-    family: str
-    seed: int
-
-
-@dataclass(frozen=True)
-class TaggedPair:
-    """A pair of series drawn by `cointegration_pair`, tagged with its relationship family.
-
-    Attributes:
-        y: First series, shape `(T,)`.
-        x: Second series, shape `(T,)`.
-        family: Which data-generating process produced the pair.
         seed: Seed reproducing the draw.
     """
 
@@ -279,53 +255,6 @@ def regression_problem(draw: st.DrawFn, min_len: int = 20, max_len: int = 5000) 
     y = intercept + slope * regressor + errors
     x = np.column_stack([np.ones(n), regressor]).astype(np.float64)
     return TaggedRegression(y=y.astype(np.float64), x=x, family=family, seed=seed)
-
-
-@st.composite
-def cointegration_pair(draw: st.DrawFn, min_len: int = 50, max_len: int = 5000) -> TaggedPair:
-    """Draw a pair of series `(y, x)` that is cointegrated, independent, or near-unit-root.
-
-    Args:
-        draw: Hypothesis's draw function.
-        min_len: Minimum number of observations.
-        max_len: Maximum number of observations.
-
-    Returns:
-        A `TaggedPair` whose `family` is `"cointegrated"` (`y` and `x` share a common random-walk
-        component plus a stationary spread), `"independent_rw"` (two unrelated random walks, not
-        cointegrated), or `"near_unit_root"` (a highly persistent but stationary AR(1) pair, the
-        boundary case a residual-based test must not mistake for either extreme).
-    """
-    family = draw(st.sampled_from(COINTEGRATION_FAMILIES))
-    n = draw(_length_strategy(min_len, max_len))
-    seed = draw(st.integers(min_value=0, max_value=2**31 - 1))
-    rng = np.random.default_rng(seed)
-
-    if family == "cointegrated":
-        common = np.cumsum(rng.normal(0.0, 1.0, n))
-        x = common + rng.normal(0.0, 0.1, n)
-        y = 1.5 * common + rng.normal(0.0, 0.3, n)
-    elif family == "independent_rw":
-        x = np.cumsum(rng.normal(0.0, 1.0, n))
-        y = np.cumsum(rng.normal(0.0, 1.0, n))
-    else:  # near_unit_root
-        phi = 0.995
-        x = np.empty(n, dtype=np.float64)
-        y = np.empty(n, dtype=np.float64)
-        x[0] = rng.normal(0.0, 1.0)
-        y[0] = rng.normal(0.0, 1.0)
-        ex = rng.normal(0.0, 1.0, n)
-        ey = rng.normal(0.0, 1.0, n)
-        for t in range(1, n):
-            x[t] = phi * x[t - 1] + ex[t]
-            y[t] = phi * y[t - 1] + ey[t]
-
-    return TaggedPair(
-        y=np.asarray(y, dtype=np.float64),
-        x=np.asarray(x, dtype=np.float64),
-        family=family,
-        seed=seed,
-    )
 
 
 # --- portfolio family: covariance matrices and returns panels -----------------------------------
@@ -598,87 +527,4 @@ def arma_series(
         n=n,
         true_ar=np.array(true_ar, dtype=np.float64),
         true_ma=np.array(true_ma, dtype=np.float64),
-    )
-
-
-type VarFamily = Literal["var2_stationary", "var3_stationary", "var2_near_unit_root"]
-VAR_FAMILIES: tuple[VarFamily, ...] = ("var2_stationary", "var3_stationary", "var2_near_unit_root")
-
-# Fixed, stable coefficient matrices (spectral radius of the companion form < 1) per family, so
-# every draw from a given family shares the same known data-generating process and differs only
-# in its innovations and length.
-_VAR2_STATIONARY_A = np.array([[0.5, 0.2], [0.1, 0.4]], dtype=np.float64)
-_VAR3_STATIONARY_A = np.array([[0.4, 0.1, 0.0], [0.0, 0.3, 0.2], [0.1, 0.0, 0.5]], dtype=np.float64)
-_VAR2_NEAR_UNIT_ROOT_A = np.array([[0.9, 0.05], [0.0, 0.9]], dtype=np.float64)
-
-
-@dataclass(frozen=True)
-class TaggedVarSystem:
-    """A small VAR(1) system drawn by `var_system`, tagged with the process that produced it.
-
-    Attributes:
-        data: Observations, shape `(T, k)`.
-        family: Which generator family produced `data` (see `VAR_FAMILIES`).
-        seed: The `numpy.random.default_rng` seed that reproduces `data` exactly.
-        n: Number of observations, `data.shape[0]`.
-        k: Number of variables, `data.shape[1]`.
-        true_a: The `(k, k)` VAR(1) coefficient matrix actually used to simulate `data`.
-    """
-
-    data: FloatArray
-    family: str
-    seed: int
-    n: int
-    k: int
-    true_a: FloatArray
-
-
-def _var1_coef_matrix(family: VarFamily) -> FloatArray:
-    if family == "var2_stationary":
-        return _VAR2_STATIONARY_A
-    if family == "var3_stationary":
-        return _VAR3_STATIONARY_A
-    return _VAR2_NEAR_UNIT_ROOT_A
-
-
-@st.composite
-def var_system(
-    draw: st.DrawFn,
-    min_len: int = 30,
-    max_len: int = 2000,
-    families: tuple[VarFamily, ...] | None = None,
-) -> TaggedVarSystem:
-    """Draw a stationary or near-unit-root VAR(1) system with 2 or 3 variables.
-
-    Args:
-        draw: Hypothesis's draw function.
-        min_len: Minimum number of observations.
-        max_len: Maximum number of observations.
-        families: Subset of `VAR_FAMILIES` to draw from; defaults to all of them.
-
-    Returns:
-        A `TaggedVarSystem` carrying the `(T, k)` data, its family, the seed that reproduces it,
-        and the true `(k, k)` VAR(1) coefficient matrix (zero intercept) used to simulate it.
-    """
-    family = draw(st.sampled_from(families or VAR_FAMILIES))
-    n = draw(_length_strategy(min_len, max_len))
-    seed = draw(st.integers(min_value=0, max_value=2**31 - 1))
-    rng = np.random.default_rng(seed)
-
-    a = _var1_coef_matrix(family)
-    k = a.shape[0]
-    burn_in = 200
-    total = n + burn_in
-    innovations = rng.normal(0.0, 1.0, size=(total, k))
-    data = np.zeros((total, k), dtype=np.float64)
-    for t in range(1, total):
-        data[t] = a @ data[t - 1] + innovations[t]
-
-    return TaggedVarSystem(
-        data=np.asarray(data[burn_in:], dtype=np.float64),
-        family=family,
-        seed=seed,
-        n=n,
-        k=k,
-        true_a=a,
     )

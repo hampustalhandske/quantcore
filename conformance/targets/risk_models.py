@@ -1,19 +1,14 @@
 """Tier-1/Tier-2 conditional-volatility models: EWMA, GARCH(1,1), EGARCH(1,1), GJR-GARCH(1,1).
 
-The recursions are seeded at the model-implied long-run variance, whereas `arch` seeds from a
-data-driven backcast; they converge, so conformance compares after a persistence-dependent
-burn-in. Maximum-likelihood fitters are compared on the attained Gaussian log-likelihood under
-one shared function, not on raw parameters (the likelihood is flat near its optimum); `params`
-are reported alongside but never compared.
+The variance recursions start from `arch`'s backcast of the residuals, so they are compared with
+`arch` from the first step.
 """
 
 import warnings
-from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
-from arch.univariate.base import ARCHModelResult
 from arch.univariate.mean import HARX, arch_model
 
 import quantcore.risk.egarch as qc_egarch
@@ -21,61 +16,9 @@ import quantcore.risk.volatility as qc_volatility
 from conformance.compare import (
     ArrayComparator,
     ConformanceTarget,
-    Tolerance,
 )
 
-# --- shared: persistence-dependent burn-in, and the Gaussian log-likelihood evaluator -----------
-
-
-@dataclass(frozen=True)
-class _BurnInArrayComparator:
-    """`Comparator[FloatArray]` that ignores a leading transient before comparing two arrays.
-
-    Applies `ArrayComparator` to `value[burn_in_cap:]` (clipped to the length); `is_finite` still
-    checks the whole array. The oracle's different initial-variance convention gives a geometrically
-    decaying difference at the start. `burn_in_cap` is fixed at construction, generous for the
-    persistence the conformance tests draw (`alpha + beta <= 0.9`).
-
-    Attributes:
-        burn_in_cap: Number of leading points to exclude, before clipping to the array's length.
-    """
-
-    burn_in_cap: int
-
-    def is_finite(self, value: npt.NDArray[np.float64]) -> bool:
-        return ArrayComparator().is_finite(value)
-
-    def max_errors(
-        self, actual: npt.NDArray[np.float64], expected: npt.NDArray[np.float64]
-    ) -> tuple[float, float]:
-        start = min(self.burn_in_cap, max(actual.shape[0] - 1, 0))
-        return ArrayComparator().max_errors(actual[start:], expected[start:])
-
-    def assert_close(
-        self, actual: npt.NDArray[np.float64], expected: npt.NDArray[np.float64], tol: Tolerance
-    ) -> None:
-        start = min(self.burn_in_cap, max(actual.shape[0] - 1, 0))
-        ArrayComparator().assert_close(actual[start:], expected[start:], tol)
-
-
-_BURN_IN_CAP = 300
-
-
-def _garch_gaussian_loglik(
-    epsilon: npt.NDArray[np.float64], omega: float, alpha: float, beta: float
-) -> float:
-    """Gaussian log-likelihood of `epsilon` under the GARCH(1,1)/GJR-GARCH(1,1) variance path.
-
-    Built from `garch_11_variance`/`gjr_garch_11_variance` (both conformance-tested against `arch`
-    elsewhere in this module) rather than re-deriving the recursion, so the only new arithmetic is
-    the standard Gaussian log-density sum -- the same formula quantcore's own fitter documents.
-    """
-    variance = qc_volatility.garch_11_variance(epsilon, omega, alpha, beta)
-    return float(-0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance))
-
-
-_STATIONARITY_CLIP_MARGIN = 1e-6
-_MIN_OMEGA_CLIP = 1e-10
+# --- shared: the arch model the variance recursions are compared with ---------------------------
 
 
 def _build_arch_model(
@@ -84,15 +27,6 @@ def _build_arch_model(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return arch_model(epsilon, mean="Zero", vol=vol, p=1, o=o, q=1, dist="normal")
-
-
-def _fit_with_arch(
-    epsilon: npt.NDArray[np.float64], vol: Literal["GARCH", "EGARCH"], o: int = 0
-) -> ARCHModelResult:
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model = _build_arch_model(epsilon, vol, o)
-        return model.fit(disp="off", show_warning=False)
 
 
 # --- EWMA -----------------------------------------------------------------------------------------
@@ -161,7 +95,7 @@ _GARCH_11_VARIANCE = ConformanceTarget(
     oracle="arch (conditional variance via arch_model(...).fix(params))",
     citation="Bollerslev, T. (1986), 'Generalized Autoregressive Conditional Heteroskedasticity.' "
     "Journal of Econometrics, 31(3), 307-327.",
-    compare=_BurnInArrayComparator(_BURN_IN_CAP),
+    compare=ArrayComparator(),
     quantcore=_garch_11_variance_quantcore,
     reference=_garch_11_variance_reference,
 )
@@ -195,7 +129,7 @@ _EGARCH_11_VARIANCE = ConformanceTarget(
     oracle="arch (conditional variance via arch_model(vol='EGARCH').fix(params))",
     citation="Nelson, D.B. (1991), 'Conditional Heteroskedasticity in Asset Returns: A New "
     "Approach.' Econometrica, 59(2), 347-370.",
-    compare=_BurnInArrayComparator(_BURN_IN_CAP),
+    compare=ArrayComparator(),
     quantcore=_egarch_11_variance_quantcore,
     reference=_egarch_11_variance_reference,
 )
@@ -228,7 +162,7 @@ _GJR_GARCH_11_VARIANCE = ConformanceTarget(
     tier=2,
     oracle="arch (conditional variance via arch_model(vol='GARCH', o=1).fix(params))",
     citation="Glosten, Jagannathan & Runkle (1993). Full citation in docs/REFERENCES.md.",
-    compare=_BurnInArrayComparator(_BURN_IN_CAP),
+    compare=ArrayComparator(),
     quantcore=_gjr_garch_11_variance_quantcore,
     reference=_gjr_garch_11_variance_reference,
 )

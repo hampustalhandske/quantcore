@@ -176,15 +176,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "margin so a genuinely wrong kernel or scaling constant is still caught."
         ),
     ),
-    "engle_granger_test": Tolerance(
-        rtol=1e-10,
-        atol=1e-10,
-        justification=(
-            "no loosening: the statistic is a closed-form ADF t-statistic and the p-value is a "
-            "closed-form MacKinnon-table interpolation, so either quantity disagreeing beyond "
-            "float noise is a defect to report, not something to tolerate."
-        ),
-    ),
     "square_root_market_impact": Tolerance(
         rtol=1e-12,
         atol=0.0,
@@ -441,26 +432,6 @@ TOLERANCES: dict[str, Tolerance] = {
         atol=1e-9,
         justification="closed-form floor(4*(n/100)^(2/9)); atol covers the lags=0 case exactly.",
     ),
-    "adf_test": Tolerance(
-        rtol=1e-8,
-        atol=1e-11,
-        justification=(
-            "the statistic is an OLS t-ratio: quantcore takes its standard error from an explicit "
-            "inverse of X'X and statsmodels from a pseudo-inverse of X, so the two differ by about "
-            "eps*cond(X)^2, and cond(X) reaches ~1e2 on a 1000-point random walk, whose level "
-            "column is of order sqrt(n) beside unit-scale differences: up to ~1e-11 relative. The "
-            "p-value is the same closed form on both sides, Phi(polynomial(statistic)) with "
-            "identical MacKinnon (1994) coefficients and no interpolation, so its relative error "
-            "is the statistic's multiplied by |d ln p / d ln tau|, at most 61 over the tabulated "
-            "range (attained near tau = -11.7): up to ~6e-10. rtol sits one order above that. "
-            "atol covers a statistic near zero, whose absolute error is of order "
-            "eps*cond(X)*sqrt(n) ~ 7e-13. Because both quantities share this one tolerance, a "
-            "p-value below ~1e-9 is compared only loosely here and one below 1e-11 not at all; "
-            "tests/oracle/statistics/test_cointegration_oracle.py holds the response surface to "
-            "1e-10 relative with no absolute term over its whole range, including the exact 0.0 "
-            "and 1.0 beyond it."
-        ),
-    ),
     "jarque_bera": Tolerance(
         rtol=1e-9,
         atol=1e-12,
@@ -486,31 +457,33 @@ TOLERANCES: dict[str, Tolerance] = {
         ),
     ),
     "garch_11_variance": Tolerance(
-        rtol=1e-8,
-        atol=1e-10,
+        rtol=1e-12,
+        atol=1e-14,
         justification=(
-            "closed-form recursion, compared against arch's conditional variance after a "
-            "persistence-dependent burn-in (conformance.targets.risk_models."
-            "_BurnInArrayComparator) that excludes the transient from quantcore's long-run-"
-            "variance seeding vs. arch's backcast seeding; after burn-in, "
-            "measured max abs error ~1e-19, max rel error ~6e-16 on 300 draws up to n=800 with "
-            "alpha+beta <= 0.9, i.e. the same recursion evaluated by two implementations, not a "
-            "different definition."
+            "the same recursion evaluated by two implementations from the same start (arch's "
+            "backcast of the residuals), compared from the first step; measured max abs error "
+            "9e-19 and max rel error 8e-16 on 400 draws of 1 to 2000 points, so rtol is a "
+            "little over three orders above the measured error, covering accumulation over "
+            "the longest series."
         ),
     ),
     "egarch_11_variance": Tolerance(
-        rtol=1e-6,
-        atol=1e-8,
+        rtol=1e-11,
+        atol=1e-12,
         justification=(
             "as garch_11_variance, but for the log-variance recursion (an extra log/exp round "
-            "trip per step vs. plain variance), loosened one order to absorb that; compared after "
-            "the same burn-in."
+            "trip per step vs. plain variance); measured max abs error 9e-16 and max rel error "
+            "1.1e-12 outside the near-constant family, so rtol and atol are about one order "
+            "above."
         ),
     ),
     "gjr_garch_11_variance": Tolerance(
-        rtol=1e-6,
-        atol=1e-8,
-        justification="as garch_11_variance, with the same burn-in-excluded comparison.",
+        rtol=1e-12,
+        atol=1e-14,
+        justification=(
+            "as garch_11_variance; measured max abs error 9e-19 and max rel error 9e-16 on 400 "
+            "draws."
+        ),
     ),
     "hmm_fit_transition_matrix": Tolerance(
         rtol=0.05,

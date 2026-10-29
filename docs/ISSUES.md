@@ -108,6 +108,13 @@ The kernels' default `presample_variance` is arch's backcast of the residuals pa
 consumer that recomputes the variance path from a fit gets the fitted path without any change;
 passing the unconditional variance explicitly restores the previous start.
 
+On 40 simulated GARCH(1,1) series of 750 returns, scored under arch's own Gaussian likelihood,
+the new `fit_garch_11` parameters are at least as good as the previous ones in all 40 (gains
+between 3e-5 and 5.2 log-likelihood units; the three series whose parameters moved most gain
+0.23, 5.25 and 0.65). The previous optimiser stopped at a weaker point under that likelihood, so
+the moves in omega (up to 0.033) and in the last variance (up to 11%) are the fit improving
+together with the seeding change, not arch landing on a local optimum.
+
 ### QC-10: Historical CVaR without empyrical — done
 The mean of the `int((n - 1) * (1 - alpha)) + 1` smallest returns via `np.partition`, the
 same expression empyrical evaluates, so the result is bit-identical (pinned by

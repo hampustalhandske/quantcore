@@ -28,36 +28,28 @@ EWMA_VARIANCE_MIN_LEN = 1
 EWMA_VARIANCE_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
 EWMA_VARIANCE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
-# The burn-in comparator (`conformance.targets.risk_models._BurnInArrayComparator`, cap
-# 300) needs enough points *after* it to compare a converged tail; below ~50 points essentially
-# nothing survives the slice, so quantcore's and arch's differing seedings (never having had
-# time to converge) are compared unfairly. GARCH_11_VARIANCE_MIN_LEN is therefore this test's
-# own floor for a *fair* comparison, not garch_11_variance's real minimum input length (1) --
-# the same MIN_LEN/true-minimum split FIT_GARCH_11_MIN_LEN below uses.
-GARCH_11_VARIANCE_MIN_LEN = 50
+GARCH_11_VARIANCE_MIN_LEN = 1
 GARCH_11_VARIANCE_FAMILIES: tuple[str, ...] = tuple(
     f for f in RETURN_FAMILIES if f not in ("huge_scale", "tiny_scale")
 )
-GARCH_11_VARIANCE_BUCKETS: tuple[str, ...] = ("medium", "long")
+GARCH_11_VARIANCE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
-EGARCH_11_VARIANCE_MIN_LEN = 50
+EGARCH_11_VARIANCE_MIN_LEN = 1
 # "near_constant" is additionally excluded (unlike garch_11_variance/gjr_garch_11_variance): the
 # EGARCH log-variance recursion divides by sigma_{t-1} to form z_{t-1} = eps_{t-1}/sigma_{t-1}
 # (egarch.py's module docstring), so on a near-constant series (sigma tiny and itself only
-# known to floating precision) a minuscule difference between quantcore's and arch's seedings is
-# amplified every step through that division and the exp/log round trip, and never converges
-# within any practical burn-in -- observed persisting past a 500+ point burn-in at both "medium"
-# and "long" buckets, unlike the transient garch_11_variance/gjr_garch_11_variance show.
+# known to floating precision) rounding differences are amplified through that division and the
+# exp/log round trip; the two paths then differ by up to 0.6 relative.
 EGARCH_11_VARIANCE_FAMILIES: tuple[str, ...] = tuple(
     f for f in RETURN_FAMILIES if f not in ("huge_scale", "tiny_scale", "near_constant")
 )
-EGARCH_11_VARIANCE_BUCKETS: tuple[str, ...] = ("medium", "long")
+EGARCH_11_VARIANCE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
-GJR_GARCH_11_VARIANCE_MIN_LEN = 50
+GJR_GARCH_11_VARIANCE_MIN_LEN = 1
 GJR_GARCH_11_VARIANCE_FAMILIES: tuple[str, ...] = tuple(
     f for f in RETURN_FAMILIES if f not in ("huge_scale", "tiny_scale")
 )
-GJR_GARCH_11_VARIANCE_BUCKETS: tuple[str, ...] = ("medium", "long")
+GJR_GARCH_11_VARIANCE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
 # Fitting needs enough observations to identify four free parameters reliably; drawn lengths are
 # clipped up front (see `_fit_garch_len_strategy`) so "short"/"tiny" generator draws never reach

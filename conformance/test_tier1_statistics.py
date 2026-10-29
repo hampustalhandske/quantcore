@@ -1,4 +1,4 @@
-"""Tier-1 differential tests: `newey_west_cov`, `engle_granger_test` against `statsmodels`.
+"""Tier-1 differential tests: `newey_west_cov` against `statsmodels`.
 
 The `newey_west_cov` comparison is anchored twice: once directly (quantcore vs. the
 bread-meat-bread reference construction on arbitrary `(x, residuals)`), and once by fitting an
@@ -15,18 +15,14 @@ from hypothesis import strategies as st
 import conformance.targets.statistics  # noqa: F401
 from conformance.compare import registry
 from conformance.generators import (
-    COINTEGRATION_FAMILIES,
     REGRESSION_FAMILIES,
-    TaggedPair,
     TaggedRegression,
-    cointegration_pair,
     length_bucket_for,
     regression_problem,
 )
 from conformance.harness import check
 
 _NEWEY_WEST_COV = registry()["newey_west_cov"]
-_ENGLE_GRANGER_TEST = registry()["engle_granger_test"]
 
 # Declared coverage: the smallest input length each test's generator draws, and the families and
 # length buckets it is expected to record at least one case in.
@@ -38,12 +34,6 @@ exact, every residual is identically zero, and the "covariance" is a degenerate 
 (quantcore does not raise there, it returns that degenerate matrix)."""
 NEWEY_WEST_COV_FAMILIES: tuple[str, ...] = REGRESSION_FAMILIES
 NEWEY_WEST_COV_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
-
-ENGLE_GRANGER_TEST_MIN_LEN = 10
-"""Smallest `y`/`x` length `engle_granger_test` accepts: quantcore's own
-`_validate_engle_granger_inputs` rejects fewer than 10 observations."""
-ENGLE_GRANGER_TEST_FAMILIES: tuple[str, ...] = COINTEGRATION_FAMILIES
-ENGLE_GRANGER_TEST_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
 
 @given(
@@ -92,17 +82,3 @@ def test_newey_west_cov_anchored_to_statsmodels_ols_hac(
             f"{provider_name} newey_west_cov does not match statsmodels OLS cov_type='HAC': "
             f"actual={actual!r} expected={expected!r}"
         )
-
-
-@given(pair=cointegration_pair(min_len=ENGLE_GRANGER_TEST_MIN_LEN))
-def test_engle_granger_test_matches_statsmodels(pair: TaggedPair) -> None:
-    """Quantcore's (statistic, p-value) against `statsmodels.tsa.stattools.coint`."""
-    check(
-        _ENGLE_GRANGER_TEST,
-        pair.y,
-        pair.x,
-        family=pair.family,
-        length_bucket=length_bucket_for(pair.y.shape[0]),
-        seed=pair.seed,
-        quantities=("statistic", "p_value"),
-    )

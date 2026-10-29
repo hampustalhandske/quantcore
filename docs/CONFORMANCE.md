@@ -6,17 +6,17 @@ Every quantcore function the conformance suite covers is registered as a target 
 
 quantcore version: `0.3.0`
 
-Library versions: `QuantLib` 1.43, `arch` 8.0.0, `cvxpy` 1.9.3, `empyrical-reloaded` 0.5.12, `filterpy` 1.4.5, `hmmlearn` 0.3.3, `hypothesis` 6.168.0, `linearmodels` 7.0, `numpy` 2.5.3, `pandas` 3.0.6, `py_vollib` 1.0.12, `pykalman` 0.11.2, `quantstats` 0.0.81, `scikit-learn` 1.9.1, `scipy` 1.18.1, `statsmodels` 0.15.0
+Library versions: `arch` 8.0.0, `cvxpy` 1.9.3, `empyrical-reloaded` 0.5.12, `filterpy` 1.4.5, `hmmlearn` 0.3.3, `hypothesis` 6.168.0, `linearmodels` 7.0, `numpy` 2.5.3, `pandas` 3.0.6, `py_vollib` 1.0.12, `quantstats` 0.0.81, `scikit-learn` 1.9.1, `scipy` 1.18.1, `statsmodels` 0.15.0
 
 Hypothesis profile: `ci`
 
 | status | targets |
 |---|---|
-| verified | 99 |
+| verified | 68 |
 | non-standard | 0 |
 | defect | 0 |
-| unverifiable | 3 |
-| total | 102 |
+| unverifiable | 2 |
+| total | 70 |
 
 ## Status per target
 
@@ -24,10 +24,6 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 
 | target | quantity | oracle | cases | max abs err | max rel err | rtol | atol | status | finding |
 |---|---|---|---|---|---|---|---|---|---|
-| `adf_test` | `p_value` | statsmodels | 200 | 1.060e-13 | 3.240e-13 | 1e-08 | 1e-11 | verified | — |
-| `adf_test` | `statistic` | statsmodels | 200 | 2.260e-13 | 1.190e-13 | 1e-08 | 1e-11 | verified | — |
-| `arch_lm` | `p_value` | statsmodels.stats.diagnostic.het_arch | 200 | 6.860e-13 | 7.430e-13 | 1e-08 | 1e-08 | verified | — |
-| `arch_lm` | `statistic` | statsmodels.stats.diagnostic.het_arch | 200 | 1.500e-12 | 1.790e-11 | 1e-08 | 1e-08 | verified | — |
 | `arima_fit` | `log_likelihood` | statsmodels (ARIMA, exact Gaussian state-space likelihood, both solutions evaluated under the SAME model's loglike -- see module docstring) | 60 | 4.740e-07 | 1.030e-09 | 1e-06 | 0.001 | verified | — |
 | `arima_fit` | `params` | statsmodels (ARIMA, exact Gaussian state-space likelihood, both solutions evaluated under the SAME model's loglike -- see module docstring) | 60 | 5.160e-05 | 3.450e-03 | 1e-06 | 0.001 | verified | — |
 | `arima_forecast` | `value` | statsmodels (SARIMAX filtered at the given coefficients, exact diffuse initial state, steady-state shortcut off, then forecast -- see `_arima_forecast_reference`) | 200 | 6.660e-16 | 8.280e-16 | 1e-09 | 1e-10 | verified | — |
@@ -45,12 +41,7 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `conditional_value_at_risk` | `value` | closed form (scipy.stats.norm) | 200 | 0.000e+00 | 0.000e+00 | 1e-09 | 1e-09 | verified | — |
 | `cpc_index` | `value` | quantstats.stats.cpc_index | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-12 | verified | — |
 | `dynamic_hedge_ratio` | `value` | hand scalar Kalman regression started from the same prior, beta ~ N(initial_beta, 1), compared on every element | 80 | 0.000e+00 | 0.000e+00 | 1e-06 | 1e-08 | verified | — |
-| `egarch_11_variance` | `value` | arch (conditional variance via arch_model(vol='EGARCH').fix(params)) | 400 | 2.510e-10 | 3.010e-09 | 1e-06 | 1e-08 | verified | — |
-| `egarch_fit` | `log_likelihood` | arch, evaluated under a shared Gaussian log-likelihood built from egarch_11_variance | 200 | 1.940e+04 | 2.870e+01 | 0.001 | 0.01 | verified | — |
-| `egarch_fit` | `params` | arch, evaluated under a shared Gaussian log-likelihood built from egarch_11_variance | 200 | 1.630e+01 | 9.840e+299 | 0.001 | 0.01 | verified | — |
-| `engle_granger_test` | `p_value` | statsmodels | 200 | 7.440e-15 | 8.910e-14 | 1e-10 | 1e-10 | verified | — |
-| `engle_granger_test` | `statistic` | statsmodels | 200 | 4.620e-14 | 5.660e-14 | 1e-10 | 1e-10 | verified | — |
-| `ewma_covariance` | `value` | pandas.DataFrame.ewm(alpha=1-lambda_, adjust=False).mean() of the outer products r_t r_t', lagged one observation, with the sample-covariance seed (no demeaning) | 200 | 5.550e-16 | 1.920e-13 | 1e-10 | 1e-12 | verified | — |
+| `egarch_11_variance` | `value` | arch (conditional variance via arch_model(vol='EGARCH').fix(params)) | 400 | 8.880e-16 | 1.150e-12 | 1e-11 | 1e-12 | verified | — |
 | `ewma_variance` | `value` | hand recursion (RiskMetrics definition, identical seeding) | 400 | 2.330e-10 | 3.630e-16 | 1e-10 | 1e-10 | verified | — |
 | `factor_loadings_loadings` | `value` | statsmodels (OLS with an intercept column) | 200 | 1.330e-15 | 8.480e-15 | 1e-08 | 1e-10 | verified | — |
 | `factor_loadings_p_values` | `value` | statsmodels (OLS, cov_type='HAC', use_correction=False; two-sided normal p-values) | 200 | 2.440e-15 | 1.590e-12 | 1e-06 | 1e-08 | verified | — |
@@ -60,18 +51,9 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `factor_loadings_t_stats` | `value` | statsmodels (OLS, cov_type='HAC', use_correction=False) | 200 | 1.140e-12 | 1.040e-14 | 1e-07 | 1e-08 | verified | — |
 | `fama_macbeth_mean_risk_premia` | `value` | linearmodels.FamaMacBeth(cov_type='unadjusted') (cross-checked, see test module) | 200 | 0.000e+00 | 0.000e+00 | 1e-08 | 1e-10 | verified | — |
 | `fama_macbeth_standard_errors` | `value` | linearmodels.FamaMacBeth(cov_type='unadjusted') (cross-checked, see test module) | 200 | 8.670e-19 | 1.910e-16 | 1e-07 | 1e-10 | verified | — |
-| `fit_garch_11` | `log_likelihood` | arch, evaluated under a shared Gaussian log-likelihood built from garch_11_variance | 200 | 1.530e+03 | 3.980e+01 | 0.001 | 0.01 | verified | — |
-| `fit_garch_11` | `params` | arch, evaluated under a shared Gaussian log-likelihood built from garch_11_variance | 200 | 1.000e+00 | 4.600e+298 | 0.001 | 0.01 | verified | — |
-| `futures_roll_yield` | `value` | hand-derived closed form | 200 | 5.820e-11 | 8.360e-13 | 1e-12 | 0 | verified | — |
 | `gain_to_pain` | `value` | quantstats.stats.gain_to_pain_ratio | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-12 | verified | — |
-| `garch_11_variance` | `value` | arch (conditional variance via arch_model(...).fix(params)) | 400 | 8.420e-13 | 3.070e-08 | 1e-08 | 1e-10 | verified | — |
-| `gjr_garch_11_variance` | `value` | arch (conditional variance via arch_model(vol='GARCH', o=1).fix(params)) | 400 | 2.010e-15 | 2.150e-10 | 1e-06 | 1e-08 | verified | — |
-| `gjr_garch_fit` | `log_likelihood` | arch, evaluated under a shared Gaussian log-likelihood built from gjr_garch_11_variance | 200 | 7.320e+04 | 5.300e+00 | 0.001 | 0.01 | verified | — |
-| `gjr_garch_fit` | `params` | arch, evaluated under a shared Gaussian log-likelihood built from gjr_garch_11_variance | 200 | 2.000e+00 | 1.000e+300 | 0.001 | 0.01 | verified | — |
-| `granger_causality_test` | `p_value` | statsmodels.tsa.stattools.grangercausalitytests (ssr_ftest) | 200 | 1.800e-13 | 4.400e-13 | 1e-06 | 1e-08 | verified | — |
-| `granger_causality_test` | `statistic` | statsmodels.tsa.stattools.grangercausalitytests (ssr_ftest) | 200 | 3.480e-13 | 6.190e-12 | 1e-06 | 1e-08 | verified | — |
-| `heston_cos_call` | `value` | QuantLib AnalyticHestonEngine; Fang & Oosterlee (2008), Table 4/Table 5 published reference values (tests/fixtures/fang_oosterlee_2008.json) are checked in a separate test | 200 | 3.120e-11 | 6.620e-04 | 1e-06 | 1e-06 | verified | — |
-| `heston_cos_put` | `value` | QuantLib AnalyticHestonEngine | 200 | 1.220e-11 | 9.900e-01 | 1e-06 | 1e-06 | verified | — |
+| `garch_11_variance` | `value` | arch (conditional variance via arch_model(...).fix(params)) | 400 | 8.670e-19 | 8.310e-16 | 1e-12 | 1e-14 | verified | — |
+| `gjr_garch_11_variance` | `value` | arch (conditional variance via arch_model(vol='GARCH', o=1).fix(params)) | 400 | 8.670e-19 | 8.670e-16 | 1e-12 | 1e-14 | verified | — |
 | `hit_rate` | `value` | hand-computed; quantstats.stats.win_rate (second oracle) | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-10 | verified | — |
 | `hmm_decode` | `value` | hmmlearn.GaussianHMM.predict (Viterbi), given quantcore's own parameters directly | 30 | 0.000e+00 | 0.000e+00 | 0 | 1e-06 | verified | — |
 | `hmm_filtered_proba` | `value` | hand forward-algorithm implementation (Hamilton 1989) | 30 | 2.400e-12 | 5.860e+105 | 1e-06 | 1e-08 | verified | — |
@@ -82,38 +64,18 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `hmm_fit_variances` | `value` | hmmlearn.GaussianHMM (independent EM fit, comparably seeded) | 30 | 1.360e-02 | 1.460e-01 | 0.05 | 0.05 | verified | — |
 | `hmm_predict_proba` | `value` | hmmlearn.GaussianHMM.predict_proba, given quantcore's own parameters directly | 30 | 1.830e-11 | 3.720e+140 | 1e-06 | 1e-08 | verified | — |
 | `implied_equilibrium_returns` | `value` | hand-derived from He & Litterman 1999 eq. 4 | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-10 | verified | — |
-| `implied_volatility` | `value` | Brent's method (bracket [1e-9, 10], xtol 1e-8) on the Black-Scholes-Merton closed form; second oracle py_vollib.black_scholes_merton.implied_volatility.implied_volatility | 500 | 1.520e-12 | 3.040e-11 | 1e-08 | 1e-08 | verified | — |
-| `impulse_response` | `value` | statsmodels.tsa.vector_ar.var_model.VARProcess.orth_ma_rep (Cholesky-orthogonalized) | 200 | 2.220e-16 | 4.340e-13 | 1e-08 | 1e-09 | verified | — |
 | `information_ratio` | `value` | empyrical-reloaded (excess_sharpe, annualised) | 200 | 5.330e-14 | 8.580e-15 | 1e-09 | 1e-09 | verified | — |
 | `jarque_bera` | `p_value` | scipy.stats.jarque_bera | 200 | 6.000e-15 | 1.300e-13 | 1e-09 | 1e-12 | verified | — |
 | `jarque_bera` | `statistic` | scipy.stats.jarque_bera | 200 | 1.490e-08 | 2.130e-14 | 1e-09 | 1e-12 | verified | — |
-| `kalman_filter_covs` | `value` | pykalman.KalmanFilter (initial state pre-advanced one predict step to match quantcore) | 40 | 1.320e-16 | 2.850e-15 | 1e-08 | 1e-10 | verified | — |
-| `kalman_filter_means` | `value` | pykalman.KalmanFilter (initial state pre-advanced one predict step to match quantcore) | 40 | 7.110e-15 | 1.600e-12 | 1e-08 | 1e-10 | verified | — |
-| `kalman_smooth_covs` | `value` | pykalman.KalmanFilter.smooth (RTS), same initial-state adjustment as the filter | 40 | 1.550e-15 | 2.440e-12 | 1e-08 | 1e-10 | verified | — |
-| `kalman_smooth_means` | `value` | pykalman.KalmanFilter.smooth (RTS), same initial-state adjustment as the filter | 40 | 1.420e-14 | 7.810e-13 | 1e-08 | 1e-10 | verified | — |
-| `kelly_fraction` | `value` | hand formula (Kelly 1956 / Thorp 2006) | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-12 | verified | — |
-| `kpss` | `p_value` | statsmodels.tsa.stattools.kpss | 400 | 9.230e-16 | 2.070e-14 | 1e-09 | 0 | verified | — |
-| `kpss` | `p_value_at_bound` | statsmodels.tsa.stattools.kpss | 400 | 0.000e+00 | 0.000e+00 | 1e-09 | 0 | verified | — |
-| `kpss` | `statistic` | statsmodels.tsa.stattools.kpss | 400 | 6.390e-14 | 7.450e-15 | 1e-09 | 0 | verified | — |
-| `l1_turnover_penalized_weights` | `objective` | cvxpy (same QP/L1 program quantcore solves via a smooth buy/sell-slack SLSQP) | 200 | 1.320e-08 | 4.230e-06 | 1e-06 | 1e-08 | verified | — |
-| `l1_turnover_penalized_weights` | `weights` | cvxpy (same QP/L1 program quantcore solves via a smooth buy/sell-slack SLSQP) | 200 | 2.530e-04 | 1.000e+00 | 1e-06 | 1e-08 | verified | — |
 | `ledoit_wolf_shrinkage` | `value` | sklearn.covariance.LedoitWolf(assume_centered=False) | 200 | 1.770e-13 | 1.260e-12 | 1e-06 | 1e-06 | verified | — |
-| `ljung_box_test` | `p_value` | statsmodels | 200 | 1.330e-15 | 1.880e-14 | 1e-09 | 1e-09 | verified | — |
-| `ljung_box_test` | `statistic` | statsmodels | 200 | 1.140e-13 | 2.340e-14 | 1e-09 | 1e-09 | verified | — |
 | `margin_financing_cost` | `value` | hand-derived closed form | 200 | 0.000e+00 | 0.000e+00 | 1e-12 | 0 | verified | — |
 | `maximum_drawdown` | `value` | empyrical-reloaded | 200 | 1.110e-16 | 1.340e-08 | 1e-10 | 1e-09 | verified | — |
-| `mean_variance_weights` | `objective` | cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP) | 200 | 8.840e-09 | 1.870e-04 | 1e-06 | 1e-08 | verified | — |
-| `mean_variance_weights` | `weights` | cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP) | 200 | 6.960e-06 | 1.000e+00 | 1e-06 | 1e-08 | verified | — |
 | `min_variance_weights` | `objective` | cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP) | 200 | 1.090e-08 | 2.580e-06 | 1e-06 | 1e-08 | verified | — |
 | `min_variance_weights` | `weights` | cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP) | 200 | 4.140e-06 | 1.000e+00 | 1e-06 | 1e-08 | verified | — |
-| `monte_carlo_call_price` | `value` | Black-Scholes-Merton closed form (same GBM dynamics), judged within k=4 times the larger of the reported standard error and the estimator's closed-form standard deviation | 60 | 3.870e+00 | 1.000e+00 | 0 | 1e-10 | verified | — |
-| `monte_carlo_put_price` | `value` | Black-Scholes-Merton closed form, judged within k=4 times the larger of the reported standard error and the estimator's closed-form standard deviation | 60 | 3.340e-01 | 1.000e+00 | 0 | 1e-10 | verified | — |
 | `newey_west_cov` | `value` | statsmodels | 200 | 9.440e-16 | 1.850e-13 | 1e-09 | 1e-11 | verified | — |
 | `newey_west_optimal_lags` | `value` | hand-computed (the rule of thumb itself) | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-09 | verified | — |
 | `ols_coefficients` | `value` | statsmodels | 200 | 2.660e-15 | 4.200e-15 | 1e-08 | 1e-08 | verified | — |
 | `ols_r_squared` | `value` | statsmodels | 200 | 2.220e-16 | 5.540e-16 | 1e-08 | 1e-08 | verified | — |
-| `option_expiry_payoff` | `value` | hand-derived intrinsic-value formula | 300 | 0.000e+00 | 0.000e+00 | 1e-12 | 1e-10 | verified | — |
-| `option_position_pnl` | `value` | hand-derived daily BSM repricing | 200 | 2.330e-10 | 8.470e+287 | 1e-09 | 1e-09 | verified | — |
 | `option_roll_schedule` | `value` | hand-derived nearest-expiry selection | 201 | 0.000e+00 | — | 0 | 0 | verified | — |
 | `ou_half_life` | `value` | statsmodels.OLS slope on the lagged series | 200 | 8.190e-12 | 3.630e-14 | 1e-09 | 1e-09 | verified | — |
 | `outlier_loss_ratio` | `value` | quantstats.stats.outlier_loss_ratio | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-12 | verified | — |
@@ -125,11 +87,8 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `protective_put_sizing` | `protection_pct_achieved` | hand-derived sizing formula | 200 | 0.000e+00 | 0.000e+00 | 1e-08 | 1e-08 | verified | — |
 | `risk_of_ruin` | `value` | quantstats.stats.risk_of_ruin | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-12 | verified | — |
 | `risk_parity_weights` | `value` | independent Spinu (2013) convex reformulation, solved by L-BFGS-B | 200 | 1.860e-09 | 3.250e-08 | 0.001 | 0.001 | verified | — |
-| `rolling_sharpe` | `value` | empyrical-reloaded | 200 | 5.960e-08 | 2.880e-13 | 1e-09 | 1e-08 | verified | — |
-| `sample_covariance` | `value` | numpy.cov(returns, rowvar=False, ddof=1) | 200 | 0.000e+00 | 0.000e+00 | 1e-09 | 1e-09 | verified | — |
 | `select_arima_order` | `value` | statsmodels (ARIMA.fit, aic/bic; agreement rate reported, not asserted -- see module docstring) | 25 | 0.000e+00 | 0.000e+00 | 0 | 0 | unverifiable | — |
 | `select_hmm_n_states` | — | none (no independent library implements this selection rule); hand/invariant tests only | 0 | — | — | — | — | unverifiable | — |
-| `select_var_lag_order` | `value` | statsmodels.tsa.api.VAR.select_order (agreement rate reported, not asserted -- see module docstring) | 40 | 0.000e+00 | 0.000e+00 | 0 | 0 | unverifiable | — |
 | `serenity_index` | `value` | quantstats.stats.serenity_index | 200 | 6.910e-06 | 3.980e-09 | 1e-10 | 1e-12 | verified | — |
 | `sharpe_ratio` | `value` | empyrical-reloaded | 200 | 8.380e-09 | 5.910e-13 | 1e-10 | 1e-09 | verified | — |
 | `short_borrow_cost` | `value` | hand-derived closed form | 200 | 0.000e+00 | 0.000e+00 | 1e-12 | 0 | verified | — |
@@ -142,9 +101,6 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `unconstrained_mean_variance_weights` | `weights` | independent closed-form linear solve (no constraints) | 200 | 0.000e+00 | 0.000e+00 | 1e-09 | 1e-10 | verified | — |
 | `value_at_risk` | `value` | closed form (scipy.stats.norm) | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-10 | verified | — |
 | `value_at_risk_cornish_fisher` | `value` | hand-computed (Cornish-Fisher 1938 expansion) | 200 | 0.000e+00 | 0.000e+00 | 1e-08 | 1e-08 | verified | — |
-| `var_fit_coef_matrix` | `value` | statsmodels.tsa.api.VAR (params reordered to quantcore's intercept-last layout, finding H -- see module docstring) | 200 | 1.520e-14 | 1.670e-11 | 1e-07 | 1e-09 | verified | — |
-| `var_fit_sigma_u` | `value` | statsmodels.tsa.api.VAR (sigma_u, the unbiased residual covariance estimator) | 200 | 6.660e-16 | 4.080e-14 | 1e-07 | 1e-09 | verified | — |
-| `var_forecast` | `value` | statsmodels.tsa.vector_ar.var_model.forecast (same coefficients, no re-fit) | 200 | 0.000e+00 | 0.000e+00 | 1e-08 | 1e-09 | verified | — |
 
 ## Targets that are not verified
 
@@ -152,7 +108,6 @@ A `defect` or `non-standard` target has a hand-written finding in `conformance/f
 
 - `select_arima_order` (`unverifiable`): comparator is report-only (conformance.compare.ReportOnlyScalarComparator): agreement with the oracle is recorded for the report but never asserted, so this target is never classified verified whatever the recorded error magnitudes
 - `select_hmm_n_states` (`unverifiable`): no independent oracle is registered for this target
-- `select_var_lag_order` (`unverifiable`): comparator is report-only (conformance.compare.ReportOnlyScalarComparator): agreement with the oracle is recorded for the report but never asserted, so this target is never classified verified whatever the recorded error magnitudes
 
 ## Coverage
 
@@ -160,16 +115,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 
 | target | family | cases |
 |---|---|---|
-| `adf_test` | `stationary` | 222 |
-| `adf_test` | `unit_root` | 178 |
-| `arch_lm` | `normal` | 20 |
-| `arch_lm` | `student_t3` | 50 |
-| `arch_lm` | `skewed` | 64 |
-| `arch_lm` | `ar1` | 52 |
-| `arch_lm` | `garch11` | 58 |
-| `arch_lm` | `all_positive` | 52 |
-| `arch_lm` | `all_negative` | 70 |
-| `arch_lm` | `huge_scale` | 34 |
 | `arima_fit` | `white_noise` | 18 |
 | `arima_fit` | `ar1` | 16 |
 | `arima_fit` | `ar2` | 18 |
@@ -287,24 +232,13 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `cpc_index` | `huge_scale` | 23 |
 | `dynamic_hedge_ratio` | `stable_hedge` | 50 |
 | `dynamic_hedge_ratio` | `drifting_hedge` | 30 |
-| `egarch_11_variance` | `normal` | 42 |
-| `egarch_11_variance` | `student_t3` | 54 |
-| `egarch_11_variance` | `skewed` | 41 |
-| `egarch_11_variance` | `ar1` | 50 |
-| `egarch_11_variance` | `garch11` | 71 |
-| `egarch_11_variance` | `all_positive` | 72 |
-| `egarch_11_variance` | `all_negative` | 70 |
-| `egarch_fit` | `normal` | 166 |
-| `egarch_fit` | `student_t3` | 114 |
-| `egarch_fit` | `garch11` | 120 |
-| `engle_granger_test` | `cointegrated` | 112 |
-| `engle_granger_test` | `independent_rw` | 130 |
-| `engle_granger_test` | `near_unit_root` | 158 |
-| `ewma_covariance` | `well_conditioned` | 53 |
-| `ewma_covariance` | `near_singular` | 23 |
-| `ewma_covariance` | `equal_vol` | 57 |
-| `ewma_covariance` | `one_dominant` | 31 |
-| `ewma_covariance` | `high_condition` | 36 |
+| `egarch_11_variance` | `normal` | 48 |
+| `egarch_11_variance` | `student_t3` | 78 |
+| `egarch_11_variance` | `skewed` | 57 |
+| `egarch_11_variance` | `ar1` | 45 |
+| `egarch_11_variance` | `garch11` | 72 |
+| `egarch_11_variance` | `all_positive` | 60 |
+| `egarch_11_variance` | `all_negative` | 40 |
 | `ewma_variance` | `normal` | 37 |
 | `ewma_variance` | `student_t3` | 34 |
 | `ewma_variance` | `skewed` | 52 |
@@ -335,16 +269,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `factor_loadings_t_stats` | `autocorrelated` | 67 |
 | `fama_macbeth_mean_risk_premia` | `normal` | 200 |
 | `fama_macbeth_standard_errors` | `normal` | 200 |
-| `fit_garch_11` | `normal` | 150 |
-| `fit_garch_11` | `student_t3` | 128 |
-| `fit_garch_11` | `garch11` | 122 |
-| `futures_roll_yield` | `backwardation` | 23 |
-| `futures_roll_yield` | `contango` | 42 |
-| `futures_roll_yield` | `flat` | 12 |
-| `futures_roll_yield` | `tiny_price` | 16 |
-| `futures_roll_yield` | `huge_price` | 24 |
-| `futures_roll_yield` | `short_days_to_roll` | 31 |
-| `futures_roll_yield` | `long_days_to_roll` | 52 |
 | `gain_to_pain` | `normal` | 21 |
 | `gain_to_pain` | `student_t3` | 30 |
 | `gain_to_pain` | `skewed` | 27 |
@@ -353,38 +277,22 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `gain_to_pain` | `all_negative` | 18 |
 | `gain_to_pain` | `tiny_scale` | 32 |
 | `gain_to_pain` | `huge_scale` | 33 |
-| `garch_11_variance` | `normal` | 55 |
-| `garch_11_variance` | `student_t3` | 32 |
-| `garch_11_variance` | `skewed` | 94 |
-| `garch_11_variance` | `ar1` | 53 |
-| `garch_11_variance` | `garch11` | 63 |
-| `garch_11_variance` | `near_constant` | 34 |
-| `garch_11_variance` | `all_positive` | 24 |
-| `garch_11_variance` | `all_negative` | 45 |
-| `gjr_garch_11_variance` | `normal` | 94 |
-| `gjr_garch_11_variance` | `student_t3` | 34 |
-| `gjr_garch_11_variance` | `skewed` | 21 |
-| `gjr_garch_11_variance` | `ar1` | 67 |
-| `gjr_garch_11_variance` | `garch11` | 40 |
-| `gjr_garch_11_variance` | `near_constant` | 38 |
-| `gjr_garch_11_variance` | `all_positive` | 64 |
-| `gjr_garch_11_variance` | `all_negative` | 42 |
-| `gjr_garch_fit` | `normal` | 176 |
-| `gjr_garch_fit` | `student_t3` | 140 |
-| `gjr_garch_fit` | `garch11` | 84 |
-| `granger_causality_test` | `var2_stationary` | 166 |
-| `granger_causality_test` | `var3_stationary` | 106 |
-| `granger_causality_test` | `var2_near_unit_root` | 128 |
-| `heston_cos_call` | `atm_feller_satisfying` | 40 |
-| `heston_cos_call` | `atm_feller_violating` | 40 |
-| `heston_cos_call` | `moderate_moneyness` | 40 |
-| `heston_cos_call` | `long_expiry` | 40 |
-| `heston_cos_call` | `short_expiry_wide_moneyness` | 40 |
-| `heston_cos_put` | `atm_feller_satisfying` | 40 |
-| `heston_cos_put` | `atm_feller_violating` | 40 |
-| `heston_cos_put` | `moderate_moneyness` | 40 |
-| `heston_cos_put` | `long_expiry` | 40 |
-| `heston_cos_put` | `short_expiry_wide_moneyness` | 40 |
+| `garch_11_variance` | `normal` | 35 |
+| `garch_11_variance` | `student_t3` | 42 |
+| `garch_11_variance` | `skewed` | 95 |
+| `garch_11_variance` | `ar1` | 51 |
+| `garch_11_variance` | `garch11` | 38 |
+| `garch_11_variance` | `near_constant` | 49 |
+| `garch_11_variance` | `all_positive` | 50 |
+| `garch_11_variance` | `all_negative` | 40 |
+| `gjr_garch_11_variance` | `normal` | 56 |
+| `gjr_garch_11_variance` | `student_t3` | 54 |
+| `gjr_garch_11_variance` | `skewed` | 37 |
+| `gjr_garch_11_variance` | `ar1` | 68 |
+| `gjr_garch_11_variance` | `garch11` | 75 |
+| `gjr_garch_11_variance` | `near_constant` | 10 |
+| `gjr_garch_11_variance` | `all_positive` | 66 |
+| `gjr_garch_11_variance` | `all_negative` | 34 |
 | `hit_rate` | `normal` | 30 |
 | `hit_rate` | `student_t3` | 43 |
 | `hit_rate` | `skewed` | 48 |
@@ -416,17 +324,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `implied_equilibrium_returns` | `equal_vol` | 50 |
 | `implied_equilibrium_returns` | `one_dominant` | 47 |
 | `implied_equilibrium_returns` | `high_condition` | 33 |
-| `implied_volatility` | `atm_short_expiry` | 110 |
-| `implied_volatility` | `atm_long_expiry` | 118 |
-| `implied_volatility` | `moderate_itm` | 74 |
-| `implied_volatility` | `moderate_otm` | 106 |
-| `implied_volatility` | `zero_dividend` | 78 |
-| `implied_volatility` | `nonzero_dividend` | 69 |
-| `implied_volatility` | `negative_rate` | 56 |
-| `implied_volatility` | `high_vol` | 89 |
-| `impulse_response` | `var2_stationary` | 81 |
-| `impulse_response` | `var3_stationary` | 60 |
-| `impulse_response` | `var2_near_unit_root` | 59 |
 | `information_ratio` | `normal` | 17 |
 | `information_ratio` | `student_t3` | 14 |
 | `information_ratio` | `skewed` | 21 |
@@ -447,51 +344,11 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `jarque_bera` | `all_negative` | 28 |
 | `jarque_bera` | `tiny_scale` | 14 |
 | `jarque_bera` | `huge_scale` | 54 |
-| `kalman_filter_covs` | `scalar_random_walk` | 26 |
-| `kalman_filter_covs` | `two_state_local_level` | 14 |
-| `kalman_filter_means` | `scalar_random_walk` | 26 |
-| `kalman_filter_means` | `two_state_local_level` | 14 |
-| `kalman_smooth_covs` | `scalar_random_walk` | 20 |
-| `kalman_smooth_covs` | `two_state_local_level` | 20 |
-| `kalman_smooth_means` | `scalar_random_walk` | 20 |
-| `kalman_smooth_means` | `two_state_local_level` | 20 |
-| `kelly_fraction` | `positive_edge` | 49 |
-| `kelly_fraction` | `negative_edge` | 44 |
-| `kelly_fraction` | `clip_binding_positive` | 53 |
-| `kelly_fraction` | `clip_binding_negative` | 54 |
-| `kpss` | `normal` | 93 |
-| `kpss` | `student_t3` | 75 |
-| `kpss` | `skewed` | 54 |
-| `kpss` | `ar1` | 39 |
-| `kpss` | `garch11` | 84 |
-| `kpss` | `near_constant` | 36 |
-| `kpss` | `all_positive` | 54 |
-| `kpss` | `all_negative` | 27 |
-| `kpss` | `tiny_scale` | 72 |
-| `kpss` | `huge_scale` | 66 |
-| `kpss` | `cointegrated` | 222 |
-| `kpss` | `independent_rw` | 201 |
-| `kpss` | `near_unit_root` | 177 |
-| `l1_turnover_penalized_weights` | `well_conditioned` | 88 |
-| `l1_turnover_penalized_weights` | `near_singular` | 84 |
-| `l1_turnover_penalized_weights` | `equal_vol` | 62 |
-| `l1_turnover_penalized_weights` | `one_dominant` | 78 |
-| `l1_turnover_penalized_weights` | `high_condition` | 88 |
 | `ledoit_wolf_shrinkage` | `well_conditioned` | 34 |
 | `ledoit_wolf_shrinkage` | `near_singular` | 34 |
 | `ledoit_wolf_shrinkage` | `equal_vol` | 37 |
 | `ledoit_wolf_shrinkage` | `one_dominant` | 42 |
 | `ledoit_wolf_shrinkage` | `high_condition` | 53 |
-| `ljung_box_test` | `normal` | 46 |
-| `ljung_box_test` | `student_t3` | 40 |
-| `ljung_box_test` | `skewed` | 52 |
-| `ljung_box_test` | `ar1` | 34 |
-| `ljung_box_test` | `garch11` | 32 |
-| `ljung_box_test` | `near_constant` | 22 |
-| `ljung_box_test` | `all_positive` | 50 |
-| `ljung_box_test` | `all_negative` | 68 |
-| `ljung_box_test` | `tiny_scale` | 14 |
-| `ljung_box_test` | `huge_scale` | 42 |
 | `margin_financing_cost` | `typical` | 29 |
 | `margin_financing_cost` | `tiny_magnitude` | 70 |
 | `margin_financing_cost` | `huge_magnitude` | 25 |
@@ -507,26 +364,11 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `maximum_drawdown` | `all_negative` | 29 |
 | `maximum_drawdown` | `tiny_scale` | 18 |
 | `maximum_drawdown` | `huge_scale` | 20 |
-| `mean_variance_weights` | `well_conditioned` | 102 |
-| `mean_variance_weights` | `near_singular` | 68 |
-| `mean_variance_weights` | `equal_vol` | 78 |
-| `mean_variance_weights` | `one_dominant` | 60 |
-| `mean_variance_weights` | `high_condition` | 92 |
 | `min_variance_weights` | `well_conditioned` | 76 |
 | `min_variance_weights` | `near_singular` | 102 |
 | `min_variance_weights` | `equal_vol` | 78 |
 | `min_variance_weights` | `one_dominant` | 70 |
 | `min_variance_weights` | `high_condition` | 74 |
-| `monte_carlo_call_price` | `atm` | 12 |
-| `monte_carlo_call_price` | `itm` | 12 |
-| `monte_carlo_call_price` | `otm` | 12 |
-| `monte_carlo_call_price` | `high_vol` | 12 |
-| `monte_carlo_call_price` | `long_expiry` | 12 |
-| `monte_carlo_put_price` | `atm` | 12 |
-| `monte_carlo_put_price` | `itm` | 12 |
-| `monte_carlo_put_price` | `otm` | 12 |
-| `monte_carlo_put_price` | `high_vol` | 12 |
-| `monte_carlo_put_price` | `long_expiry` | 12 |
 | `newey_west_cov` | `homoskedastic` | 57 |
 | `newey_west_cov` | `heteroskedastic` | 78 |
 | `newey_west_cov` | `autocorrelated` | 65 |
@@ -537,14 +379,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `ols_r_squared` | `homoskedastic` | 77 |
 | `ols_r_squared` | `heteroskedastic` | 60 |
 | `ols_r_squared` | `autocorrelated` | 63 |
-| `option_expiry_payoff` | `itm_call` | 64 |
-| `option_expiry_payoff` | `otm_call` | 78 |
-| `option_expiry_payoff` | `itm_put` | 57 |
-| `option_expiry_payoff` | `otm_put` | 59 |
-| `option_expiry_payoff` | `atm` | 42 |
-| `option_position_pnl` | `rising_path` | 56 |
-| `option_position_pnl` | `falling_path` | 44 |
-| `option_position_pnl` | `flat_path` | 100 |
 | `option_roll_schedule` | `nearest_above` | 151 |
 | `option_roll_schedule` | `nearest_below` | 49 |
 | `option_roll_schedule` | `tie` | 1 |
@@ -592,28 +426,10 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `risk_parity_weights` | `equal_vol` | 36 |
 | `risk_parity_weights` | `one_dominant` | 44 |
 | `risk_parity_weights` | `high_condition` | 42 |
-| `rolling_sharpe` | `normal` | 21 |
-| `rolling_sharpe` | `student_t3` | 27 |
-| `rolling_sharpe` | `skewed` | 19 |
-| `rolling_sharpe` | `ar1` | 32 |
-| `rolling_sharpe` | `garch11` | 19 |
-| `rolling_sharpe` | `near_constant` | 40 |
-| `rolling_sharpe` | `all_positive` | 10 |
-| `rolling_sharpe` | `all_negative` | 12 |
-| `rolling_sharpe` | `tiny_scale` | 18 |
-| `rolling_sharpe` | `huge_scale` | 2 |
-| `sample_covariance` | `well_conditioned` | 58 |
-| `sample_covariance` | `near_singular` | 56 |
-| `sample_covariance` | `equal_vol` | 44 |
-| `sample_covariance` | `one_dominant` | 15 |
-| `sample_covariance` | `high_condition` | 27 |
 | `select_arima_order` | `ar1` | 8 |
 | `select_arima_order` | `ar2` | 6 |
 | `select_arima_order` | `ma1` | 4 |
 | `select_arima_order` | `arma11` | 7 |
-| `select_var_lag_order` | `var2_stationary` | 6 |
-| `select_var_lag_order` | `var3_stationary` | 17 |
-| `select_var_lag_order` | `var2_near_unit_root` | 17 |
 | `serenity_index` | `normal` | 30 |
 | `serenity_index` | `student_t3` | 22 |
 | `serenity_index` | `skewed` | 11 |
@@ -699,24 +515,9 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `value_at_risk_cornish_fisher` | `all_negative` | 19 |
 | `value_at_risk_cornish_fisher` | `tiny_scale` | 18 |
 | `value_at_risk_cornish_fisher` | `huge_scale` | 13 |
-| `var_fit_coef_matrix` | `var2_stationary` | 48 |
-| `var_fit_coef_matrix` | `var3_stationary` | 65 |
-| `var_fit_coef_matrix` | `var2_near_unit_root` | 87 |
-| `var_fit_sigma_u` | `var2_stationary` | 48 |
-| `var_fit_sigma_u` | `var3_stationary` | 65 |
-| `var_fit_sigma_u` | `var2_near_unit_root` | 87 |
-| `var_forecast` | `var2_stationary` | 86 |
-| `var_forecast` | `var3_stationary` | 51 |
-| `var_forecast` | `var2_near_unit_root` | 63 |
 
 | target | bucket | cases |
 |---|---|---|
-| `adf_test` | `short` | 106 |
-| `adf_test` | `medium` | 208 |
-| `adf_test` | `long` | 86 |
-| `arch_lm` | `short` | 74 |
-| `arch_lm` | `medium` | 130 |
-| `arch_lm` | `long` | 196 |
 | `arima_fit` | `medium` | 66 |
 | `arima_fit` | `long` | 54 |
 | `arima_forecast` | `medium` | 106 |
@@ -750,16 +551,9 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `dynamic_hedge_ratio` | `short` | 22 |
 | `dynamic_hedge_ratio` | `medium` | 45 |
 | `dynamic_hedge_ratio` | `long` | 13 |
-| `egarch_11_variance` | `medium` | 208 |
-| `egarch_11_variance` | `long` | 192 |
-| `egarch_fit` | `medium` | 210 |
-| `egarch_fit` | `long` | 190 |
-| `engle_granger_test` | `short` | 100 |
-| `engle_granger_test` | `medium` | 152 |
-| `engle_granger_test` | `long` | 148 |
-| `ewma_covariance` | `short` | 106 |
-| `ewma_covariance` | `medium` | 38 |
-| `ewma_covariance` | `long` | 56 |
+| `egarch_11_variance` | `short` | 149 |
+| `egarch_11_variance` | `medium` | 118 |
+| `egarch_11_variance` | `long` | 133 |
 | `ewma_variance` | `short` | 133 |
 | `ewma_variance` | `medium` | 139 |
 | `ewma_variance` | `long` | 128 |
@@ -787,22 +581,15 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `fama_macbeth_standard_errors` | `short` | 71 |
 | `fama_macbeth_standard_errors` | `medium` | 61 |
 | `fama_macbeth_standard_errors` | `long` | 68 |
-| `fit_garch_11` | `medium` | 188 |
-| `fit_garch_11` | `long` | 212 |
-| `futures_roll_yield` | `scalar` | 200 |
 | `gain_to_pain` | `short` | 71 |
 | `gain_to_pain` | `medium` | 59 |
 | `gain_to_pain` | `long` | 70 |
-| `garch_11_variance` | `medium` | 215 |
-| `garch_11_variance` | `long` | 185 |
-| `gjr_garch_11_variance` | `medium` | 222 |
-| `gjr_garch_11_variance` | `long` | 178 |
-| `gjr_garch_fit` | `medium` | 220 |
-| `gjr_garch_fit` | `long` | 180 |
-| `granger_causality_test` | `medium` | 230 |
-| `granger_causality_test` | `long` | 170 |
-| `heston_cos_call` | `scalar` | 200 |
-| `heston_cos_put` | `scalar` | 200 |
+| `garch_11_variance` | `short` | 132 |
+| `garch_11_variance` | `medium` | 142 |
+| `garch_11_variance` | `long` | 126 |
+| `gjr_garch_11_variance` | `short` | 153 |
+| `gjr_garch_11_variance` | `medium` | 127 |
+| `gjr_garch_11_variance` | `long` | 120 |
 | `hit_rate` | `short` | 144 |
 | `hit_rate` | `medium` | 134 |
 | `hit_rate` | `long` | 122 |
@@ -825,51 +612,21 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `implied_equilibrium_returns` | `dim_small` | 119 |
 | `implied_equilibrium_returns` | `dim_medium` | 37 |
 | `implied_equilibrium_returns` | `dim_large` | 44 |
-| `implied_volatility` | `scalar` | 700 |
-| `impulse_response` | `medium` | 84 |
-| `impulse_response` | `long` | 116 |
 | `information_ratio` | `short` | 77 |
 | `information_ratio` | `medium` | 61 |
 | `information_ratio` | `long` | 62 |
 | `jarque_bera` | `short` | 160 |
 | `jarque_bera` | `medium` | 118 |
 | `jarque_bera` | `long` | 122 |
-| `kalman_filter_covs` | `short` | 7 |
-| `kalman_filter_covs` | `medium` | 27 |
-| `kalman_filter_covs` | `long` | 6 |
-| `kalman_filter_means` | `short` | 7 |
-| `kalman_filter_means` | `medium` | 27 |
-| `kalman_filter_means` | `long` | 6 |
-| `kalman_smooth_covs` | `short` | 10 |
-| `kalman_smooth_covs` | `medium` | 25 |
-| `kalman_smooth_covs` | `long` | 5 |
-| `kalman_smooth_means` | `short` | 10 |
-| `kalman_smooth_means` | `medium` | 25 |
-| `kalman_smooth_means` | `long` | 5 |
-| `kelly_fraction` | `scalar` | 200 |
-| `kpss` | `short` | 354 |
-| `kpss` | `medium` | 366 |
-| `kpss` | `long` | 480 |
-| `l1_turnover_penalized_weights` | `dim_small` | 214 |
-| `l1_turnover_penalized_weights` | `dim_medium` | 90 |
-| `l1_turnover_penalized_weights` | `dim_large` | 96 |
 | `ledoit_wolf_shrinkage` | `medium` | 88 |
 | `ledoit_wolf_shrinkage` | `long` | 112 |
-| `ljung_box_test` | `short` | 72 |
-| `ljung_box_test` | `medium` | 162 |
-| `ljung_box_test` | `long` | 166 |
 | `margin_financing_cost` | `scalar` | 200 |
 | `maximum_drawdown` | `short` | 55 |
 | `maximum_drawdown` | `medium` | 57 |
 | `maximum_drawdown` | `long` | 88 |
-| `mean_variance_weights` | `dim_small` | 212 |
-| `mean_variance_weights` | `dim_medium` | 102 |
-| `mean_variance_weights` | `dim_large` | 86 |
 | `min_variance_weights` | `dim_small` | 206 |
 | `min_variance_weights` | `dim_medium` | 86 |
 | `min_variance_weights` | `dim_large` | 108 |
-| `monte_carlo_call_price` | `scalar` | 60 |
-| `monte_carlo_put_price` | `scalar` | 60 |
 | `newey_west_cov` | `short` | 43 |
 | `newey_west_cov` | `medium` | 59 |
 | `newey_west_cov` | `long` | 98 |
@@ -882,9 +639,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `ols_r_squared` | `short` | 47 |
 | `ols_r_squared` | `medium` | 73 |
 | `ols_r_squared` | `long` | 80 |
-| `option_expiry_payoff` | `scalar` | 300 |
-| `option_position_pnl` | `short` | 35 |
-| `option_position_pnl` | `medium` | 165 |
 | `option_roll_schedule` | `scalar` | 201 |
 | `ou_half_life` | `short` | 51 |
 | `ou_half_life` | `medium` | 86 |
@@ -905,13 +659,7 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `risk_parity_weights` | `dim_small` | 106 |
 | `risk_parity_weights` | `dim_medium` | 45 |
 | `risk_parity_weights` | `dim_large` | 49 |
-| `rolling_sharpe` | `short` | 63 |
-| `rolling_sharpe` | `medium` | 62 |
-| `rolling_sharpe` | `long` | 75 |
-| `sample_covariance` | `medium` | 98 |
-| `sample_covariance` | `long` | 102 |
 | `select_arima_order` | `medium` | 25 |
-| `select_var_lag_order` | `medium` | 40 |
 | `serenity_index` | `short` | 65 |
 | `serenity_index` | `medium` | 65 |
 | `serenity_index` | `long` | 70 |
@@ -941,12 +689,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `value_at_risk_cornish_fisher` | `short` | 58 |
 | `value_at_risk_cornish_fisher` | `medium` | 53 |
 | `value_at_risk_cornish_fisher` | `long` | 89 |
-| `var_fit_coef_matrix` | `medium` | 102 |
-| `var_fit_coef_matrix` | `long` | 98 |
-| `var_fit_sigma_u` | `medium` | 102 |
-| `var_fit_sigma_u` | `long` | 98 |
-| `var_forecast` | `medium` | 95 |
-| `var_forecast` | `long` | 105 |
 
 ## Iterative estimators (win/tie/loss)
 
@@ -961,25 +703,6 @@ A fitter or optimiser without a unique numerical optimum is judged on the object
 | `arima_fit` | `ma2` | 0 | 3 | 0 |
 | `arima_fit` | `near_unit_root` | 0 | 9 | 0 |
 | `arima_fit` | `white_noise` | 0 | 9 | 0 |
-| `egarch_fit` | `garch11` | 60 | 0 | 0 |
-| `egarch_fit` | `normal` | 75 | 7 | 1 |
-| `egarch_fit` | `student_t3` | 46 | 8 | 3 |
-| `fit_garch_11` | `garch11` | 60 | 0 | 1 |
-| `fit_garch_11` | `normal` | 54 | 17 | 4 |
-| `fit_garch_11` | `student_t3` | 49 | 14 | 1 |
-| `gjr_garch_fit` | `garch11` | 42 | 0 | 0 |
-| `gjr_garch_fit` | `normal` | 79 | 7 | 2 |
-| `gjr_garch_fit` | `student_t3` | 64 | 4 | 2 |
-| `l1_turnover_penalized_weights` | `equal_vol` | 0 | 31 | 0 |
-| `l1_turnover_penalized_weights` | `high_condition` | 0 | 44 | 0 |
-| `l1_turnover_penalized_weights` | `near_singular` | 0 | 42 | 0 |
-| `l1_turnover_penalized_weights` | `one_dominant` | 0 | 39 | 0 |
-| `l1_turnover_penalized_weights` | `well_conditioned` | 0 | 44 | 0 |
-| `mean_variance_weights` | `equal_vol` | 0 | 39 | 0 |
-| `mean_variance_weights` | `high_condition` | 0 | 46 | 0 |
-| `mean_variance_weights` | `near_singular` | 0 | 34 | 0 |
-| `mean_variance_weights` | `one_dominant` | 0 | 30 | 0 |
-| `mean_variance_weights` | `well_conditioned` | 0 | 51 | 0 |
 | `min_variance_weights` | `equal_vol` | 0 | 39 | 0 |
 | `min_variance_weights` | `high_condition` | 0 | 37 | 0 |
 | `min_variance_weights` | `near_singular` | 0 | 51 | 0 |
@@ -996,11 +719,6 @@ One-sided binomial sign test on well-specified cases only (`H0: p_loss = 0.5`, a
 | target | objective | sense | wins | ties | losses | p-value | median gap | non-convergence | decision |
 |---|---|---|---|---|---|---|---|---|---|
 | `arima_fit` | `log_likelihood` | maximize | 0 | 60 | 0 | 1 | 1.540e-08 | 0.0% | `verified` |
-| `egarch_fit` | `log_likelihood` | maximize | 43 | 100 | 0 | 1 | 8.340e-01 | 0.0% | `verified` |
-| `fit_garch_11` | `log_likelihood` | maximize | 4 | 132 | 0 | 1 | 1.480e-01 | 0.0% | `verified` |
-| `gjr_garch_fit` | `log_likelihood` | maximize | 29 | 101 | 0 | 1 | 7.020e-01 | 0.0% | `verified` |
-| `l1_turnover_penalized_weights` | `objective` | maximize | 0 | 200 | 0 | 1 | 1.670e-16 | 0.0% | `verified` |
-| `mean_variance_weights` | `objective` | maximize | 0 | 200 | 0 | 1 | 0.000e+00 | 0.0% | `verified` |
 | `min_variance_weights` | `objective` | minimize | 0 | 200 | 0 | 1 | 2.370e-17 | 0.0% | `verified` |
 | `unconstrained_mean_variance_weights` | `objective` | maximize | 0 | 200 | 0 | 1 | 0.000e+00 | 0.0% | `verified` |
 
@@ -1022,7 +740,6 @@ A second, independent oracle checked against the same target's own oracle (its s
 | `bs_rho` | `py_vollib` | `rho` | 200 | 1.140e-13 | 4.790e-05 | yes | 0 |
 | `bs_theta` | `py_vollib` | `theta` | 200 | 2.780e-17 | 3.050e-11 | yes | 0 |
 | `hit_rate` | `quantstats` | `win_rate` | 200 | 0.000e+00 | 0.000e+00 | yes | 0 |
-| `implied_volatility` | `py_vollib` | `sigma` | 200 | 2.480e-09 | 4.960e-08 | yes | 0 |
 | `profit_factor` | `quantstats` | `profit_factor` | 200 | 0.000e+00 | 0.000e+00 | yes | 0 |
 | `sharpe_ratio` | `quantstats` | `rf_nonzero` | 200 | 5.590e-09 | 1.850e-14 | yes | 0 |
 | `sharpe_ratio` | `quantstats` | `rf_zero` | 200 | 5.590e-09 | 1.430e-14 | yes | 0 |

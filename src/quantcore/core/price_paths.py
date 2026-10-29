@@ -1,6 +1,6 @@
 """Price-path simulators driven by a caller-supplied `numpy.random.Generator`.
 
-Six processes, one function each, with the common signature
+Four processes, one function each, with the common signature
 
     simulate_<process>_price_paths(rng, n_paths, n_steps, dt, *, s0=..., <process parameters>)
 
@@ -9,8 +9,6 @@ path, column 0 the starting price. `dt` is the length of one step in the time un
 parameters (years when drift and volatility are annual). With x = log(S) and Z ~ N(0, 1):
 
     GBM:      x_{k+1} = x_k + (mu - sigma^2/2)*dt + sigma*sqrt(dt)*Z
-    exp-OU:   x_{k+1} = theta + (x_k - theta)*exp(-kappa*dt)
-                        + sqrt(sigma^2/(2*kappa) * (1 - exp(-2*kappa*dt)))*Z
     Heston:   v+ = max(v_k, 0)
               x_{k+1} = x_k + (mu - v+/2)*dt + sqrt(v+)*sqrt(dt)*Z1
               v_{k+1} = v_k + kappa*(theta - v+)*dt
@@ -18,15 +16,13 @@ parameters (years when drift and volatility are annual). With x = log(S) and Z ~
     GARCH-t:  r_k = mu*dt + sqrt(h_k)*z_k,  z_k = T_k*sqrt((nu - 2)/nu),  T_k ~ Student-t(nu)
               h_{k+1} = omega + alpha*h_k*z_k^2 + beta*h_k,  h_0 = omega/(1 - alpha - beta)
               x_{k+1} = x_k + r_k
-    Regime:   s_{k+1} in {0, 1} is a Markov chain with s_0 = 0, P(0 -> 1) = p01, P(1 -> 0) = p10
-              x_{k+1} = x_k + (mu_s - sigma_s^2/2)*dt + sigma_s*sqrt(dt)*Z,  s = s_{k+1}
     Jump:     N ~ Poisson(lambda*dt),  J ~ Normal(N*m, N*s^2),  J = 0 when N = 0
               x_{k+1} = x_k + (mu - sigma^2/2 - lambda*c)*dt + sigma*sqrt(dt)*Z + J,
               c = exp(m + s^2/2) - 1
 
-GBM, exp-OU and the jump diffusion are sampled from their exact transition law on the grid. The
-Heston scheme is an Euler discretisation and carries a bias that shrinks with dt. The GARCH and
-regime-switching models are discrete-time models by definition.
+GBM and the jump diffusion are sampled from their exact transition law on the grid. The Heston
+scheme is an Euler discretisation and carries a bias that shrinks with dt. The GARCH model is a
+discrete-time model by definition.
 
 These functions sit beside the seed-taking simulators in `sde_solver.py` and `stochastic.py` and
 differ from them in taking the generator itself, so that a caller can draw from one stream before
@@ -52,7 +48,7 @@ Why NumPy:
     `exp`, which is not guaranteed to round like NumPy's elementwise `exp` on every platform.
 
 Non-finite inputs and overflow:
-    Every real-valued parameter, including the drifts and levels (`mu`, `mu0`, `mu1`, `theta`,
+    Every real-valued parameter, including the drifts and levels (`mu`, `theta`,
     `jump_mean_log`), is checked finite before the first draw. Prices are the exponential of a
     float64 log-price, so finite parameters can still overflow; if any simulated price is not
     finite the call raises `FloatingPointError` after all draws, so `rng` has been advanced.
@@ -70,10 +66,9 @@ References:
     Simulation Schemes for Stochastic Volatility Models" (full-truncation Euler scheme).
     Bollerslev, T. (1986), "Generalized Autoregressive Conditional Heteroskedasticity" (variance
     recursion); Bollerslev, T. (1987), "A Conditionally Heteroskedastic Time Series Model for
-    Speculative Prices and Rates of Return" (standardised Student-t innovations). Hamilton, J.D.
-    (1989), "A New Approach to the Economic Analysis of Nonstationary Time Series and the
-    Business Cycle" (Markov regime switching). Merton, R.C. (1976), "Option Pricing When
-    Underlying Stock Returns Are Discontinuous" (jump diffusion). See docs/REFERENCES.md.
+    Speculative Prices and Rates of Return" (standardised Student-t innovations). Merton, R.C.
+    (1976), "Option Pricing When Underlying Stock Returns Are Discontinuous" (jump diffusion).
+    See docs/REFERENCES.md.
 """
 
 from __future__ import annotations
@@ -200,109 +195,6 @@ def _simulate_gbm_price_paths(
     log_prices = np.zeros((n_paths, n_steps + 1), dtype=np.float64)
     np.cumsum(log_increments, axis=1, out=log_prices[:, 1:])
     prices: npt.NDArray[np.float64] = s0 * np.exp(log_prices)
-    return _require_finite_prices(prices, log_prices)
-
-
-def _validate_simulate_exp_ou_price_paths(
-    n_paths: int,
-    n_steps: int,
-    dt: float,
-    s0: float,
-    kappa: float,
-    theta: float | None,
-    sigma: float,
-) -> None:
-    _validate_grid(n_paths, n_steps, dt, s0)
-    if theta is not None:
-        _require_finite("theta", theta)
-    _require_positive("kappa", kappa)
-    _require_positive("sigma", sigma)
-
-
-def simulate_exp_ou_price_paths(
-    rng: np.random.Generator,
-    n_paths: int,
-    n_steps: int,
-    dt: float,
-    *,
-    s0: float = 100.0,
-    kappa: float = 1.0,
-    theta: float | None = None,
-    sigma: float = 0.2,
-) -> npt.NDArray[np.float64]:
-    """Simulate mean-reverting price paths: an Ornstein-Uhlenbeck process on the log-price.
-
-    With `X = log(S)` and `dX = kappa*(theta - X)*dt + sigma*dW`, each step samples the exact
-    Gaussian transition, mean `theta + (X_k - theta)*exp(-kappa*dt)` and variance
-    `sigma^2/(2*kappa) * (1 - exp(-2*kappa*dt))`, and the prices are `exp(X)`. `theta` is the
-    long-run mean of `log(S)`, not of `S`. In the stationary regime `log(S)` has mean `theta`,
-    variance `sigma^2/(2*kappa)` and lag-one autocorrelation `exp(-kappa*dt)`. The process has
-    no drift parameter.
-
-    Random draws: for each step in turn, one call `rng.standard_normal(n_paths)`, element `i`
-    driving path `i`.
-
-    Args:
-        rng: Generator the variates are drawn from; it is advanced by the call.
-        n_paths: Number of independent paths (positive).
-        n_steps: Number of time steps per path (positive).
-        dt: Length of one step, in the time unit of `kappa` and `sigma` (strictly positive,
-            finite).
-        s0: Starting price (strictly positive, finite).
-        kappa: Mean-reversion speed per unit time (strictly positive, finite).
-        theta: Long-run mean of `log(S)`. None (default) uses `log(s0)`, so the process starts
-            at its long-run mean. Finite when given.
-        sigma: Volatility of `log(S)` per square root of unit time (strictly positive, finite).
-
-    Returns:
-        Prices of shape (n_paths, n_steps + 1). Column 0 is `exp(log(s0))` evaluated in floating
-        point, which is the same number in every row but not always bit-equal to `s0`: it can
-        differ from `s0` in the last few bits, by a relative amount of at most about
-        `(|ln(s0)| + 2) * 2.2e-16`.
-
-    Raises:
-        ValueError: If `n_paths` or `n_steps` is not positive, `theta` is given and not finite,
-            or `dt`, `s0`, `kappa` or `sigma` is not strictly positive and finite.
-        FloatingPointError: If a simulated price overflows float64, or a log-price is not
-            finite because a drift or variance term overflowed. The generator has been
-            advanced by then.
-
-    Notes:
-        The step variance is formed from `1 - exp(-2*kappa*dt)`, which loses relative precision
-        as `kappa*dt` shrinks (a relative error of up to about `1.1e-16 / (2*kappa*dt)`) and is
-        exactly zero, giving paths without noise, once `2*kappa*dt` is below about `5.6e-17`.
-
-    References:
-        Uhlenbeck & Ornstein (1930); Schwartz (1997); Glasserman (2004), Chapter 3. See
-        docs/REFERENCES.md.
-    """
-    _validate_simulate_exp_ou_price_paths(n_paths, n_steps, dt, s0, kappa, theta, sigma)
-    return _simulate_exp_ou_price_paths(rng, n_paths, n_steps, dt, s0, kappa, theta, sigma)
-
-
-def _simulate_exp_ou_price_paths(
-    rng: np.random.Generator,
-    n_paths: int,
-    n_steps: int,
-    dt: float,
-    s0: float,
-    kappa: float,
-    theta: float | None,
-    sigma: float,
-) -> npt.NDArray[np.float64]:
-    theta_value = math.log(s0) if theta is None else theta
-    decay = math.exp(-kappa * dt)
-    variance = (sigma * sigma) / (2.0 * kappa) * (1.0 - math.exp(-2.0 * kappa * dt))
-    std = math.sqrt(variance)
-
-    log_prices = np.empty((n_paths, n_steps + 1), dtype=np.float64)
-    log_prices[:, 0] = math.log(s0)
-    for step in range(n_steps):
-        z = rng.standard_normal(n_paths)
-        log_prices[:, step + 1] = (
-            theta_value + (log_prices[:, step] - theta_value) * decay + std * z
-        )
-    prices: npt.NDArray[np.float64] = np.exp(log_prices)
     return _require_finite_prices(prices, log_prices)
 
 
@@ -529,125 +421,6 @@ def _simulate_garch_t_price_paths(
 
     log_prices = np.zeros((n_paths, n_steps + 1), dtype=np.float64)
     np.cumsum(log_returns, axis=1, out=log_prices[:, 1:])
-    prices: npt.NDArray[np.float64] = s0 * np.exp(log_prices)
-    return _require_finite_prices(prices, log_prices)
-
-
-def _validate_simulate_regime_switching_price_paths(
-    n_paths: int,
-    n_steps: int,
-    dt: float,
-    s0: float,
-    mu0: float,
-    sigma0: float,
-    mu1: float,
-    sigma1: float,
-    p01: float,
-    p10: float,
-) -> None:
-    _validate_grid(n_paths, n_steps, dt, s0)
-    _require_finite("mu0", mu0)
-    _require_finite("mu1", mu1)
-    _require_positive("sigma0", sigma0)
-    _require_positive("sigma1", sigma1)
-    _require_open_unit_interval("p01", p01)
-    _require_open_unit_interval("p10", p10)
-
-
-def simulate_regime_switching_price_paths(
-    rng: np.random.Generator,
-    n_paths: int,
-    n_steps: int,
-    dt: float,
-    *,
-    s0: float = 100.0,
-    mu0: float = 0.10,
-    sigma0: float = 0.15,
-    mu1: float = -0.20,
-    sigma1: float = 0.40,
-    p01: float = 0.02,
-    p10: float = 0.10,
-) -> npt.NDArray[np.float64]:
-    """Simulate price paths that switch between two geometric Brownian motion regimes.
-
-    A two-state Markov chain starts every path in regime 0. At each step the transition is drawn
-    first (a path in regime 0 moves to 1 with probability `p01`, one in regime 1 moves to 0 with
-    probability `p10`), and the log-price then takes the exact GBM step of the regime just
-    entered, `(mu_s - sigma_s^2/2)*dt + sigma_s*sqrt(dt)*Z`. The first return is therefore
-    already in regime 1 with probability `p01`.
-
-    `p01` and `p10` are probabilities per step and are not scaled by `dt`. The stationary regime
-    probabilities are `pi0 = p10/(p01 + p10)` and `pi1 = p01/(p01 + p10)`, and the stationary
-    variance of a one-step log-return is
-    `pi0*sigma0^2*dt + pi1*sigma1^2*dt + pi0*pi1*(m0 - m1)^2` with
-    `m_s = (mu_s - sigma_s^2/2)*dt`.
-
-    Random draws: for each step in turn, `rng.random(n_paths)` for the switch decision (path `i`
-    switches when its uniform is below its switch probability), then
-    `rng.standard_normal(n_paths)` for the return.
-
-    Args:
-        rng: Generator the variates are drawn from; it is advanced by the call.
-        n_paths: Number of independent paths (positive).
-        n_steps: Number of time steps per path (positive).
-        dt: Length of one step, in the time unit of the drifts and volatilities (strictly
-            positive, finite).
-        s0: Starting price (strictly positive, finite).
-        mu0: Drift per unit time in regime 0 (finite).
-        sigma0: Volatility per square root of unit time in regime 0 (strictly positive, finite).
-        mu1: Drift per unit time in regime 1 (finite).
-        sigma1: Volatility per square root of unit time in regime 1 (strictly positive, finite).
-        p01: Probability per step of moving from regime 0 to regime 1, strictly between 0 and 1.
-        p10: Probability per step of moving from regime 1 to regime 0, strictly between 0 and 1.
-
-    Returns:
-        Prices of shape (n_paths, n_steps + 1); column 0 equals `s0` exactly.
-
-    Raises:
-        ValueError: If `n_paths` or `n_steps` is not positive; `mu0` or `mu1` is not finite;
-            `dt`, `s0`, `sigma0` or `sigma1` is not strictly positive and finite; or `p01` or
-            `p10` is not strictly between 0 and 1.
-        FloatingPointError: If a simulated price overflows float64, or a log-price is not
-            finite because a drift or variance term overflowed. The generator has been
-            advanced by then.
-
-    References:
-        Hamilton (1989). See docs/REFERENCES.md.
-    """
-    _validate_simulate_regime_switching_price_paths(
-        n_paths, n_steps, dt, s0, mu0, sigma0, mu1, sigma1, p01, p10
-    )
-    return _simulate_regime_switching_price_paths(
-        rng, n_paths, n_steps, dt, s0, mu0, sigma0, mu1, sigma1, p01, p10
-    )
-
-
-def _simulate_regime_switching_price_paths(
-    rng: np.random.Generator,
-    n_paths: int,
-    n_steps: int,
-    dt: float,
-    s0: float,
-    mu0: float,
-    sigma0: float,
-    mu1: float,
-    sigma1: float,
-    p01: float,
-    p10: float,
-) -> npt.NDArray[np.float64]:
-    sqrt_dt = math.sqrt(dt)
-    state = np.zeros(n_paths, dtype=np.int64)
-    log_prices = np.zeros((n_paths, n_steps + 1), dtype=np.float64)
-    for step in range(n_steps):
-        u = rng.random(n_paths)
-        switch_prob = np.where(state == 0, p01, p10)
-        state = np.where(u < switch_prob, 1 - state, state)
-        mu_t = np.where(state == 0, mu0, mu1)
-        sigma_t = np.where(state == 0, sigma0, sigma1)
-        z = rng.standard_normal(n_paths)
-        log_prices[:, step + 1] = (
-            log_prices[:, step] + (mu_t - 0.5 * sigma_t * sigma_t) * dt + sigma_t * sqrt_dt * z
-        )
     prices: npt.NDArray[np.float64] = s0 * np.exp(log_prices)
     return _require_finite_prices(prices, log_prices)
 

@@ -21,8 +21,7 @@ dependencies and the `oracle` extra; the dividend-yield oracle test uses py_voll
 ### QC-3: Remove unused portfolio, filtering and core helpers — in progress
 `mean_variance_weights`, `l1_turnover_penalized_weights`, `kelly_fraction`, `sample_covariance`,
 `ewma_covariance`, `kalman_filter`, `kalman_smooth`, `euler_maruyama`,
-`core.stochastic.simulate_heston_paths`. `dynamic_hedge_ratio`, `simulate_heston_price_paths` and
-`simulate_exp_ou_price_paths` stay. The active-set quadratic-program solver in
+`core.stochastic.simulate_heston_paths`. `dynamic_hedge_ratio` and `simulate_heston_price_paths` stay. The active-set quadratic-program solver in
 `portfolio/optimization.py` was written for the mean-variance and L1-turnover programs; only
 `min_variance_weights` still uses it. Replacing it with something smaller could move
 `min_variance_weights` results, so it is left as it is.

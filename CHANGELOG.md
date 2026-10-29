@@ -36,6 +36,8 @@ the final tree only, not on each intermediate commit.
 
 ### Removed
 
+- `simulate_exp_ou_price_paths` and `simulate_regime_switching_price_paths`, which only unused wrappers in edgelab call.
+  The other four price-path simulators and their output are unchanged.
 - `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price` and
   `monte_carlo_put_price`. No project calls them. `QuantLib` is no longer a
   runtime dependency and is no longer in the `oracle` extra; the dividend-yield
@@ -479,23 +481,17 @@ before and after (the cost outweighs any gain).
     count. Needs 3 observations for `"c"` and 4 for `"ct"`; raises `ValueError`
     when no residual exceeds rounding error (a constant series, or an exactly
     linear one under `"ct"`) or when the automatic lag count divides by zero.
-- `quantcore.core.price_paths` (exported from `quantcore.core`), six functions
+- `quantcore.core.price_paths` (exported from `quantcore.core`), four functions
   taking the caller's `numpy.random.Generator` first and returning float64
   prices of shape `(n_paths, n_steps + 1)`:
   - `simulate_gbm_price_paths(rng, n_paths, n_steps, dt, *, s0, mu, sigma)`:
     geometric Brownian motion, exact log-normal step.
-  - `simulate_exp_ou_price_paths(rng, n_paths, n_steps, dt, *, s0, kappa,
-    theta, sigma)`: Ornstein-Uhlenbeck process on the log-price (exact Gaussian
-    transition); `theta=None` uses `log(s0)`.
   - `simulate_heston_price_paths(rng, n_paths, n_steps, dt, *, s0, mu, v0,
     kappa, theta, xi, rho)`: Heston stochastic volatility, full-truncation
     Euler.
   - `simulate_garch_t_price_paths(rng, n_paths, n_steps, dt, *, s0, mu, omega,
     alpha, beta, nu)`: GARCH(1,1) with standardised Student-t innovations;
     `omega`, `alpha`, `beta` are per-step and `dt` scales the drift only.
-  - `simulate_regime_switching_price_paths(rng, n_paths, n_steps, dt, *, s0,
-    mu0, sigma0, mu1, sigma1, p01, p10)`: two-state Markov regime-switching
-    GBM; regime probabilities are per step.
   - `simulate_jump_diffusion_price_paths(rng, n_paths, n_steps, dt, *, s0, mu,
     sigma, jump_intensity, jump_mean_log, jump_std_log)`: Merton jump diffusion
     with compensated drift, exact transition on the grid.

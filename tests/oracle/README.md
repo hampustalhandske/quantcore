@@ -92,7 +92,6 @@ this directory are their only comparison with an independent reference:
   (`performance/test_component_var_oracle.py`).
 - `core`: `simulate_gbm_paths`, `simulate_ou_paths`, `simulate_cir_paths`
   (`core/test_sde_moments_oracle.py`), and `simulate_gbm_price_paths`,
-  `simulate_heston_price_paths`, `simulate_jump_diffusion_price_paths`,
-  `simulate_regime_switching_price_paths`, `simulate_exp_ou_price_paths` and
+  `simulate_heston_price_paths`, `simulate_jump_diffusion_price_paths` and
   `simulate_garch_t_price_paths` (`core/test_price_paths_moments_oracle.py`),
   each compared with the analytic moments of its process.

@@ -26,29 +26,25 @@ import pytest
 from scipy import stats
 
 from quantcore.core import (
-    simulate_exp_ou_price_paths,
     simulate_garch_t_price_paths,
     simulate_gbm_price_paths,
     simulate_heston_price_paths,
     simulate_jump_diffusion_price_paths,
-    simulate_regime_switching_price_paths,
 )
 
 Simulator = Callable[..., npt.NDArray[np.float64]]
 
 _ALL_SIMULATORS: dict[str, Simulator] = {
     "gbm": simulate_gbm_price_paths,
-    "exp_ou": simulate_exp_ou_price_paths,
     "heston": simulate_heston_price_paths,
     "garch_t": simulate_garch_t_price_paths,
-    "regime_switching": simulate_regime_switching_price_paths,
     "jump_diffusion": simulate_jump_diffusion_price_paths,
 }
 _ALL_NAMES = sorted(_ALL_SIMULATORS)
 
-# Every simulator except the exponential OU one builds its output as `s0 * exp(x)` with `x = 0`
-# in the first column, which is `s0` exactly. The exponential OU one returns `exp(log(s0))`.
-_FIRST_COLUMN_IS_EXACTLY_S0 = sorted(set(_ALL_SIMULATORS) - {"exp_ou"})
+# Every simulator builds its output as `s0 * exp(x)` with `x = 0` in the first column, which is
+# `s0` exactly.
+_FIRST_COLUMN_IS_EXACTLY_S0 = sorted(_ALL_SIMULATORS)
 
 _DT = 1.0 / 252.0
 _DT_WEEKLY = 1.0 / 52.0
@@ -77,17 +73,6 @@ class TestOutputShapeAndDomain:
     def test_first_column_is_exactly_s0(self, name: str, s0: float) -> None:
         paths = _ALL_SIMULATORS[name](np.random.default_rng(0), 4, 3, _DT, s0=s0)
         np.testing.assert_array_equal(paths[:, 0], np.full(4, s0))
-
-    @pytest.mark.parametrize("s0", [100.0, 123.0, 57.3, 0.0123, 1e-8, 1e8])
-    def test_exp_ou_first_column_is_exp_of_log_s0(self, s0: float) -> None:
-        # The log-price starts at log(s0) and the whole array is exponentiated, so the first
-        # column is exp(log(s0)): the same number in every row, and within the documented
-        # relative distance (|ln s0| + 2) * 2.2e-16 of s0 rather than equal to it.
-        paths = simulate_exp_ou_price_paths(np.random.default_rng(0), 5, 3, _DT, s0=s0)
-        first = paths[:, 0]
-        assert np.all(first == first[0])
-        bound = (abs(math.log(s0)) + 2.0) * np.finfo(np.float64).eps
-        assert abs(float(first[0]) - s0) <= bound * s0
 
     @pytest.mark.parametrize("name", _ALL_NAMES)
     def test_output_is_finite_and_strictly_positive(self, name: str) -> None:
@@ -150,8 +135,6 @@ _INF = float("inf")
 # (simulator, parameter named in the error, keyword arguments that must be rejected)
 _INVALID_PARAMETERS: list[tuple[str, str, dict[str, float]]] = [
     *[("gbm", "sigma", {"sigma": bad}) for bad in (0.0, -0.2, _NAN, _INF)],
-    *[("exp_ou", "kappa", {"kappa": bad}) for bad in (0.0, -1.0, _NAN, _INF)],
-    *[("exp_ou", "sigma", {"sigma": bad}) for bad in (0.0, -0.1, _NAN, _INF)],
     *[("heston", "v0", {"v0": bad}) for bad in (-0.01, _NAN, _INF)],
     *[("heston", "kappa", {"kappa": bad}) for bad in (0.0, -2.0, _NAN, _INF)],
     *[("heston", "theta", {"theta": bad}) for bad in (0.0, -0.04, _NAN, _INF)],
@@ -163,10 +146,6 @@ _INVALID_PARAMETERS: list[tuple[str, str, dict[str, float]]] = [
     ("garch_t", r"alpha \+ beta", {"alpha": 0.1, "beta": 0.9}),
     ("garch_t", r"alpha \+ beta", {"alpha": 0.6, "beta": 0.7}),
     *[("garch_t", "nu", {"nu": bad}) for bad in (2.0, 1.0, -5.0, _NAN, _INF)],
-    *[("regime_switching", "sigma0", {"sigma0": bad}) for bad in (0.0, -0.15, _NAN, _INF)],
-    *[("regime_switching", "sigma1", {"sigma1": bad}) for bad in (0.0, -0.4, _NAN, _INF)],
-    *[("regime_switching", "p01", {"p01": bad}) for bad in (0.0, 1.0, -0.1, 1.1, _NAN)],
-    *[("regime_switching", "p10", {"p10": bad}) for bad in (0.0, 1.0, -0.1, 1.1, _NAN)],
     *[("jump_diffusion", "sigma", {"sigma": bad}) for bad in (0.0, -0.2, _NAN, _INF)],
     *[("jump_diffusion", "jump_intensity", {"jump_intensity": bad}) for bad in (-1.0, _NAN, _INF)],
     *[("jump_diffusion", "jump_std_log", {"jump_std_log": bad}) for bad in (-0.1, _NAN, _INF)],
@@ -175,11 +154,8 @@ _INVALID_PARAMETERS: list[tuple[str, str, dict[str, float]]] = [
 # (simulator, drift or level parameter with no range restriction other than being finite)
 _REAL_VALUED_LEVEL_PARAMETERS: list[tuple[str, str]] = [
     ("gbm", "mu"),
-    ("exp_ou", "theta"),
     ("heston", "mu"),
     ("garch_t", "mu"),
-    ("regime_switching", "mu0"),
-    ("regime_switching", "mu1"),
     ("jump_diffusion", "mu"),
     ("jump_diffusion", "jump_mean_log"),
 ]
@@ -187,10 +163,8 @@ _REAL_VALUED_LEVEL_PARAMETERS: list[tuple[str, str]] = [
 # (simulator, finite keyword arguments whose prices overflow float64)
 _OVERFLOWING_CALLS: list[tuple[str, dict[str, float]]] = [
     ("gbm", {"mu": 1e6}),
-    ("exp_ou", {"theta": 800.0, "kappa": 500.0}),
     ("heston", {"mu": 1e6}),
     ("garch_t", {"mu": 1e6}),
-    ("regime_switching", {"mu0": 1e6}),
     ("jump_diffusion", {"mu": 1e6}),
 ]
 
@@ -290,26 +264,14 @@ class TestOverflow:
 
     @pytest.mark.parametrize("name", _ALL_NAMES)
     def test_prices_underflowing_to_zero_are_returned(self, name: str) -> None:
-        drift = {"mu0": -1e6, "mu1": -1e6} if name == "regime_switching" else {"mu": -1e6}
-        if name == "exp_ou":
-            drift = {"theta": -800.0, "kappa": 500.0}
+        drift = {"mu": -1e6}
         paths = _ALL_SIMULATORS[name](np.random.default_rng(0), 3, 10, _DT, **drift)
         assert np.all(np.isfinite(paths))
         assert np.all(paths[:, -1] == 0.0)
 
-
-# ---------------------------------------------------------------------------
-# Conventions that follow from the definitions and hold exactly
-# ---------------------------------------------------------------------------
-
-
-class TestConventions:
-    def test_exp_ou_default_theta_is_log_s0(self) -> None:
-        default = simulate_exp_ou_price_paths(np.random.default_rng(5), 4, 50, _DT, s0=57.3)
-        explicit = simulate_exp_ou_price_paths(
-            np.random.default_rng(5), 4, 50, _DT, s0=57.3, theta=math.log(57.3)
-        )
-        np.testing.assert_array_equal(default, explicit)
+    # ---------------------------------------------------------------------------
+    # Conventions that follow from the definitions and hold exactly
+    # ---------------------------------------------------------------------------
 
     def test_garch_t_dt_scales_the_drift_only(self) -> None:
         # omega, alpha and beta are per-step quantities: with zero drift the step length does
@@ -337,21 +299,6 @@ class TestConventions:
         one = simulate(np.random.default_rng(7), 1, 40, _DT)
         several = simulate(np.random.default_rng(7), 3, 40, _DT)
         assert not np.array_equal(several[0], one[0])
-
-    def test_regime_switching_with_identical_regimes_ignores_the_switch_probabilities(
-        self,
-    ) -> None:
-        # The uniform that decides the switch is drawn every step whatever its outcome, so two
-        # calls that differ only in p01 and p10 see the same normals; with identical regimes
-        # the state then has no effect on the price.
-        common = {"mu0": 0.07, "sigma0": 0.2, "mu1": 0.07, "sigma1": 0.2}
-        rare = simulate_regime_switching_price_paths(
-            np.random.default_rng(8), 3, 60, _DT, p01=0.01, p10=0.02, **common
-        )
-        frequent = simulate_regime_switching_price_paths(
-            np.random.default_rng(8), 3, 60, _DT, p01=0.6, p10=0.7, **common
-        )
-        np.testing.assert_array_equal(rare, frequent)
 
     def test_jump_diffusion_draws_the_jump_normal_whether_or_not_a_jump_occurs(self) -> None:
         # With zero intensity no path ever jumps, yet the generator must end where it ends when
@@ -439,36 +386,6 @@ _PINS: dict[str, _Pin] = {
         "d0b3345c5a6396096a4855d9a7d67a1cca0d445a054e312841b763d56dc5c55e",
         "0x1.e9dfc5f1669b7p-1",
     ),
-    "exp_ou-default-theta-daily": _Pin(
-        simulate_exp_ou_price_paths,
-        _DT,
-        {"s0": 57.3, "kappa": 5.0, "sigma": 0.3},
-        (
-            "0x1.ca66666666667p+5",
-            "0x1.be591d5759235p+5",
-            "0x1.d55e7bfd81cddp+5",
-            "0x1.c8e44fbe113c9p+5",
-            "0x1.cedfa7c64b532p+5",
-            "0x1.ebbc416518da1p+5",
-        ),
-        "a54c4c29e9dcf9bbd7cfc041746e24200b76fd08732e2c98ab7642de019a7c43",
-        "0x1.e9dfc5f1669b7p-1",
-    ),
-    "exp_ou-given-theta-weekly": _Pin(
-        simulate_exp_ou_price_paths,
-        _DT_WEEKLY,
-        {"s0": 57.3, "kappa": 0.37, "theta": 4.2, "sigma": 0.9},
-        (
-            "0x1.ca66666666667p+5",
-            "0x1.806c55714c06fp+5",
-            "0x1.0c7ed521c855dp+6",
-            "0x1.85c5b9c34c837p+5",
-            "0x1.a9a36431510cdp+6",
-            "0x1.2b09e6d160e3cp+5",
-        ),
-        "5cfdc71637be6518c85d9901626405e399179872d62382881e5d9158d317780b",
-        "0x1.e9dfc5f1669b7p-1",
-    ),
     "heston-feller-violated-daily": _Pin(
         simulate_heston_price_paths,
         _DT,
@@ -528,44 +445,6 @@ _PINS: dict[str, _Pin] = {
         ),
         "053ed984e75d9dcd8edfce8261c3b178eac2401e351cceb6d1645fac33071dbc",
         "0x1.0589e3137f5bep-1",
-    ),
-    "regime_switching-daily": _Pin(
-        simulate_regime_switching_price_paths,
-        _DT,
-        {
-            "s0": 250.0,
-            "mu0": 0.3,
-            "sigma0": 0.1,
-            "mu1": -0.6,
-            "sigma1": 0.8,
-            "p01": 0.2,
-            "p10": 0.4,
-        },
-        (
-            "0x1.f400000000000p+7",
-            "0x1.f3c4e09512665p+7",
-            "0x1.f4591f039a1c5p+7",
-            "0x1.502ac1fd3108ap+8",
-            "0x1.a3b8636feef6ap+8",
-            "0x1.906603b60b72ap+7",
-        ),
-        "82a34c008d9aef145f89b40e3c8ec33641db5984504fa2b5f90c1b8bf269fb69",
-        "0x1.7cc02add02accp-1",
-    ),
-    "regime_switching-defaults-weekly": _Pin(
-        simulate_regime_switching_price_paths,
-        _DT_WEEKLY,
-        {},
-        (
-            "0x1.9000000000000p+6",
-            "0x1.8e87696a7f711p+6",
-            "0x1.900e490a1251cp+6",
-            "0x1.0cce4a680ce9ep+6",
-            "0x1.0c82d80ac2fe0p+8",
-            "0x1.a8c479239b145p+6",
-        ),
-        "82ee1ec9ebde7a1f095fc949172ccbe68ecec3be4b064640039c8f3cea60f889",
-        "0x1.7cc02add02accp-1",
     ),
     "jump_diffusion-daily": _Pin(
         simulate_jump_diffusion_price_paths,
@@ -713,41 +592,6 @@ class TestAnalyticalMoments:
         var_hat, var_se = _batched_mean_se(log_returns.var(axis=1, ddof=1), _N_BATCHES)
         assert abs(var_hat - sigma**2 * _DT) <= _K * var_se
 
-    def test_exp_ou_stationary_mean_variance_and_lag_one_autocorrelation(self) -> None:
-        """log(price): stationary mean theta, variance sigma^2/(2*kappa), lag-1 exp(-kappa*dt).
-
-        The first 200 of 2,000 steps are dropped. Variance and autocorrelation are measured as
-        deviations from the known theta rather than from each path's own sample mean, which for
-        a strongly autocorrelated series follows local excursions and biases both.
-        """
-        kappa, sigma, s0 = 5.0, 0.3, 100.0
-        theta = math.log(s0)
-        paths = simulate_exp_ou_price_paths(
-            np.random.default_rng(11),
-            _N_PATHS,
-            2_000,
-            _DT,
-            s0=s0,
-            kappa=kappa,
-            theta=theta,
-            sigma=sigma,
-        )
-        after_burn_in = np.log(paths)[:, 200:]
-        deviation = after_burn_in - theta
-
-        mean_hat, mean_se = _batched_mean_se(after_burn_in.mean(axis=1), _N_BATCHES)
-        assert abs(mean_hat - theta) <= _K * mean_se
-
-        var_hat, var_se = _batched_mean_se((deviation**2).mean(axis=1), _N_BATCHES)
-        assert abs(var_hat - sigma**2 / (2.0 * kappa)) <= _K * var_se
-
-        lag_one_hat, lag_one_se = _batched_ratio_se(
-            (deviation[:, :-1] * deviation[:, 1:]).sum(axis=1),
-            (deviation[:, :-1] ** 2).sum(axis=1),
-            _N_BATCHES,
-        )
-        assert abs(lag_one_hat - math.exp(-kappa * _DT)) <= _K * lag_one_se
-
     def test_heston_average_variance_and_mean_log_return(self) -> None:
         """Expected average variance A = theta + (v0 - theta)*(1 - exp(-kappa*T))/(kappa*T);
         E[log(S_T/s0)] = mu*T - A*T/2. A is estimated by the realised variance per unit time.
@@ -797,37 +641,6 @@ class TestAnalyticalMoments:
         assert abs(var_hat - omega / (1.0 - alpha - beta)) <= _K * var_se
 
         assert stats.kurtosis(log_returns.ravel(), fisher=True, bias=False) > 0.0
-
-    def test_regime_switching_stationary_variance(self) -> None:
-        """Stationary per-step log-return variance of the two-regime mixture.
-
-        With pi0 = p10/(p01 + p10), pi1 = p01/(p01 + p10) and regime means
-        m_s = (mu_s - sigma_s^2/2)*dt, the variance is
-        pi0*sigma0^2*dt + pi1*sigma1^2*dt + pi0*pi1*(m0 - m1)^2. The first 50 of 500 steps are
-        dropped (the chain mixes in about 1/(p01 + p10) steps).
-        """
-        mu0, sigma0, mu1, sigma1, p01, p10 = 0.10, 0.15, -0.20, 0.40, 0.02, 0.10
-        paths = simulate_regime_switching_price_paths(
-            np.random.default_rng(19),
-            _N_PATHS,
-            500,
-            _DT,
-            mu0=mu0,
-            sigma0=sigma0,
-            mu1=mu1,
-            sigma1=sigma1,
-            p01=p01,
-            p10=p10,
-        )
-        log_returns = np.diff(np.log(paths), axis=1)[:, 50:]
-        var_hat, var_se = _batched_mean_se(log_returns.var(axis=1, ddof=1), _N_BATCHES)
-
-        pi0 = p10 / (p01 + p10)
-        pi1 = p01 / (p01 + p10)
-        m0 = (mu0 - 0.5 * sigma0**2) * _DT
-        m1 = (mu1 - 0.5 * sigma1**2) * _DT
-        expected_var = pi0 * sigma0**2 * _DT + pi1 * sigma1**2 * _DT + pi0 * pi1 * (m0 - m1) ** 2
-        assert abs(var_hat - expected_var) <= _K * var_se
 
     def test_jump_diffusion_terminal_mean_and_log_return_variance(self) -> None:
         """E[S_T] = s0*exp(mu*T); Var[log(S_T/s0)] = (sigma^2 + lambda*(m^2 + s^2))*T."""

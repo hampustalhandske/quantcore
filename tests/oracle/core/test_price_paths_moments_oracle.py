@@ -14,21 +14,14 @@ Bias is kept apart from Monte Carlo error. Where the expectation of the estimato
 closed form exactly (the exact-transition simulators, and statistics that are unbiased by
 construction), the estimate is compared with the closed form alone. Where it does not, the
 difference is derived from the simulator's own recursion and passed as `bias`, so that the
-k-standard-error band stays a statement about sampling noise only. Two sources of bias occur:
-
-- the Heston scheme is a discretisation, so its moments differ from the continuous-time model's
-  by a term of order dt;
-- the exponential OU and regime-switching processes start from a fixed state instead of their
-  stationary law, so averages over a window differ from the stationary moments by a transient
-  that decays geometrically.
+k-standard-error band stays a statement about sampling noise only. The Heston scheme is a
+discretisation, so its moments differ from the continuous-time model's by a term of order dt.
 
 References:
     Black & Scholes (1973); Glasserman (2004), Chapter 3: geometric Brownian motion moments.
-    Uhlenbeck & Ornstein (1930): OU transition mean, variance and autocorrelation.
     Heston (1993): the variance is a square-root diffusion with mean
     theta + (v0 - theta)*exp(-kappa*t). Lord, Koekkoek & van Dijk (2010): full-truncation scheme.
     Bollerslev (1986): GARCH(1,1) unconditional variance omega/(1 - alpha - beta).
-    Hamilton (1989): two-state Markov chain, stationary probabilities.
     Merton (1976): jump-diffusion mean and log-return variance.
 """
 
@@ -42,12 +35,10 @@ import pytest
 from scipy import stats
 
 from quantcore.core import (
-    simulate_exp_ou_price_paths,
     simulate_garch_t_price_paths,
     simulate_gbm_price_paths,
     simulate_heston_price_paths,
     simulate_jump_diffusion_price_paths,
-    simulate_regime_switching_price_paths,
 )
 
 pytestmark = pytest.mark.oracle
@@ -123,66 +114,6 @@ class TestGbmMoments:
             paths[:, -1],
             self.S0 * math.exp(self.MU * self.N_STEPS * DT),
             label="GBM terminal mean",
-        )
-
-
-class TestExpOuMoments:
-    """X = log(S) is an OU process: stationary mean theta, stationary variance
-    sigma^2/(2*kappa), lag-one autocorrelation exp(-kappa*dt).
-
-    The step is the exact transition. The paths start at X_0 = theta rather than from the
-    stationary law, so E[X_k] = theta at every step (no bias in the mean) while
-    E[(X_k - theta)^2] = sigma^2/(2*kappa) * (1 - exp(-2*kappa*k*dt)) approaches the stationary
-    variance from below. The first 200 of 2,000 steps are dropped and what remains of that
-    transient, averaged over the window, is passed as the bias of the variance check (about
-    5e-6 of the variance). Deviations are taken from the known theta, not from each path's own
-    mean, which would bias the variance of a strongly autocorrelated series downwards.
-    """
-
-    S0, KAPPA, SIGMA, N_STEPS, BURN_IN = 100.0, 5.0, 0.3, 2_000, 200
-
-    @pytest.fixture(scope="class")
-    def deviation(self) -> npt.NDArray[np.float64]:
-        """log(S) - theta after the burn-in, one row per path."""
-        paths = simulate_exp_ou_price_paths(
-            np.random.default_rng(11), 5_000, self.N_STEPS, DT, s0=self.S0, kappa=self.KAPPA,
-            sigma=self.SIGMA,
-        )  # fmt: skip
-        return np.log(paths[:, self.BURN_IN :]) - math.log(self.S0)
-
-    def test_stationary_mean_matches_closed_form(self, deviation: npt.NDArray[np.float64]) -> None:
-        _assert_within_k_standard_errors(
-            deviation.mean(axis=1) + math.log(self.S0),
-            math.log(self.S0),
-            label="exp-OU stationary mean of log-price",
-        )
-
-    def test_stationary_variance_matches_closed_form(
-        self, deviation: npt.NDArray[np.float64]
-    ) -> None:
-        stationary_variance = self.SIGMA**2 / (2.0 * self.KAPPA)
-        steps = np.arange(self.BURN_IN, self.N_STEPS + 1)
-        transient = float(np.mean(np.exp(-2.0 * self.KAPPA * steps * DT)))
-        _assert_within_k_standard_errors(
-            (deviation**2).mean(axis=1),
-            stationary_variance,
-            bias=-stationary_variance * transient,
-            label="exp-OU stationary variance of log-price",
-        )
-
-    def test_lag_one_autocorrelation_matches_closed_form(
-        self, deviation: npt.NDArray[np.float64]
-    ) -> None:
-        # E[d_k * d_{k+1}] = rho * E[d_k^2] holds at every step, stationary or not, so the
-        # per-path statistic sum(d_k * d_{k+1}) - rho * sum(d_k^2) has expectation exactly zero.
-        # Testing it avoids the small-sample bias of a ratio of sums.
-        rho = math.exp(-self.KAPPA * DT)
-        cross = (deviation[:, :-1] * deviation[:, 1:]).sum(axis=1)
-        square = (deviation[:, :-1] ** 2).sum(axis=1)
-        estimate = float(cross.sum() / square.sum())
-        assert estimate == pytest.approx(rho, abs=1e-3)
-        _assert_within_k_standard_errors(
-            cross - rho * square, 0.0, label="exp-OU lag-one autocovariance residual"
         )
 
 
@@ -326,74 +257,6 @@ class TestGarchTMoments:
         # recursion adds to it. No standard error is attached: the sample kurtosis of returns
         # whose eighth moment is infinite has no finite variance, so only the sign is asserted.
         assert stats.kurtosis(log_returns.ravel(), fisher=True, bias=False) > 0.0
-
-
-class TestRegimeSwitchingMoments:
-    """Hamilton (1989): the chain's stationary probabilities are pi0 = p10/(p01 + p10) and
-    pi1 = p01/(p01 + p10). With regime means m_s = (mu_s - sigma_s^2/2)*dt, a one-step
-    log-return has stationary mean pi0*m0 + pi1*m1 and stationary variance
-    pi0*sigma0^2*dt + pi1*sigma1^2*dt + pi0*pi1*(m0 - m1)^2.
-
-    Within a regime the step is exact. Every path starts in regime 0, and the return of step k
-    is in regime 1 with probability pi1*(1 - lam^k), lam = 1 - p01 - p10, which approaches pi1
-    geometrically. The first 50 of 500 steps are dropped; the remaining shortfall of regime 1,
-    averaged over the window, changes both moments by about 3e-5 relative and is passed as the
-    bias. The variance is measured about the known stationary mean, not about each path's own
-    mean, which would bias it because the regime makes returns autocorrelated.
-    """
-
-    MU0, SIGMA0, MU1, SIGMA1, P01, P10 = 0.10, 0.15, -0.20, 0.40, 0.02, 0.10
-    N_STEPS, BURN_IN = 500, 50
-
-    @pytest.fixture(scope="class")
-    def log_returns(self) -> npt.NDArray[np.float64]:
-        paths = simulate_regime_switching_price_paths(
-            np.random.default_rng(19), 20_000, self.N_STEPS, DT, mu0=self.MU0, sigma0=self.SIGMA0,
-            mu1=self.MU1, sigma1=self.SIGMA1, p01=self.P01, p10=self.P10,
-        )  # fmt: skip
-        return np.diff(np.log(paths), axis=1)[:, self.BURN_IN :]
-
-    def _regime_one_probabilities(self) -> tuple[float, float]:
-        """(stationary probability of regime 1, its average over the steps after the burn-in)."""
-        pi1 = self.P01 / (self.P01 + self.P10)
-        lam = 1.0 - self.P01 - self.P10
-        steps = np.arange(self.BURN_IN + 1, self.N_STEPS + 1)
-        return pi1, pi1 * (1.0 - float(np.mean(lam**steps)))
-
-    def test_log_return_mean_matches_closed_form(
-        self, log_returns: npt.NDArray[np.float64]
-    ) -> None:
-        m0 = (self.MU0 - 0.5 * self.SIGMA0**2) * DT
-        m1 = (self.MU1 - 0.5 * self.SIGMA1**2) * DT
-        pi1, window_p1 = self._regime_one_probabilities()
-        _assert_within_k_standard_errors(
-            log_returns.mean(axis=1),
-            (1.0 - pi1) * m0 + pi1 * m1,
-            bias=(window_p1 - pi1) * (m1 - m0),
-            label="regime-switching mean one-step log-return",
-        )
-
-    def test_log_return_variance_matches_closed_form(
-        self, log_returns: npt.NDArray[np.float64]
-    ) -> None:
-        m0 = (self.MU0 - 0.5 * self.SIGMA0**2) * DT
-        m1 = (self.MU1 - 0.5 * self.SIGMA1**2) * DT
-        pi1, window_p1 = self._regime_one_probabilities()
-        pi0 = 1.0 - pi1
-        stationary_mean = pi0 * m0 + pi1 * m1
-        stationary_variance = (
-            pi0 * self.SIGMA0**2 * DT + pi1 * self.SIGMA1**2 * DT + pi0 * pi1 * (m0 - m1) ** 2
-        )
-        # Second moment about the stationary mean in each regime; weighting the two by the
-        # window's occupancy instead of the stationary one gives the estimator's expectation.
-        about_mean_0 = self.SIGMA0**2 * DT + (m0 - stationary_mean) ** 2
-        about_mean_1 = self.SIGMA1**2 * DT + (m1 - stationary_mean) ** 2
-        _assert_within_k_standard_errors(
-            ((log_returns - stationary_mean) ** 2).mean(axis=1),
-            stationary_variance,
-            bias=(window_p1 - pi1) * (about_mean_1 - about_mean_0),
-            label="regime-switching one-step log-return variance",
-        )
 
 
 class TestJumpDiffusionMoments:

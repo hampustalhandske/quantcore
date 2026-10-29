@@ -63,7 +63,6 @@ cite the relevant entry in their docstrings.
 - Uhlenbeck, G.E. and Ornstein, L.S. (1930). "On the Theory of the Brownian
   Motion." *Physical Review*, 36(5), 823–841.
   → `core/stochastic.py` (Ornstein-Uhlenbeck SDE)
-  → `core/price_paths.py` (OU transition law, `simulate_exp_ou_price_paths`)
 
 - Vasicek, O. (1977). "An Equilibrium Characterization of the Term Structure."
   *Journal of Financial Economics*, 5(2), 177–188.
@@ -92,8 +91,6 @@ cite the relevant entry in their docstrings.
 - Schwartz, E.S. (1997). "The Stochastic Behavior of Commodity Prices:
   Implications for Valuation and Hedging." *Journal of Finance*, 52(3),
   923–973.
-  → `core/price_paths.py` (OU process on the log price,
-  `simulate_exp_ou_price_paths`)
 
 - Merton, R.C. (1976). "Option Pricing When Underlying Stock Returns Are
   Discontinuous." *Journal of Financial Economics*, 3(1–2), 125–144.
@@ -152,8 +149,6 @@ cite the relevant entry in their docstrings.
   357–384.
   → `regime/hmm.py` (Markov-switching model applied to financial returns;
   causal filtered-probability recursion, `hmm_filtered_proba`)
-  → `core/price_paths.py` (Markov regime switching,
-  `simulate_regime_switching_price_paths`)
 
 ## Cointegration and mean reversion
 

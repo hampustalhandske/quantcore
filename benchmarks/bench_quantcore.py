@@ -57,12 +57,10 @@ from statsmodels.tsa.arima.model import ARIMA
 
 import quantcore
 from quantcore.core.price_paths import (
-    simulate_exp_ou_price_paths,
     simulate_garch_t_price_paths,
     simulate_gbm_price_paths,
     simulate_heston_price_paths,
     simulate_jump_diffusion_price_paths,
-    simulate_regime_switching_price_paths,
 )
 from quantcore.core.sde_solver import (
     _generate_gbm_increments,
@@ -444,26 +442,17 @@ def _throughput_price_path_rows() -> None:
     function, so each call draws new variates. The check column compares the
     mean terminal price of a separate `default_rng(SEED)` run with its
     closed-form expectation, in standard errors of that mean, where one
-    exists: `s0 * exp(mu * T)` for GBM and the jump diffusion, and
-    `s0 * exp(Var[log S_T] / 2)` for the exp-OU process started at its
-    long-run mean. The Heston, GARCH-t and regime-switching processes have no
-    closed-form mean here and show "-".
+    exists: `s0 * exp(mu * T)` for GBM and the jump diffusion. The Heston and
+    GARCH-t processes have no closed-form mean here and show "-".
     """
     num_paths, num_steps = 10_000, 252
     dt = 1.0 / num_steps
     horizon = num_steps * dt
-    s0, mu, sigma, kappa = 100.0, 0.05, 0.2, 1.0
-    exp_ou_variance = sigma**2 / (2.0 * kappa) * (1.0 - np.exp(-2.0 * kappa * horizon))
+    s0, mu = 100.0, 0.05
     simulators: list[tuple[str, Callable[..., FloatArray], float | None]] = [
         ("simulate_gbm_price_paths", simulate_gbm_price_paths, s0 * np.exp(mu * horizon)),
-        (
-            "simulate_exp_ou_price_paths",
-            simulate_exp_ou_price_paths,
-            s0 * np.exp(exp_ou_variance / 2.0),
-        ),
         ("simulate_heston_price_paths", simulate_heston_price_paths, None),
         ("simulate_garch_t_price_paths", simulate_garch_t_price_paths, None),
-        ("simulate_regime_switching_price_paths", simulate_regime_switching_price_paths, None),
         (
             "simulate_jump_diffusion_price_paths",
             simulate_jump_diffusion_price_paths,

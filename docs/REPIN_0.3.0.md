@@ -57,3 +57,11 @@ items 1 to 3 explains it. A result that uses only the unchanged functions should
 - `bs_rho`, `select_hmm_n_states`, `hmm_filtered_proba` and `implied_equilibrium_returns`, which no
   project calls. `hmm_predict_proba` is unchanged; its rows equal filtered probabilities only at the
   last point of the window.
+
+## Commits after 358a6cc
+
+358a6cc is the tip the re-pin targets. Later commits on `trim` add step 13 (functions moved in
+from edgelab: `hac_t_test`, the Sharpe inference functions, and so on). They add public functions
+and change no existing number; edgelab re-pins once, at the step-13 tip, in the change that
+deletes its copies.
+

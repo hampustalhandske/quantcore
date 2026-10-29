@@ -136,11 +136,26 @@ consumers' locks.
 
 ## Receive from edgelab
 
-### QC-13: General calculations moved in from edgelab — open
-Sharpe and its standard error, HAC t, bootstrap CI, PSR, DSR, CSCV/PBO, effective N, and the
-resampling calls. Function list and bit-identity agreed with edgelab before work starts.
-Ledoit-Wolf is delegated to scikit-learn in this step only if it is identical to the current
-closed form.
+### QC-13: General calculations moved in from edgelab — in progress
+Agreed list (edgelab-dc audit, edgelab-57 rulings): numpy in, frozen dataclass or tuple out, no
+pandas and no edgelab types; edgelab keeps N logic, annual-to-per-period rf conversion and the
+`StatOutcome` wrappers.
+1. `hac_t_test` (`statistics/hac.py`): done (ffc4e26).
+2. `sharpe_se_mertens`, `probabilistic_sharpe_ratio`, `minimum_track_record_length`,
+   `expected_max_sharpe` (arithmetic unchanged, Bailey and Lopez de Prado 2014) and
+   `deflated_sharpe_ratio`: see the git log; if absent, it is not done.
+3. `stationary_bootstrap_ci` (percentile and BCa, arch `StationaryBootstrap`, caller-supplied
+   `Generator`) and `optimal_block_length`: not started. BCa stays because edgelab's
+   `validation/runs.py` calls it.
+4. `cscv_pbo` (drop `logits`, `combinations`, `prob_oos_loss`): not started.
+5. `effective_n_eigen`: not started.
+Not moved, deleted in edgelab: `sharpe_se_lo`, `sharpe_power`, `min_detectable_sharpe`,
+`stationary_bootstrap_resamples`, `paired_stationary_bootstrap_replicates`,
+`effective_n_clustered`. `dsr_trial_count` and the Ledoit-Wolf question stay open.
+The conformance targets are added per item; `conformance_map.json` and `docs/CONFORMANCE.md` are
+regenerated once after the last item (one conformance run), so `build_report --check` fails on the
+commits between 358a6cc and that regeneration. Estimated end state: about 480 lines added to
+`src/` (7,881 to about 8,360), against about 750 leaving edgelab.
 
 ## Evaluation
 

@@ -54,3 +54,6 @@ items 1 to 3 explains it. A result that uses only the unchanged functions should
 - The `method` argument of `arima_fit` and its conditional-sum-of-squares fit. `arima_fit` is
   always the exact Gaussian maximum-likelihood fit, which was the default, so calls that did not
   pass `method` return the same numbers. `arima_residuals` is unchanged.
+- `bs_rho`, `select_hmm_n_states`, `hmm_filtered_proba` and `implied_equilibrium_returns`, which no
+  project calls. `hmm_predict_proba` is unchanged; its rows equal filtered probabilities only at the
+  last point of the window.

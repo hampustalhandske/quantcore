@@ -17,6 +17,13 @@ the final tree only, not on each intermediate commit.
   the exact Gaussian maximum-likelihood fit, the former default; `arima_residuals` still returns
   conditional residuals. statsmodels' `ARIMA`/`SARIMAX` was tried as a replacement and does
   not reproduce these estimates (`docs/ISSUES.md` QC-15).
+- `bs_rho`, `select_hmm_n_states`, `hmm_filtered_proba` and the public
+  `implied_equilibrium_returns`, none of which any project calls. `hmm_predict_proba`
+  returns smoothed posteriors; they equal the filtered ones only at the last point of the window.
+  `black_litterman` still computes the equilibrium returns internally.
+- The pure-NumPy copies of the Numba kernels (`_simulate_gbm_paths_numpy`,
+  `_garch_11_variance_numpy`, `_egarch_11_variance_numpy`, `_gjr_garch_11_variance_numpy`) moved
+  to `tests/reference_kernels.py`, where the agreement tests use them.
 
 ### Changed
 

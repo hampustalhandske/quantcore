@@ -3,7 +3,7 @@
 Compares against `statsmodels`, `linearmodels` and, for `arima_residuals`, `scipy.signal`.
 
 `factor_loadings` is Tier 1 (the cross-sectional risk model calls it); everything else in this
-module (Fama-MacBeth, ARIMA, VAR, Granger causality, OU half-life, spread z-score) is Tier 2.
+module (Fama-MacBeth, ARIMA, OU half-life, spread z-score) is Tier 2.
 
 `arima_fit` follows `conformance.targets.risk_models`'s GARCH-family pattern: two attained
 log-likelihoods recorded per case (`log_likelihood`, the decision quantity; `params`, reported,
@@ -21,18 +21,14 @@ import quantcore.statistics as qc_statistics
 from conformance.compare import registry
 from conformance.generators import (
     ARMA_FAMILIES,
-    VAR_FAMILIES,
     TaggedArma,
     TaggedRegression,
-    TaggedVarSystem,
     _length_strategy,
     arma_series,
     length_bucket_for,
     regression_problem,
-    var_system,
 )
 from conformance.harness import check
-from quantcore.time_series import var_fit as qc_var_fit
 
 _FACTOR_LOADINGS_LOADINGS = registry()["factor_loadings_loadings"]
 _FACTOR_LOADINGS_STANDARD_ERRORS = registry()["factor_loadings_standard_errors"]
@@ -46,12 +42,6 @@ _ARIMA_FIT = registry()["arima_fit"]
 _ARIMA_RESIDUALS = registry()["arima_residuals"]
 _ARIMA_FORECAST = registry()["arima_forecast"]
 _SELECT_ARIMA_ORDER = registry()["select_arima_order"]
-_VAR_FIT_COEF_MATRIX = registry()["var_fit_coef_matrix"]
-_VAR_FIT_SIGMA_U = registry()["var_fit_sigma_u"]
-_VAR_FORECAST = registry()["var_forecast"]
-_IMPULSE_RESPONSE = registry()["impulse_response"]
-_SELECT_VAR_LAG_ORDER = registry()["select_var_lag_order"]
-_GRANGER_CAUSALITY_TEST = registry()["granger_causality_test"]
 _OU_HALF_LIFE = registry()["ou_half_life"]
 _SPREAD_ZSCORE = registry()["spread_zscore"]
 
@@ -270,134 +260,6 @@ def test_select_arima_order_agreement_rate(tagged: TaggedArma) -> None:
         family=tagged.family,
         length_bucket=length_bucket_for(tagged.n),
         seed=tagged.seed,
-    )
-
-
-# --- VAR -------------------------------------------------------------------------------------
-
-VAR_FIT_MIN_LEN = 30
-VAR_FIT_FAMILIES: tuple[str, ...] = VAR_FAMILIES
-VAR_FIT_BUCKETS: tuple[str, ...] = ("medium", "long")
-
-
-@given(tagged=var_system(min_len=VAR_FIT_MIN_LEN, max_len=1000), n_lags=st.integers(1, 3))
-def test_var_fit_matches_statsmodels(tagged: TaggedVarSystem, n_lags: int) -> None:
-    n_obs = tagged.data.shape[0]
-    n_eff = n_obs - n_lags
-    assume(n_eff > tagged.k * n_lags + 1)
-    kwargs = {
-        "family": tagged.family,
-        "length_bucket": length_bucket_for(tagged.n),
-        "seed": tagged.seed,
-    }
-    check(_VAR_FIT_COEF_MATRIX, tagged.data, n_lags, **kwargs)
-    check(_VAR_FIT_SIGMA_U, tagged.data, n_lags, **kwargs)
-
-
-VAR_FORECAST_MIN_LEN = 30
-VAR_FORECAST_FAMILIES: tuple[str, ...] = VAR_FAMILIES
-VAR_FORECAST_BUCKETS: tuple[str, ...] = ("medium", "long")
-
-
-@given(
-    tagged=var_system(min_len=VAR_FORECAST_MIN_LEN, max_len=1000),
-    n_lags=st.integers(1, 3),
-    h=st.integers(1, 8),
-)
-def test_var_forecast_matches_statsmodels(tagged: TaggedVarSystem, n_lags: int, h: int) -> None:
-    n_obs = tagged.data.shape[0]
-    n_eff = n_obs - n_lags
-    assume(n_eff > tagged.k * n_lags + 1)
-    coef_matrix, _sigma_u = qc_var_fit(tagged.data, n_lags)
-    check(
-        _VAR_FORECAST,
-        tagged.data,
-        coef_matrix,
-        n_lags,
-        h,
-        family=tagged.family,
-        length_bucket=length_bucket_for(tagged.n),
-        seed=tagged.seed,
-    )
-
-
-IMPULSE_RESPONSE_MIN_LEN = 30
-IMPULSE_RESPONSE_FAMILIES: tuple[str, ...] = VAR_FAMILIES
-IMPULSE_RESPONSE_BUCKETS: tuple[str, ...] = ("medium", "long")
-
-
-@given(
-    tagged=var_system(min_len=IMPULSE_RESPONSE_MIN_LEN, max_len=1000),
-    n_lags=st.integers(1, 3),
-    n_periods=st.integers(2, 10),
-)
-def test_impulse_response_matches_statsmodels(
-    tagged: TaggedVarSystem, n_lags: int, n_periods: int
-) -> None:
-    n_obs = tagged.data.shape[0]
-    n_eff = n_obs - n_lags
-    assume(n_eff > tagged.k * n_lags + 1)
-    coef_matrix, sigma_u = qc_var_fit(tagged.data, n_lags)
-    check(
-        _IMPULSE_RESPONSE,
-        coef_matrix,
-        sigma_u,
-        n_lags,
-        n_periods,
-        family=tagged.family,
-        length_bucket=length_bucket_for(tagged.n),
-        seed=tagged.seed,
-    )
-
-
-SELECT_VAR_LAG_ORDER_MIN_LEN = 40
-SELECT_VAR_LAG_ORDER_FAMILIES: tuple[str, ...] = VAR_FAMILIES
-SELECT_VAR_LAG_ORDER_BUCKETS: tuple[str, ...] = ("medium",)
-
-
-@settings(max_examples=40, suppress_health_check=[HealthCheck.too_slow])
-@given(tagged=var_system(min_len=SELECT_VAR_LAG_ORDER_MIN_LEN, max_len=300))
-def test_select_var_lag_order_agreement_rate(tagged: TaggedVarSystem) -> None:
-    """Agreement rate reported, not asserted -- see `test_select_arima_order_agreement_rate`."""
-    check(
-        _SELECT_VAR_LAG_ORDER,
-        tagged.data,
-        5,
-        "aic",
-        family=tagged.family,
-        length_bucket=length_bucket_for(tagged.n),
-        seed=tagged.seed,
-    )
-
-
-# --- Granger causality ----------------------------------------------------------------------
-
-GRANGER_CAUSALITY_TEST_MIN_LEN = 20
-GRANGER_CAUSALITY_TEST_FAMILIES: tuple[str, ...] = VAR_FAMILIES
-GRANGER_CAUSALITY_TEST_BUCKETS: tuple[str, ...] = ("medium", "long")
-
-
-@given(
-    tagged=var_system(
-        min_len=GRANGER_CAUSALITY_TEST_MIN_LEN,
-        max_len=1000,
-        families=("var2_stationary", "var3_stationary", "var2_near_unit_root"),
-    ),
-    n_lags=st.integers(1, 4),
-)
-def test_granger_causality_test_matches_statsmodels(tagged: TaggedVarSystem, n_lags: int) -> None:
-    n_eff = tagged.n - n_lags
-    assume(n_eff > 2 * n_lags + 1)
-    y, x = tagged.data[:, 0], tagged.data[:, 1]
-    check(
-        _GRANGER_CAUSALITY_TEST,
-        y,
-        x,
-        n_lags,
-        family=tagged.family,
-        length_bucket=length_bucket_for(tagged.n),
-        seed=tagged.seed,
-        quantities=("statistic", "p_value"),
     )
 
 

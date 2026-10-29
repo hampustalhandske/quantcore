@@ -55,11 +55,21 @@ them the oracle tests that compared them with statsmodels. The `adf_test` and
 `engle_granger_test` conformance targets, repro configs and benchmark rows still compare
 statsmodels with itself; they go in QC-11 (conformance trim).
 
-### QC-7: OLS with HAC (`ols`, `newey_west_cov`, `newey_west_optimal_lags`) — open
-Moves: edgelab `stats/hac`, `attribution/regression`; agentic Newey-West.
+### QC-7: OLS with HAC (`ols`, `newey_west_cov`, `newey_west_optimal_lags`) — kept
+Moves nothing. Kept as closed forms (lstsq, a Bartlett sandwich, a one-line lag rule): they
+take residuals and regressors directly, statsmodels' HAC needs a fitted results object, and
+arch's Newey-West bandwidth is data-adaptive, which would move edgelab's HAC t-statistics
+for no gain in correctness. The reason is in `statistics/regression.py`'s module docstring.
 
-### QC-8: VAR, Granger and impulse response to statsmodels — open
+### QC-8: VAR, Granger and impulse response to statsmodels — code done, gates pending
 Moves: agentic `macro_var_spillover_analyst`.
+`var_fit` is `VAR.fit(maxlags=p, method="ols", ic=None, trend="c")`, `var_forecast` and `impulse_response` use
+statsmodels' `forecast` and `ma_rep` (Cholesky applied here), `granger_causality_test` is
+`grangercausalitytests(..., maxlag=[p], addconst=True)`'s `ssr_ftest`. Coefficients, sigma_u,
+forecasts, IRFs, F and p agree with the previous implementation to 4e-13 on 30 fits. `select_var_lag_order` fits each candidate with `VAR.fit` on the shared trailing window and
+scores it with Lutkepohl's criteria from `sigma_u_mle`; selections equal the previous rule's on
+480 seeded cases, tiny samples included. `var_fit` and `select_var_lag_order` now raise for a
+single series (statsmodels' `VAR` needs two); no caller passes one.
 
 ### QC-9: EGARCH and GJR to arch — open
 Parameterisation pinned; `ConvergenceError` stays the exception raised on non-convergence.

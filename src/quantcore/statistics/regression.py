@@ -21,6 +21,12 @@ Fama-MacBeth (1973):
     Mean risk premia: lambda_bar = (1/T)*sum_t lambda_t
     t-stat: lambda_bar / (std(lambda_t) / sqrt(T))
 
+Implementation note: `ols`, `newey_west_cov` and `newey_west_optimal_lags` are
+closed forms of a few lines that take residuals and regressors directly, so they
+are computed here and not by `statsmodels`, whose HAC estimators need a fitted
+results object; the lag rule is the fixed sample-size rule, not a data-adaptive
+bandwidth. Every caller in the stack uses these same functions.
+
 References:
     Fama, E.F. and French, K.R. (1993, 2015); Fama, E.F. and MacBeth, J.D.
     (1973); Newey, W.K. and West, K.D. (1987). See docs/REFERENCES.md.

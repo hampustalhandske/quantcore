@@ -860,61 +860,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "it any more."
         ),
     ),
-    "var_fit_coef_matrix": Tolerance(
-        rtol=1e-7,
-        atol=1e-9,
-        justification=(
-            "closed-form per-equation OLS; measured agreement to ~1e-10 relative against "
-            "statsmodels.tsa.api.VAR after moving statsmodels' intercept column from first to "
-            "last, as quantcore lays it out (`_var_layout_from_statsmodels`), one order looser "
-            "than the closed-form default for lstsq-vs-pinv rounding across k*n_lags+1 "
-            "regressors, as ols_coefficients above."
-        ),
-    ),
-    "var_fit_sigma_u": Tolerance(
-        rtol=1e-7,
-        atol=1e-9,
-        justification="same lstsq-vs-pinv rounding margin as var_fit_coef_matrix, one matrix "
-        "product further from the raw coefficients.",
-    ),
-    "var_forecast": Tolerance(
-        rtol=1e-8,
-        atol=1e-9,
-        justification=(
-            "closed-form recursive application of already-fitted VAR coefficients against "
-            "statsmodels.tsa.vector_ar.var_model.forecast on the SAME coefficients (no re-fit); "
-            "measured agreement near machine precision, one order looser than the closed-form "
-            "default for the recursive matrix-vector product accumulation."
-        ),
-    ),
-    "impulse_response": Tolerance(
-        rtol=1e-8,
-        atol=1e-9,
-        justification=(
-            "Cholesky-orthogonalized IRF against statsmodels.tsa.vector_ar.var_model.VARProcess."
-            "orth_ma_rep on the SAME coefficients and sigma_u; one order looser than the "
-            "closed-form default for the Cholesky factorisation's own rounding."
-        ),
-    ),
-    "select_var_lag_order": Tolerance(
-        rtol=0.0,
-        atol=0.0,
-        justification=(
-            "as select_arima_order: agreement rate reported, not asserted, and not "
-            "consulted for a pass/fail decision -- see "
-            "conformance.compare.ReportOnlyScalarComparator."
-        ),
-    ),
-    "granger_causality_test": Tolerance(
-        rtol=1e-6,
-        atol=1e-8,
-        justification=(
-            "closed-form restricted-vs-unrestricted F-statistic and its survival-function "
-            "p-value against statsmodels.tsa.stattools.grangercausalitytests' ssr_ftest; one "
-            "order looser than the closed-form default to absorb f.sf's own rounding, as "
-            "adf_test/ljung_box_test do for their own survival-function evaluations."
-        ),
-    ),
     "ou_half_life": Tolerance(
         rtol=1e-9,
         atol=1e-9,

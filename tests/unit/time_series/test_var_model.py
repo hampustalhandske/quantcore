@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import quantcore.time_series.var_model as var_model
 from quantcore.time_series.var_model import (
     granger_causality_test,
     impulse_response,
@@ -51,17 +52,18 @@ class TestSelectVarLagOrder:
         with pytest.raises(ValueError):
             select_var_lag_order(data, max_lags=3, criterion="hqic")
 
-    def test_does_not_crash_on_infeasible_small_lags(self) -> None:
-        # Every candidate is fit on the same fixed-size trailing window of
-        # n_obs - max_lags observations (for comparable information
-        # criteria, matching statsmodels' VAR.select_order); with few
-        # observations and a large max_lags, that fixed window is too
-        # small for the higher lag orders, which var_fit rejects.
-        # select_var_lag_order must skip those rather than raise, as long
-        # as at least n_lags=1 fits.
+    def test_a_single_series_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least 2 series"):
+            var_fit(np.arange(40.0).reshape(-1, 1), 1)
+        with pytest.raises(ValueError, match="at least 2 series"):
+            select_var_lag_order(np.arange(40.0).reshape(-1, 1), 3)
+
+    def test_skips_lag_orders_that_are_not_estimable_on_the_common_window(self) -> None:
+        # Every candidate is fit on the same trailing window of
+        # n_obs - max_lags observations; with 10 observations of 2 series
+        # only n_lags=1 leaves spare degrees of freedom for max_lags=5.
         data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 10, RNG_SEED)
-        n_lags = select_var_lag_order(data, max_lags=5, criterion="aic")
-        assert n_lags >= 1
+        assert select_var_lag_order(data, max_lags=5, criterion="aic") == 1
 
     def test_raises_when_max_lags_leaves_no_feasible_candidate(self) -> None:
         # With too few observations for even n_lags=1 to leave a usable
@@ -177,3 +179,38 @@ class TestGrangerCausalityTest:
         y = rng.normal(0.0, 1.0, size=n)
         _, p_value = granger_causality_test(y, x, n_lags=1)
         assert p_value > 0.05
+
+
+class TestStatsmodelsConventions:
+    """The statsmodels calls receive every option explicitly."""
+
+    def test_var_fit_uses_ols_a_constant_and_exactly_n_lags(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, object] = {}
+        real = var_model.VAR
+
+        class Spy(real):  # type: ignore[valid-type, misc]
+            def fit(self, **kwargs: object):  # type: ignore[no-untyped-def]
+                seen.update(kwargs)
+                return super().fit(**kwargs)
+
+        monkeypatch.setattr(var_model, "VAR", Spy)
+        var_fit(_simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 80, RNG_SEED), 2)
+        assert seen == {"maxlags": 2, "method": "ols", "ic": None, "trend": "c", "verbose": False}
+
+    def test_granger_tests_the_second_column_at_exactly_the_requested_lag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, object] = {}
+
+        def spy(data: np.ndarray, **kwargs: object) -> dict[int, tuple[dict[str, tuple], None]]:
+            seen.update(kwargs)
+            seen["data"] = data
+            return {3: ({"ssr_ftest": (2.5, 0.05, 90.0, 3)}, None)}
+
+        monkeypatch.setattr(var_model, "grangercausalitytests", spy)
+        y, x = np.arange(20.0), np.arange(20.0)[::-1] * 2.0
+        assert granger_causality_test(y, x, 3) == (2.5, 0.05)
+        assert seen["maxlag"] == [3] and seen["addconst"] is True
+        np.testing.assert_array_equal(seen["data"], np.column_stack([y, x]))

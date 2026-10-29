@@ -13,7 +13,10 @@ to see exactly what changed and why before upgrading.
 - `ljung_box_test`, `arch_lm_test`, `kpss_test`, `adf_test` and `engle_granger_test`
   are computed by `statsmodels` (`acorr_ljungbox`, `het_arch`, `kpss`, `adfuller`,
   `coint`), with every option passed explicitly.
-  Signatures and return values are unchanged. `statsmodels` is a runtime
+  `var_fit`, `select_var_lag_order`, `var_forecast`, `impulse_response` and
+  `granger_causality_test` are computed by `statsmodels` too. Signatures and return values are unchanged, except that `var_fit` and
+  `select_var_lag_order` reject a single series (statsmodels' `VAR` needs at least
+  two). `statsmodels` is a runtime
   dependency (`>=0.15,<0.16`).
 
 ### Removed

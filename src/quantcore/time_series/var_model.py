@@ -4,6 +4,10 @@ VAR(p) model (Sims 1980, Lutkepohl 2005):
     y_t = c + A_1*y_{t-1} + ... + A_p*y_{t-p} + u_t,  u_t ~ N(0, Sigma_u)
     Estimated by OLS equation-by-equation.
 
+Estimation, lag selection, forecasting, the moving-average representation and the
+Granger test are computed by `statsmodels` (`VAR`, `forecast`, `ma_rep`,
+`grangercausalitytests`); the Cholesky orthogonalization is applied here.
+
 Orthogonalized impulse response function (Cholesky):
     Sigma_u = P * P^T  (Cholesky)
     IRF_0 = P,  IRF_h = sum_{j=1}^h A_j * IRF_{h-j}
@@ -26,17 +30,8 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-from scipy.stats import f as f_dist
-
-
-def _build_lagged_design(data: npt.NDArray[np.float64], n_lags: int) -> npt.NDArray[np.float64]:
-    n_obs, k = data.shape
-    n_eff = n_obs - n_lags
-    x = np.empty((n_eff, k * n_lags + 1), dtype=np.float64)
-    for lag in range(1, n_lags + 1):
-        x[:, (lag - 1) * k : lag * k] = data[n_lags - lag : n_obs - lag]
-    x[:, -1] = 1.0
-    return x
+from statsmodels.tsa.stattools import grangercausalitytests
+from statsmodels.tsa.vector_ar.var_model import VAR, forecast, ma_rep
 
 
 def _validate_var_fit_inputs(data: npt.NDArray[np.float64], n_lags: int) -> None:
@@ -45,6 +40,8 @@ def _validate_var_fit_inputs(data: npt.NDArray[np.float64], n_lags: int) -> None
     if n_lags <= 0:
         raise ValueError("n_lags must be a positive integer")
     n_obs, k = data.shape
+    if k < 2:
+        raise ValueError("a VAR needs at least 2 series")
     n_eff = n_obs - n_lags
     if n_eff <= k * n_lags + 1:
         raise ValueError("not enough observations for the requested n_lags")
@@ -57,7 +54,7 @@ def var_fit(
     """Estimate a VAR(n_lags) model via OLS, equation by equation.
 
     Args:
-        data: Observations, shape (T, k).
+        data: Observations, shape (T, k), k >= 2.
         n_lags: Number of lags p.
 
     Returns:
@@ -81,22 +78,22 @@ def var_fit(
     return _var_fit(data, n_lags)
 
 
+def _coefs_from_matrix(
+    coef_matrix: npt.NDArray[np.float64], n_lags: int
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Split `coef_matrix` into the lag matrices (n_lags, k, k) and the intercept (k,)."""
+    k = coef_matrix.shape[0]
+    lag_matrices = np.stack([coef_matrix[:, i * k : (i + 1) * k] for i in range(n_lags)])
+    return lag_matrices, coef_matrix[:, -1]
+
+
 def _var_fit(
     data: npt.NDArray[np.float64],
     n_lags: int,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    k = data.shape[1]
-    x = _build_lagged_design(data, n_lags)
-    y = data[n_lags:]
-    coefs, _, _, _ = np.linalg.lstsq(x, y, rcond=None)
-    coef_matrix = coefs.T
-    residuals = y - x @ coefs
-    n_eff, n_params = x.shape
-    dof = n_eff - n_params
-    sigma_u = (residuals.T @ residuals) / dof
-    if k == 1:
-        sigma_u = sigma_u.reshape(1, 1)
-    return coef_matrix, sigma_u
+    result = VAR(data).fit(maxlags=n_lags, method="ols", ic=None, trend="c", verbose=False)
+    coef_matrix = np.hstack([np.concatenate(list(result.coefs), axis=1), result.intercept[:, None]])
+    return coef_matrix, np.asarray(result.sigma_u, dtype=np.float64)
 
 
 def select_var_lag_order(
@@ -136,38 +133,34 @@ def select_var_lag_order(
     if criterion not in ("aic", "bic"):
         raise ValueError('criterion must be "aic" or "bic"')
 
+    if system.ndim != 2 or max_lags < 1:
+        raise ValueError("no feasible n_lags found for the given system and bounds")
     n_obs, k = system.shape
+    if k < 2:
+        raise ValueError("a VAR needs at least 2 series")
+    n_eff = n_obs - max_lags
+
     best_n_lags: int | None = None
     best_score = np.inf
-
     for n_lags in range(1, max_lags + 1):
-        try:
-            coef_matrix, _ = var_fit(system[max_lags - n_lags :], n_lags)
-        except ValueError:
+        # Fit on the trailing window shared by every candidate; lag orders
+        # with no spare degrees of freedom on it are skipped.
+        if n_eff <= k * n_lags + 1:
             continue
-
-        n_eff = n_obs - max_lags
-        x = _build_lagged_design(system[max_lags - n_lags :], n_lags)
-        residuals = system[max_lags:] - x @ coef_matrix.T
-        sigma_u_mle = (residuals.T @ residuals) / n_eff
-        if k == 1:
-            sigma_u_mle = sigma_u_mle.reshape(1, 1)
-        _, log_det = np.linalg.slogdet(sigma_u_mle)
-
-        free_params = n_lags * k**2 + k
-        score = (
-            log_det + (2.0 / n_eff) * free_params
-            if criterion == "aic"
-            else log_det + (np.log(n_eff) / n_eff) * free_params
+        fitted = VAR(system[max_lags - n_lags :]).fit(
+            maxlags=n_lags, method="ols", ic=None, trend="c", verbose=False
         )
-
+        # Lutkepohl's criteria with the maximum-likelihood residual covariance.
+        _, log_det = np.linalg.slogdet(fitted.sigma_u_mle)
+        free_params = n_lags * k**2 + k
+        penalty = 2.0 if criterion == "aic" else np.log(n_eff)
+        score = log_det + penalty / n_eff * free_params
         if score < best_score:
             best_score = score
             best_n_lags = n_lags
 
     if best_n_lags is None:
         raise ValueError("no feasible n_lags found for the given system and bounds")
-
     return best_n_lags
 
 
@@ -219,18 +212,8 @@ def _var_forecast(
     n_lags: int,
     h: int,
 ) -> npt.NDArray[np.float64]:
-    k = data.shape[1]
-    intercept = coef_matrix[:, -1]
-    history = list(data[-n_lags:])
-    forecasts = np.empty((h, k), dtype=np.float64)
-    for step in range(h):
-        y_next = intercept.copy()
-        for lag in range(1, n_lags + 1):
-            a_lag = coef_matrix[:, (lag - 1) * k : lag * k]
-            y_next = y_next + a_lag @ history[-lag]
-        forecasts[step] = y_next
-        history.append(y_next)
-    return forecasts
+    lag_matrices, intercept = _coefs_from_matrix(coef_matrix, n_lags)
+    return np.asarray(forecast(data[-n_lags:], lag_matrices, intercept, h), dtype=np.float64)
 
 
 def _validate_impulse_response_inputs(
@@ -280,17 +263,10 @@ def _impulse_response(
     n_lags: int,
     n_periods: int,
 ) -> npt.NDArray[np.float64]:
-    k = sigma_u.shape[0]
+    lag_matrices, _ = _coefs_from_matrix(coef_matrix, n_lags)
     p_chol = np.linalg.cholesky(sigma_u)
-    irf = np.zeros((n_periods, k, k), dtype=np.float64)
-    irf[0] = p_chol
-    a_lags = [coef_matrix[:, (lag - 1) * k : lag * k] for lag in range(1, n_lags + 1)]
-    for h in range(1, n_periods):
-        acc = np.zeros((k, k), dtype=np.float64)
-        for lag in range(1, min(h, n_lags) + 1):
-            acc = acc + a_lags[lag - 1] @ irf[h - lag]
-        irf[h] = acc
-    return irf
+    # Phi_h P for the moving-average matrices Phi_0 = I, Phi_h = sum_j A_j Phi_{h-j}.
+    return np.asarray(ma_rep(lag_matrices, n_periods - 1) @ p_chol, dtype=np.float64)
 
 
 def _validate_granger_causality_inputs(
@@ -332,31 +308,9 @@ def _granger_causality_test(
     x: npt.NDArray[np.float64],
     n_lags: int,
 ) -> tuple[float, float]:
-    n_obs = y.shape[0]
-    n_eff = n_obs - n_lags
-    target = y[n_lags:]
-
-    x_restricted = np.empty((n_eff, n_lags + 1), dtype=np.float64)
-    for lag in range(1, n_lags + 1):
-        x_restricted[:, lag - 1] = y[n_lags - lag : n_obs - lag]
-    x_restricted[:, -1] = 1.0
-
-    x_unrestricted = np.empty((n_eff, 2 * n_lags + 1), dtype=np.float64)
-    x_unrestricted[:, :n_lags] = x_restricted[:, :n_lags]
-    for lag in range(1, n_lags + 1):
-        x_unrestricted[:, n_lags + lag - 1] = x[n_lags - lag : n_obs - lag]
-    x_unrestricted[:, -1] = 1.0
-
-    beta_r, _, _, _ = np.linalg.lstsq(x_restricted, target, rcond=None)
-    rss_r = float(np.sum((target - x_restricted @ beta_r) ** 2))
-
-    beta_u, _, _, _ = np.linalg.lstsq(x_unrestricted, target, rcond=None)
-    rss_u = float(np.sum((target - x_unrestricted @ beta_u) ** 2))
-
-    k_u = x_unrestricted.shape[1]
-    dfd = n_eff - k_u
-    dfn = n_lags
-    f_stat = ((rss_r - rss_u) / dfn) / (rss_u / dfd)
-    f_stat = max(f_stat, 0.0)
-    p_value = float(f_dist.sf(f_stat, dfn, dfd))
-    return float(f_stat), p_value
+    # The second column is tested as a Granger cause of the first; the F-test
+    # compares the residual sums of squares of the restricted and unrestricted
+    # regressions, both with a constant.
+    tests = grangercausalitytests(np.column_stack([y, x]), maxlag=[n_lags], addconst=True)
+    f_stat, p_value, _, _ = tests[n_lags][0]["ssr_ftest"]
+    return max(float(f_stat), 0.0), float(p_value)

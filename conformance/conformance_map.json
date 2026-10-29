@@ -763,32 +763,6 @@
         "rtol": 0.001
       }
     },
-    "granger_causality_test": {
-      "by_quantity": {
-        "p_value": {
-          "cases": 200,
-          "max_abs_error": 1.8e-13,
-          "max_rel_error": 4.4e-13
-        },
-        "statistic": {
-          "cases": 200,
-          "max_abs_error": 3.48e-13,
-          "max_rel_error": 6.19e-12
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 3.48e-13,
-      "max_rel_error": 6.19e-12,
-      "oracle": "statsmodels.tsa.stattools.grangercausalitytests (ssr_ftest)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "closed-form restricted-vs-unrestricted F-statistic and its survival-function p-value against statsmodels.tsa.stattools.grangercausalitytests' ssr_ftest; one order looser than the closed-form default to absorb f.sf's own rounding, as adf_test/ljung_box_test do for their own survival-function evaluations.",
-        "rtol": 1e-06
-      }
-    },
     "hit_rate": {
       "by_quantity": {
         "value": {
@@ -997,27 +971,6 @@
         "atol": 1e-10,
         "justification": "closed-form Pi = risk_aversion * Sigma @ w_mkt, hand-derived from He & Litterman (1999) eq. 4 -- no library implements this single matrix-vector product, so the reference is anchored by citation plus the two independent cross-checks in conformance/test_tier2_portfolio.py (zero-confidence view recovers the prior; infinite-confidence view recovers the view) that a wrong transcription would break.",
         "rtol": 1e-10
-      }
-    },
-    "impulse_response": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 2.22e-16,
-          "max_rel_error": 4.34e-13
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 2.22e-16,
-      "max_rel_error": 4.34e-13,
-      "oracle": "statsmodels.tsa.vector_ar.var_model.VARProcess.orth_ma_rep (Cholesky-orthogonalized)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-09,
-        "justification": "Cholesky-orthogonalized IRF against statsmodels.tsa.vector_ar.var_model.VARProcess.orth_ma_rep on the SAME coefficients and sigma_u; one order looser than the closed-form default for the Cholesky factorisation's own rounding.",
-        "rtol": 1e-08
       }
     },
     "information_ratio": {
@@ -1455,27 +1408,6 @@
       "status": "unverifiable",
       "tolerance": null
     },
-    "select_var_lag_order": {
-      "by_quantity": {
-        "value": {
-          "cases": 40,
-          "max_abs_error": 0.0,
-          "max_rel_error": 0.0
-        }
-      },
-      "cases": 40,
-      "finding": null,
-      "max_abs_error": 0.0,
-      "max_rel_error": 0.0,
-      "oracle": "statsmodels.tsa.api.VAR.select_order (agreement rate reported, not asserted -- see module docstring)",
-      "reason": "comparator is report-only (conformance.compare.ReportOnlyScalarComparator): agreement with the oracle is recorded for the report but never asserted, so this target is never classified verified whatever the recorded error magnitudes",
-      "status": "unverifiable",
-      "tolerance": {
-        "atol": 0.0,
-        "justification": "as select_arima_order: agreement rate reported, not asserted, and not consulted for a pass/fail decision -- see conformance.compare.ReportOnlyScalarComparator.",
-        "rtol": 0.0
-      }
-    },
     "serenity_index": {
       "by_quantity": {
         "value": {
@@ -1709,69 +1641,6 @@
       "tolerance": {
         "atol": 1e-08,
         "justification": "closed form (a quartic polynomial in z plus a normal quantile), but with the same order-of-summation freedom as ols; two orders looser than the default to absorb that, still tight enough to catch a wrong coefficient in the expansion.",
-        "rtol": 1e-08
-      }
-    },
-    "var_fit_coef_matrix": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 1.52e-14,
-          "max_rel_error": 1.67e-11
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 1.52e-14,
-      "max_rel_error": 1.67e-11,
-      "oracle": "statsmodels.tsa.api.VAR (params reordered to quantcore's intercept-last layout, finding H -- see module docstring)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-09,
-        "justification": "closed-form per-equation OLS; measured agreement to ~1e-10 relative against statsmodels.tsa.api.VAR after moving statsmodels' intercept column from first to last, as quantcore lays it out (`_var_layout_from_statsmodels`), one order looser than the closed-form default for lstsq-vs-pinv rounding across k*n_lags+1 regressors, as ols_coefficients above.",
-        "rtol": 1e-07
-      }
-    },
-    "var_fit_sigma_u": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 6.66e-16,
-          "max_rel_error": 4.08e-14
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 6.66e-16,
-      "max_rel_error": 4.08e-14,
-      "oracle": "statsmodels.tsa.api.VAR (sigma_u, the unbiased residual covariance estimator)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-09,
-        "justification": "same lstsq-vs-pinv rounding margin as var_fit_coef_matrix, one matrix product further from the raw coefficients.",
-        "rtol": 1e-07
-      }
-    },
-    "var_forecast": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 0.0,
-          "max_rel_error": 0.0
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 0.0,
-      "max_rel_error": 0.0,
-      "oracle": "statsmodels.tsa.vector_ar.var_model.forecast (same coefficients, no re-fit)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-09,
-        "justification": "closed-form recursive application of already-fitted VAR coefficients against statsmodels.tsa.vector_ar.var_model.forecast on the SAME coefficients (no re-fit); measured agreement near machine precision, one order looser than the closed-form default for the recursive matrix-vector product accumulation.",
         "rtol": 1e-08
       }
     }

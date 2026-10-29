@@ -31,12 +31,8 @@ import numpy.typing as npt
 import pandas as pd
 import statsmodels.api as sm
 from scipy.signal import lfilter, lfiltic
-from statsmodels.tsa.api import VAR
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from statsmodels.tsa.stattools import grangercausalitytests
-from statsmodels.tsa.vector_ar.var_model import VARProcess
-from statsmodels.tsa.vector_ar.var_model import forecast as sm_var_forecast
 
 import quantcore.statistics as qc_statistics
 import quantcore.time_series as qc_time_series
@@ -46,7 +42,6 @@ from conformance.compare import (
     DecisiveFloatArrayComparator,
     ReportOnlyScalarComparator,
     ScalarComparator,
-    TupleComparator,
 )
 
 __all__ = ["ArimaFitResult"]
@@ -493,184 +488,7 @@ _SELECT_ARIMA_ORDER = ConformanceTarget(
 # --- VAR -------------------------------------------------------------------------------------
 
 
-def _var_layout_from_statsmodels(
-    params: npt.NDArray[np.float64],
-) -> npt.NDArray[np.float64]:
-    """Reorder statsmodels' VAR coefficient layout into quantcore's intercept-last layout.
-
-    Statsmodels' `(1+k*n_lags, k)` `params` (intercept in the first row, each lag block with rows
-    = source variable, columns = target equation) becomes quantcore's `(k, k*n_lags+1)` layout,
-    intercept in the last column. A lossless transpose/stack.
-    """
-    return np.column_stack([params[1:, :].T, params[0, :]])
-
-
-def _var_fit_coef_matrix_quantcore(
-    data: npt.NDArray[np.float64], n_lags: int
-) -> npt.NDArray[np.float64]:
-    coef_matrix, _sigma_u = qc_time_series.var_fit(data, n_lags)
-    return np.asarray(coef_matrix, dtype=np.float64)
-
-
-def _var_fit_coef_matrix_reference(
-    data: npt.NDArray[np.float64], n_lags: int
-) -> npt.NDArray[np.float64]:
-    result = VAR(data).fit(n_lags)
-    return _var_layout_from_statsmodels(np.asarray(result.params, dtype=np.float64))
-
-
-_VAR_FIT_COEF_MATRIX = ConformanceTarget(
-    name="var_fit_coef_matrix",
-    tier=2,
-    oracle="statsmodels.tsa.api.VAR (params reordered to quantcore's intercept-last layout, "
-    "finding H -- see module docstring)",
-    citation="Lutkepohl, H. (2005). See module docstring.",
-    compare=ArrayComparator(),
-    quantcore=_var_fit_coef_matrix_quantcore,
-    reference=_var_fit_coef_matrix_reference,
-)
-
-
-def _var_fit_sigma_u_quantcore(
-    data: npt.NDArray[np.float64], n_lags: int
-) -> npt.NDArray[np.float64]:
-    _coef_matrix, sigma_u = qc_time_series.var_fit(data, n_lags)
-    return np.asarray(sigma_u, dtype=np.float64)
-
-
-def _var_fit_sigma_u_reference(
-    data: npt.NDArray[np.float64], n_lags: int
-) -> npt.NDArray[np.float64]:
-    return np.asarray(VAR(data).fit(n_lags).sigma_u, dtype=np.float64)
-
-
-_VAR_FIT_SIGMA_U = ConformanceTarget(
-    name="var_fit_sigma_u",
-    tier=2,
-    oracle="statsmodels.tsa.api.VAR (sigma_u, the unbiased residual covariance estimator)",
-    citation="Lutkepohl, H. (2005), Section 3.2.2. See module docstring.",
-    compare=ArrayComparator(),
-    quantcore=_var_fit_sigma_u_quantcore,
-    reference=_var_fit_sigma_u_reference,
-)
-
-
-def _var_forecast_quantcore(
-    data: npt.NDArray[np.float64], coef_matrix: npt.NDArray[np.float64], n_lags: int, h: int
-) -> npt.NDArray[np.float64]:
-    return np.asarray(qc_time_series.var_forecast(data, coef_matrix, n_lags, h), dtype=np.float64)
-
-
-def _var_forecast_reference(
-    data: npt.NDArray[np.float64], coef_matrix: npt.NDArray[np.float64], n_lags: int, h: int
-) -> npt.NDArray[np.float64]:
-    k = data.shape[1]
-    coefs = np.stack([coef_matrix[:, (lag - 1) * k : lag * k] for lag in range(1, n_lags + 1)])
-    trend = coef_matrix[:, -1]
-    return np.asarray(sm_var_forecast(data[-n_lags:], coefs, trend, h), dtype=np.float64)
-
-
-_VAR_FORECAST = ConformanceTarget(
-    name="var_forecast",
-    tier=2,
-    oracle="statsmodels.tsa.vector_ar.var_model.forecast (same coefficients, no re-fit)",
-    citation="Lutkepohl, H. (2005), p. 37. See module docstring.",
-    compare=ArrayComparator(),
-    quantcore=_var_forecast_quantcore,
-    reference=_var_forecast_reference,
-)
-
-
-def _impulse_response_quantcore(
-    coef_matrix: npt.NDArray[np.float64],
-    sigma_u: npt.NDArray[np.float64],
-    n_lags: int,
-    n_periods: int,
-) -> npt.NDArray[np.float64]:
-    return np.asarray(
-        qc_time_series.impulse_response(coef_matrix, sigma_u, n_lags, n_periods), dtype=np.float64
-    )
-
-
-def _impulse_response_reference(
-    coef_matrix: npt.NDArray[np.float64],
-    sigma_u: npt.NDArray[np.float64],
-    n_lags: int,
-    n_periods: int,
-) -> npt.NDArray[np.float64]:
-    k = sigma_u.shape[0]
-    coefs = np.stack([coef_matrix[:, (lag - 1) * k : lag * k] for lag in range(1, n_lags + 1)])
-    trend = coef_matrix[:, -1]
-    process = VARProcess(coefs, trend, sigma_u)
-    return np.asarray(process.orth_ma_rep(n_periods - 1), dtype=np.float64)
-
-
-_IMPULSE_RESPONSE = ConformanceTarget(
-    name="impulse_response",
-    tier=2,
-    oracle="statsmodels.tsa.vector_ar.var_model.VARProcess.orth_ma_rep (Cholesky-orthogonalized)",
-    citation="Lutkepohl, H. (2005). See module docstring.",
-    compare=ArrayComparator(),
-    quantcore=_impulse_response_quantcore,
-    reference=_impulse_response_reference,
-)
-
-
-def _select_var_lag_order_quantcore(
-    system: npt.NDArray[np.float64], max_lags: int, criterion: str
-) -> float:
-    return float(qc_time_series.select_var_lag_order(system, max_lags, criterion))
-
-
-def _select_var_lag_order_reference(
-    system: npt.NDArray[np.float64], max_lags: int, criterion: str
-) -> float:
-    result = VAR(system).select_order(maxlags=max_lags)
-    return float(result.aic if criterion == "aic" else result.bic)
-
-
-_SELECT_VAR_LAG_ORDER = ConformanceTarget(
-    name="select_var_lag_order",
-    tier=2,
-    oracle="statsmodels.tsa.api.VAR.select_order (agreement rate reported, not asserted -- see "
-    "module docstring)",
-    citation="Lutkepohl, H. (2005), pp. 146-150. See module docstring.",
-    compare=ReportOnlyScalarComparator(),
-    quantcore=_select_var_lag_order_quantcore,
-    reference=_select_var_lag_order_reference,
-)
-
-
 # --- Granger causality -------------------------------------------------------------------------
-
-
-def _granger_causality_test_quantcore(
-    y: npt.NDArray[np.float64], x: npt.NDArray[np.float64], n_lags: int
-) -> tuple[float, float]:
-    f_statistic, p_value = qc_time_series.granger_causality_test(y, x, n_lags)
-    return float(f_statistic), float(p_value)
-
-
-def _granger_causality_test_reference(
-    y: npt.NDArray[np.float64], x: npt.NDArray[np.float64], n_lags: int
-) -> tuple[float, float]:
-    data = np.column_stack([y, x])
-    result = grangercausalitytests(data, maxlag=[n_lags])
-    f_statistic, p_value, _df_denom, _df_num = result[n_lags][0]["ssr_ftest"]
-    return float(f_statistic), float(p_value)
-
-
-_GRANGER_CAUSALITY_TEST: ConformanceTarget[
-    [npt.NDArray[np.float64], npt.NDArray[np.float64], int], tuple[float, float]
-] = ConformanceTarget(
-    name="granger_causality_test",
-    tier=2,
-    oracle="statsmodels.tsa.stattools.grangercausalitytests (ssr_ftest)",
-    citation="Granger, C.W.J. (1969). See module docstring.",
-    compare=TupleComparator(ScalarComparator(), ScalarComparator()),
-    quantcore=_granger_causality_test_quantcore,
-    reference=_granger_causality_test_reference,
-)
 
 
 # --- OU half-life and spread z-score ------------------------------------------------------------

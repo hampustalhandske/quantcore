@@ -422,12 +422,6 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "arima_residuals": (tier2_time_series, "ARIMA_RESIDUALS"),
     "arima_forecast": (tier2_time_series, "ARIMA_FORECAST"),
     "select_arima_order": (tier2_time_series, "SELECT_ARIMA_ORDER"),
-    "var_fit_coef_matrix": (tier2_time_series, "VAR_FIT"),
-    "var_fit_sigma_u": (tier2_time_series, "VAR_FIT"),
-    "var_forecast": (tier2_time_series, "VAR_FORECAST"),
-    "impulse_response": (tier2_time_series, "IMPULSE_RESPONSE"),
-    "select_var_lag_order": (tier2_time_series, "SELECT_VAR_LAG_ORDER"),
-    "granger_causality_test": (tier2_time_series, "GRANGER_CAUSALITY_TEST"),
     "ou_half_life": (tier2_time_series, "OU_HALF_LIFE"),
     "spread_zscore": (tier2_time_series, "SPREAD_ZSCORE"),
 }

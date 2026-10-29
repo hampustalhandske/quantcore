@@ -446,6 +446,23 @@ TOLERANCES: dict[str, Tolerance] = {
             "statistic near zero and makes any two p-values below 1e-12 equal."
         ),
     ),
+    "hac_t_test": Tolerance(
+        rtol=1e-9,
+        atol=1e-12,
+        justification=(
+            "the same Bartlett sandwich with the n/(n-1) factor, evaluated as the mean and a sum "
+            "of lagged products of the centred values, then a Student-t(n-1) tail. The one "
+            "rounding source beyond a few n*eps is centring: the standard error and t lose "
+            "digits in proportion to |mean|/std, about eps*|mean|/std, which is 1e-11 for the "
+            "near_constant family (mean 4e5 times the spread; measured 9.5e-12 on se and t over "
+            "600 cases, lags 0-30, all three alternatives). The p-value's relative error is "
+            "about t times the relative error of t, so it is larger than the statistic's: "
+            "measured 2.6e-11 on near_constant and below 1.3e-12 on every other family. rtol is "
+            "set 40 times above the largest measured error, far below the 1e-3 or larger "
+            "differences a kernel-weight, correction or degrees-of-freedom mismatch produces. "
+            "atol covers p-values below 1e-12, which are indistinguishable from zero."
+        ),
+    ),
     "ewma_variance": Tolerance(
         rtol=1e-10,
         atol=1e-10,

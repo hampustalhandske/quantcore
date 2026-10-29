@@ -1,15 +1,19 @@
-"""Tier-1 statistics targets: OLS, the Newey-West lag rule and Jarque-Bera.
+"""Tier-1 statistics targets: OLS, the Newey-West lag rule, Jarque-Bera and the HAC t-test.
 
 OLS is two targets, `ols_coefficients` and `ols_r_squared` (centred R-squared with a constant
 column, else uncentred). The Newey-West lag count is the rule of thumb
 `floor(4 * (n/100)^(2/9))`, not the data-driven procedure. `jarque_bera` is checked
-against `scipy.stats.jarque_bera`.
+against `scipy.stats.jarque_bera`. `hac_t_test` is checked against a `statsmodels` constant-only
+OLS with `cov_type="HAC"`, Bartlett kernel, `use_correction=True` and `use_t=True`.
 """
+
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import statsmodels.api as sm
 from scipy.stats import jarque_bera as _scipy_jarque_bera
+from scipy.stats import t as _student_t
 
 import quantcore.statistics as qc_statistics
 from conformance.compare import (
@@ -122,6 +126,56 @@ _JARQUE_BERA = ConformanceTarget(
     compare=TupleComparator(ScalarComparator(), ScalarComparator()),
     quantcore=_jarque_bera_quantcore,
     reference=_jarque_bera_reference,
+)
+
+
+# --- HAC t-test -----------------------------------------------------------------------------------
+
+
+def _hac_t_test_quantcore(
+    x: npt.NDArray[np.float64],
+    *,
+    lags: int,
+    alternative: Literal["two-sided", "greater", "less"],
+    null: float,
+) -> tuple[float, float, float]:
+    result = qc_statistics.hac_t_test(x, lags=lags, alternative=alternative, null=null)
+    return result.t, result.p_value, result.se
+
+
+def _hac_t_test_reference(
+    x: npt.NDArray[np.float64],
+    *,
+    lags: int,
+    alternative: Literal["two-sided", "greater", "less"],
+    null: float,
+) -> tuple[float, float, float]:
+    fit = sm.OLS(x, np.ones(x.size)).fit(
+        cov_type="HAC",
+        cov_kwds={"maxlags": lags, "use_correction": True, "kernel": "bartlett"},
+        use_t=True,
+    )
+    test = fit.t_test((np.ones((1, 1)), np.array([null])), use_t=True)
+    t_stat = float(np.squeeze(test.tvalue))
+    if alternative == "two-sided":
+        p_value = float(np.squeeze(test.pvalue))
+    else:
+        sign = 1.0 if alternative == "greater" else -1.0
+        p_value = float(_student_t.sf(sign * t_stat, fit.df_resid))
+    return t_stat, p_value, float(fit.bse[0])
+
+
+_HAC_T_TEST = ConformanceTarget(
+    name="hac_t_test",
+    tier=1,
+    oracle="statsmodels OLS cov_type='HAC'",
+    citation=(
+        "Newey, W.K. and West, K.D. (1987), 'A Simple, Positive Semi-Definite, Heteroskedasticity "
+        "and Autocorrelation Consistent Covariance Matrix.' Econometrica, 55(3), 703-708."
+    ),
+    compare=TupleComparator(ScalarComparator(), ScalarComparator(), ScalarComparator()),
+    quantcore=_hac_t_test_quantcore,
+    reference=_hac_t_test_reference,
 )
 
 

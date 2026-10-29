@@ -282,6 +282,7 @@ cite the relevant entry in their docstrings.
   Heteroskedasticity and Autocorrelation Consistent Covariance Matrix."
   *Econometrica*, 55(3), 703–708.
   → `statistics/regression.py` (Newey-West HAC standard errors)
+  → `statistics/hac.py` (`hac_t_test`, HAC standard error of a mean)
   → `statistics/diagnostics.py` (Bartlett-kernel long-run variance in
   `kpss_test`, through `_newey_west_cov`)
 

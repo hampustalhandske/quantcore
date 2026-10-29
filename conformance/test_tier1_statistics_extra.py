@@ -1,6 +1,6 @@
 """Tier-1 differential tests for the statistics functions a downstream pipeline calls.
 
-`ols` and `newey_west_optimal_lags` against `statsmodels`, `jarque_bera_test`
+`ols`, `newey_west_optimal_lags` and `hac_t_test` against `statsmodels`, `jarque_bera_test`
 against `scipy`. The Ljung-Box, ARCH-LM and KPSS tests are computed by `statsmodels` itself, so
 their checks are the convention tests in `tests/unit/statistics` and `tests/unit/time_series`.
 """
@@ -25,6 +25,7 @@ _OLS_COEFFICIENTS = registry()["ols_coefficients"]
 _OLS_R_SQUARED = registry()["ols_r_squared"]
 _NEWEY_WEST_OPTIMAL_LAGS = registry()["newey_west_optimal_lags"]
 _JARQUE_BERA = registry()["jarque_bera"]
+_HAC_T_TEST = registry()["hac_t_test"]
 
 OLS_MIN_LEN = 3
 OLS_FAMILIES: tuple[str, ...] = REGRESSION_FAMILIES
@@ -37,6 +38,10 @@ NEWEY_WEST_OPTIMAL_LAGS_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 JARQUE_BERA_MIN_LEN = 2
 JARQUE_BERA_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
 JARQUE_BERA_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
+
+HAC_T_TEST_MIN_LEN = 10
+HAC_T_TEST_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
+HAC_T_TEST_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
 
 @given(problem=regression_problem(min_len=OLS_MIN_LEN))
@@ -84,4 +89,30 @@ def test_jarque_bera_matches_scipy(tagged: TaggedReturns) -> None:
         length_bucket=length_bucket_for(tagged.n),
         seed=tagged.seed,
         quantities=("statistic", "p_value"),
+    )
+
+
+@given(
+    tagged=returns_series(min_len=HAC_T_TEST_MIN_LEN),
+    lags=st.integers(min_value=0, max_value=30),
+    alternative=st.sampled_from(["two-sided", "greater", "less"]),
+    null_scale=st.floats(min_value=-2.0, max_value=2.0),
+)
+def test_hac_t_test_matches_statsmodels(
+    tagged: TaggedReturns, lags: int, alternative: str, null_scale: float
+) -> None:
+    """Quantcore's `hac_t_test` against statsmodels OLS with `cov_type="HAC"` (Bartlett)."""
+    # A constant series has zero HAC variance; quantcore raises and statsmodels returns NaN.
+    assume(np.ptp(tagged.values) > 0.0)
+    assume(lags < tagged.n)
+    check(
+        _HAC_T_TEST,
+        tagged.values,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
+        quantities=("t", "p_value", "se"),
+        lags=lags,
+        alternative=alternative,
+        null=null_scale * float(tagged.values.std()),
     )

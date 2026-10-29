@@ -9,6 +9,7 @@ from quantcore.statistics.diagnostics import (
     jarque_bera_test,
     kpss_test,
 )
+from quantcore.statistics.hac import HacTResult, hac_t_test
 from quantcore.statistics.regression import (
     FactorLoadingsResult,
     factor_loadings,
@@ -20,11 +21,13 @@ from quantcore.statistics.regression import (
 
 __all__ = [
     "FactorLoadingsResult",
+    "HacTResult",
     "adf_test",
     "arch_lm_test",
     "engle_granger_test",
     "factor_loadings",
     "fama_macbeth_regression",
+    "hac_t_test",
     "jarque_bera_test",
     "kpss_test",
     "newey_west_cov",

@@ -19,10 +19,6 @@ and then exponentiates at the end. This is equivalent to Euler-Maruyama on the
 log process and preserves the strictly-positive GBM invariant without creating
 nonsense negative asset prices under realistic volatility / step settings.
 
-Both a plain NumPy reference implementation and a Numba-accelerated version
-are required per the project convention (see CLAUDE.md); the Numba variant
-is added alongside the reference when this module is implemented.
-
 References:
     Kloeden, P.E. and Platen, E. (1992). *Numerical Solution of Stochastic
     Differential Equations*. Springer. (Euler-Maruyama scheme and
@@ -107,38 +103,6 @@ def _generate_gbm_increments(
     """
     rng = np.random.default_rng(seed)
     return rng.normal(0.0, np.sqrt(dt), size=(num_paths, num_steps))
-
-
-def _simulate_gbm_paths_numpy(
-    spot: float,
-    rate: float,
-    volatility: float,
-    dt: float,
-    dw: npt.NDArray[np.float64],
-) -> npt.NDArray[np.float64]:
-    """Plain NumPy reference implementation for GBM.
-
-    For positive volatility we use the log-Euler discretization to preserve
-    positivity; for the degenerate sigma=0 case we preserve the existing
-    discrete compounding contract expected by the project tests.
-    """
-    num_paths, num_steps = dw.shape
-    paths = np.empty((num_paths, num_steps + 1), dtype=np.float64)
-    paths[:, 0] = spot
-
-    if volatility == 0.0:
-        for k in range(num_steps):
-            paths[:, k + 1] = paths[:, k] * (1.0 + rate * dt)
-        return paths
-
-    log_paths = np.empty((num_paths, num_steps + 1), dtype=np.float64)
-    log_paths[:, 0] = np.log(spot)
-    drift = rate - 0.5 * volatility**2
-
-    for k in range(num_steps):
-        log_paths[:, k + 1] = log_paths[:, k] + drift * dt + volatility * dw[:, k]
-
-    return np.exp(log_paths)
 
 
 @numba.njit(cache=True)

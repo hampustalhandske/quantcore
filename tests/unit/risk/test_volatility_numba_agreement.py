@@ -28,9 +28,9 @@ import numpy as np
 
 from quantcore.risk.volatility import (
     _garch_11_variance_numba_kernel,
-    _garch_11_variance_numpy,
     garch_11_variance,
 )
+from tests.reference_kernels import _garch_11_variance_numpy
 
 
 def test_numba_and_numpy_garch_kernels_agree_on_hand_picked_series() -> None:

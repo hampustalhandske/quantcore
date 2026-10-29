@@ -92,8 +92,10 @@ Before relying on a specific function's numbers, check its status in
 NumPy/SciPy — closed-form expressions and functions passed to
 `scipy.optimize` (which can't call Numba JIT functions directly). There
 is one implementation per function; no parallel "slow" reference copy is
-kept once a Numba path exists. If a compiled path fails, it raises rather
-than silently falling back to a slower implementation.
+kept in `src/` once a Numba path exists. If a compiled path fails, it raises
+rather than silently falling back to a slower implementation.
+
+Numba against a plain NumPy reference on an Apple M3 (arm64), 2026-10-29: GARCH(1,1) variance recursion 107x to 128x faster (2,520 to 1,000,000 points); GBM log-Euler paths 2.6x to 5.6x faster (10,000 x 252 to 100,000 x 252 paths). The reference implementations live in `tests/reference_kernels.py`.
 
 ## Requirements
 
@@ -159,7 +161,7 @@ A passing `pytest conformance` run is not a verdict: the status of each
 function is what the builder writes. `conformance/conformance_map.json` and
 `docs/CONFORMANCE.md` are generated and committed; never edit them by hand.
 Profiles (`ci`, `full`, `explore`) and the rest are in
-`conformance/README.md`. The Numba-versus-NumPy and external-library timings
+`conformance/README.md`. The Monte Carlo throughput and external-library timings
 are in `benchmarks/bench_quantcore.py` (`uv run python benchmarks/bench_quantcore.py`,
 needs the `oracle` extra).
 

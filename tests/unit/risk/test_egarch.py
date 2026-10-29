@@ -19,9 +19,7 @@ from quantcore.risk.egarch import (
     EGARCHParams,
     GJRGARCHParams,
     _egarch_11_variance,
-    _egarch_11_variance_numpy,
     _gjr_garch_11_variance,
-    _gjr_garch_11_variance_numpy,
     egarch_11_variance,
     egarch_fit,
     ewma_variance,
@@ -29,6 +27,7 @@ from quantcore.risk.egarch import (
     gjr_garch_fit,
 )
 from quantcore.risk.volatility import ConvergenceError, garch_11_variance
+from tests.reference_kernels import _egarch_11_variance_numpy, _gjr_garch_11_variance_numpy
 
 RETURNS = np.array([0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012])
 RNG_SEED = 2024

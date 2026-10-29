@@ -4,8 +4,7 @@ Two groups of measurements, both printed as Markdown tables after a header
 that records the machine, the Python and package versions, the timing method
 and the baseline every number is measured against:
 
-1. quantcore's Numba kernels against the NumPy reference kernels that live
-   beside them in `src/quantcore`, plus end-to-end Monte Carlo throughput.
+1. End-to-end Monte Carlo throughput of quantcore's Numba-backed simulators.
 2. quantcore's public functions against the external library each one is
    oracle-tested against (`arch`, `statsmodels`, `scipy`, `scikit-learn`,
    `empyrical`, `cvxpy` with the CLARABEL solver, `quantstats` on `pandas` Series,
@@ -63,9 +62,6 @@ from quantcore.core.price_paths import (
     simulate_jump_diffusion_price_paths,
 )
 from quantcore.core.sde_solver import (
-    _generate_gbm_increments,
-    _simulate_gbm_paths_numba_kernel,
-    _simulate_gbm_paths_numpy,
     simulate_gbm_paths,
 )
 from quantcore.filtering import dynamic_hedge_ratio
@@ -87,7 +83,6 @@ from quantcore.risk import (
     conditional_value_at_risk,
     value_at_risk,
 )
-from quantcore.risk.volatility import _garch_11_variance_numba_kernel, _garch_11_variance_numpy
 from quantcore.statistics import (
     jarque_bera_test,
     newey_west_cov,
@@ -316,14 +311,6 @@ def print_header() -> None:
         "below 1 the library is faster."
     )
     print("\n## Baselines\n")
-    print(
-        "- GARCH(1,1) recursion kernel: `_garch_11_variance_numpy`, an interpreted Python loop "
-        "writing into a NumPy array (not vectorised NumPy)."
-    )
-    print(
-        "- GBM path kernel: `_simulate_gbm_paths_numpy`, vectorised across paths with a Python "
-        "loop over time steps, on the same pre-drawn increments."
-    )
     print("- Throughput rows: no baseline; absolute paths per second including random draws.")
     print(
         "- GARCH(1,1) fit: `arch_model(mean='Zero', vol='GARCH', p=1, q=1, dist='normal', "
@@ -363,56 +350,6 @@ def print_header() -> None:
         "- Dynamic hedge ratio: a `filterpy.kalman.KalmanFilter` loop that sets the observation "
         "matrix to x[t] and calls `predict` and `update` once per observation."
     )
-
-
-# ---------------------------------------------------------------------------
-# Numba kernels against their NumPy reference kernels
-# ---------------------------------------------------------------------------
-
-
-def bench_kernels() -> None:
-    """Time the two Numba kernels that ship with a NumPy reference implementation."""
-    print("\n### Numba kernels against the in-repo NumPy reference kernels\n")
-    print("| kernel | size | Numba | NumPy reference | speedup | agree (rtol 1e-10) |")
-    print("|---|---|---|---|---|---|")
-
-    omega, alpha, beta = 0.000015, 0.09, 0.87
-    for n in (2_520, 100_000, 1_000_000):
-        returns = np.random.default_rng(SEED).normal(0.0, 0.015, size=n)
-
-        def numba_garch(returns: FloatArray = returns) -> FloatArray:
-            return _garch_11_variance_numba_kernel(returns, omega, alpha, beta)
-
-        def numpy_garch(returns: FloatArray = returns) -> FloatArray:
-            return _garch_11_variance_numpy(returns, omega, alpha, beta)
-
-        t_numba = median_seconds(numba_garch)
-        t_numpy = median_seconds(numpy_garch)
-        agree = np.allclose(numba_garch(), numpy_garch(), rtol=1e-10, atol=1e-10)
-        print(
-            f"| GARCH(1,1) variance recursion | {n:,} points | {format_seconds(t_numba)} | "
-            f"{format_seconds(t_numpy)} | {t_numpy / t_numba:.3g}x | {'yes' if agree else 'NO'} |"
-        )
-
-    spot, rate, vol, maturity = 100.0, 0.05, 0.2, 1.0
-    for num_paths, num_steps in ((10_000, 252), (100_000, 252), (1_000, 2_520)):
-        dt = maturity / num_steps
-        dw = _generate_gbm_increments(dt, num_steps, num_paths, seed=SEED)
-
-        def numba_gbm(dt: float = dt, dw: FloatArray = dw) -> FloatArray:
-            return _simulate_gbm_paths_numba_kernel(spot, rate, vol, dt, dw)
-
-        def numpy_gbm(dt: float = dt, dw: FloatArray = dw) -> FloatArray:
-            return _simulate_gbm_paths_numpy(spot, rate, vol, dt, dw)
-
-        t_numba = median_seconds(numba_gbm)
-        t_numpy = median_seconds(numpy_gbm)
-        agree = np.allclose(numba_gbm(), numpy_gbm(), rtol=1e-10, atol=1e-10)
-        print(
-            f"| GBM log-Euler paths | {num_paths:,} paths x {num_steps:,} steps | "
-            f"{format_seconds(t_numba)} | {format_seconds(t_numpy)} | "
-            f"{t_numpy / t_numba:.3g}x | {'yes' if agree else 'NO'} |"
-        )
 
 
 def bench_throughput() -> None:
@@ -994,7 +931,6 @@ def main() -> None:
     warnings.simplefilter("ignore")
     print_header()
     print("\n## Results")
-    bench_kernels()
     bench_throughput()
     print_table("ARIMA fit and forecast: quantcore vs statsmodels", bench_arima())
     print_table("OLS and Newey-West: quantcore vs statsmodels", bench_regression())

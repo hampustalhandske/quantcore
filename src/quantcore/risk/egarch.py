@@ -138,38 +138,6 @@ def _egarch_11_variance(
     return log_variance
 
 
-def _egarch_11_variance_numpy(
-    returns: npt.NDArray[np.float64],
-    omega: float,
-    alpha: float,
-    gamma: float,
-    beta: float,
-    initial_variance: float = float("nan"),
-) -> npt.NDArray[np.float64]:
-    """Plain NumPy reference implementation of the EGARCH(1,1) recursion.
-
-    Correctness reference for `_egarch_11_variance`'s Numba kernel — see
-    `test_egarch.py` for the agreement test between the two.
-    """
-    n = returns.shape[0]
-    log_variance = np.empty(n, dtype=np.float64)
-    log_variance[0] = (
-        omega / (1.0 - beta) if np.isnan(initial_variance) else np.log(initial_variance)
-    )
-
-    for t in range(1, n):
-        sigma_prev = np.sqrt(np.exp(log_variance[t - 1]))
-        z_prev = returns[t - 1] / sigma_prev
-        log_variance[t] = (
-            omega
-            + beta * log_variance[t - 1]
-            + alpha * (np.abs(z_prev) - _E_ABS_Z)
-            + gamma * z_prev
-        )
-
-    return log_variance
-
-
 def _validate_fit_returns(returns: npt.NDArray[np.float64]) -> None:
     if returns.size == 0:
         raise ValueError("returns must be non-empty")
@@ -349,39 +317,6 @@ def _gjr_garch_11_variance(
         variance[0] = omega / (1.0 - alpha - gamma / 2.0 - beta)
     else:
         variance[0] = initial_variance
-
-    for t in range(1, n):
-        bad_news = 1.0 if returns[t - 1] < 0.0 else 0.0
-        variance[t] = (
-            omega
-            + alpha * returns[t - 1] ** 2
-            + gamma * returns[t - 1] ** 2 * bad_news
-            + beta * variance[t - 1]
-        )
-
-    return variance
-
-
-def _gjr_garch_11_variance_numpy(
-    returns: npt.NDArray[np.float64],
-    omega: float,
-    alpha: float,
-    gamma: float,
-    beta: float,
-    initial_variance: float = float("nan"),
-) -> npt.NDArray[np.float64]:
-    """Plain NumPy reference implementation of the GJR-GARCH(1,1) recursion.
-
-    Correctness reference for `_gjr_garch_11_variance`'s Numba kernel — see
-    `test_egarch.py` for the agreement test between the two.
-    """
-    n = returns.shape[0]
-    variance = np.empty(n, dtype=np.float64)
-    variance[0] = (
-        omega / (1.0 - alpha - gamma / 2.0 - beta)
-        if np.isnan(initial_variance)
-        else initial_variance
-    )
 
     for t in range(1, n):
         bad_news = 1.0 if returns[t - 1] < 0.0 else 0.0

@@ -151,38 +151,6 @@ def _presample(residuals: npt.NDArray[np.float64], presample_variance: float | N
     return float(presample_variance)
 
 
-def _garch_11_variance_numpy(
-    returns: npt.NDArray[np.float64],
-    omega: float,
-    alpha: float,
-    beta: float,
-    initial_variance: float = float("nan"),
-) -> npt.NDArray[np.float64]:
-    """Plain NumPy reference implementation of the GARCH(1,1) recursion.
-
-    Correctness reference for `_garch_11_variance`'s Numba kernel — see
-    `test_volatility_numba_agreement.py` for the agreement test between the
-    two.
-    """
-    n = returns.shape[0]
-    variance = np.empty(n, dtype=np.float64)
-
-    # Seed the recursion with the model-implied long-run (unconditional)
-    # variance omega / (1 - alpha - beta), the stationary variance of the
-    # GARCH(1,1) process under alpha + beta < 1 (Bollerslev 1986). This is
-    # not pinned down by the recursion formula itself, since sigma_t^2
-    # depends on sigma_{t-1}^2 and there is no sigma_0^2 in the input data;
-    # anchoring to the theoretical stationary variance (rather than, e.g.,
-    # the sample variance of `returns`) keeps the series purely a function
-    # of the given model parameters.
-    variance[0] = omega / (1.0 - alpha - beta) if np.isnan(initial_variance) else initial_variance
-
-    for t in range(1, n):
-        variance[t] = omega + alpha * returns[t - 1] ** 2 + beta * variance[t - 1]
-
-    return variance
-
-
 @numba.njit(cache=True)
 def _garch_11_variance_numba_kernel(
     returns: npt.NDArray[np.float64],

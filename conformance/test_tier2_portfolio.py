@@ -2,8 +2,8 @@
 
 `ledoit_wolf_shrinkage` is checked against a sklearn reference on `returns_panel()` draws, bucketed
 by the panel's observation count `n` (`length_bucket_for`, the harness's existing series-length
-bucketing). The mean-variance family (`min_variance_weights`,
-`unconstrained_mean_variance_weights`) and `implied_equilibrium_returns`/`black_litterman` take a
+bucketing). The mean-variance family (`unconstrained_mean_variance_weights`) and
+`implied_equilibrium_returns`/`black_litterman` take a
 covariance matrix, not a series, so there is no natural "length" in the `length_bucket_for` sense;
 each instead declares a `_dim_bucket` (`"dim_small"`/`"dim_medium"`/`"dim_large"`) from the matrix's
 own dimension `k`, the same approach `test_tier1_execution.py` takes for its scalar-only
@@ -28,7 +28,6 @@ from conformance.generators import (
 from conformance.harness import check
 
 _LEDOIT_WOLF_SHRINKAGE = registry()["ledoit_wolf_shrinkage"]
-_MIN_VARIANCE_WEIGHTS = registry()["min_variance_weights"]
 _UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS = registry()["unconstrained_mean_variance_weights"]
 _RISK_PARITY_WEIGHTS = registry()["risk_parity_weights"]
 _IMPLIED_EQUILIBRIUM_RETURNS = registry()["implied_equilibrium_returns"]
@@ -56,9 +55,6 @@ _DIM_BUCKETS: tuple[str, ...] = ("dim_small", "dim_medium", "dim_large")
 
 LEDOIT_WOLF_SHRINKAGE_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
 LEDOIT_WOLF_SHRINKAGE_BUCKETS: tuple[str, ...] = ("medium", "long")
-
-MIN_VARIANCE_WEIGHTS_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
-MIN_VARIANCE_WEIGHTS_BUCKETS: tuple[str, ...] = _DIM_BUCKETS
 
 
 UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
@@ -97,20 +93,6 @@ def test_ledoit_wolf_shrinkage_matches_sklearn(tagged: TaggedPanel) -> None:
 
 
 # --- mean-variance family: objective-based sign-test comparison ----------------------------------
-
-
-@settings(max_examples=200)
-@given(tagged=covariance_matrix(), allow_short=st.booleans())
-def test_min_variance_weights_matches_cvxpy(tagged: TaggedCovariance, allow_short: bool) -> None:
-    check(
-        _MIN_VARIANCE_WEIGHTS,
-        tagged.matrix,
-        allow_short,
-        family=tagged.family,
-        length_bucket=_dim_bucket(tagged.k),
-        seed=tagged.seed,
-        quantities=_OPTIMIZER_QUANTITIES,
-    )
 
 
 @settings(max_examples=200)

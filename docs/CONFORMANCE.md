@@ -12,11 +12,11 @@ Hypothesis profile: `ci`
 
 | status | targets |
 |---|---|
-| verified | 68 |
+| verified | 67 |
 | non-standard | 0 |
 | defect | 0 |
 | unverifiable | 2 |
-| total | 70 |
+| total | 69 |
 
 ## Status per target
 
@@ -70,8 +70,6 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `ledoit_wolf_shrinkage` | `value` | sklearn.covariance.LedoitWolf(assume_centered=False) | 200 | 1.770e-13 | 1.260e-12 | 1e-06 | 1e-06 | verified | — |
 | `margin_financing_cost` | `value` | hand-derived closed form | 200 | 0.000e+00 | 0.000e+00 | 1e-12 | 0 | verified | — |
 | `maximum_drawdown` | `value` | empyrical-reloaded | 200 | 1.110e-16 | 1.340e-08 | 1e-10 | 1e-09 | verified | — |
-| `min_variance_weights` | `objective` | cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP) | 200 | 1.090e-08 | 2.580e-06 | 1e-06 | 1e-08 | verified | — |
-| `min_variance_weights` | `weights` | cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP) | 200 | 4.140e-06 | 1.000e+00 | 1e-06 | 1e-08 | verified | — |
 | `newey_west_cov` | `value` | statsmodels | 200 | 9.440e-16 | 1.850e-13 | 1e-09 | 1e-11 | verified | — |
 | `newey_west_optimal_lags` | `value` | hand-computed (the rule of thumb itself) | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-09 | verified | — |
 | `ols_coefficients` | `value` | statsmodels | 200 | 2.660e-15 | 4.200e-15 | 1e-08 | 1e-08 | verified | — |
@@ -364,11 +362,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `maximum_drawdown` | `all_negative` | 29 |
 | `maximum_drawdown` | `tiny_scale` | 18 |
 | `maximum_drawdown` | `huge_scale` | 20 |
-| `min_variance_weights` | `well_conditioned` | 76 |
-| `min_variance_weights` | `near_singular` | 102 |
-| `min_variance_weights` | `equal_vol` | 78 |
-| `min_variance_weights` | `one_dominant` | 70 |
-| `min_variance_weights` | `high_condition` | 74 |
 | `newey_west_cov` | `homoskedastic` | 57 |
 | `newey_west_cov` | `heteroskedastic` | 78 |
 | `newey_west_cov` | `autocorrelated` | 65 |
@@ -624,9 +617,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `maximum_drawdown` | `short` | 55 |
 | `maximum_drawdown` | `medium` | 57 |
 | `maximum_drawdown` | `long` | 88 |
-| `min_variance_weights` | `dim_small` | 206 |
-| `min_variance_weights` | `dim_medium` | 86 |
-| `min_variance_weights` | `dim_large` | 108 |
 | `newey_west_cov` | `short` | 43 |
 | `newey_west_cov` | `medium` | 59 |
 | `newey_west_cov` | `long` | 98 |
@@ -703,11 +693,6 @@ A fitter or optimiser without a unique numerical optimum is judged on the object
 | `arima_fit` | `ma2` | 0 | 3 | 0 |
 | `arima_fit` | `near_unit_root` | 0 | 9 | 0 |
 | `arima_fit` | `white_noise` | 0 | 9 | 0 |
-| `min_variance_weights` | `equal_vol` | 0 | 39 | 0 |
-| `min_variance_weights` | `high_condition` | 0 | 37 | 0 |
-| `min_variance_weights` | `near_singular` | 0 | 51 | 0 |
-| `min_variance_weights` | `one_dominant` | 0 | 35 | 0 |
-| `min_variance_weights` | `well_conditioned` | 0 | 38 | 0 |
 | `unconstrained_mean_variance_weights` | `equal_vol` | 0 | 46 | 0 |
 | `unconstrained_mean_variance_weights` | `high_condition` | 0 | 42 | 0 |
 | `unconstrained_mean_variance_weights` | `near_singular` | 0 | 32 | 0 |
@@ -719,7 +704,6 @@ One-sided binomial sign test on well-specified cases only (`H0: p_loss = 0.5`, a
 | target | objective | sense | wins | ties | losses | p-value | median gap | non-convergence | decision |
 |---|---|---|---|---|---|---|---|---|---|
 | `arima_fit` | `log_likelihood` | maximize | 0 | 60 | 0 | 1 | 1.540e-08 | 0.0% | `verified` |
-| `min_variance_weights` | `objective` | minimize | 0 | 200 | 0 | 1 | 2.370e-17 | 0.0% | `verified` |
 | `unconstrained_mean_variance_weights` | `objective` | maximize | 0 | 200 | 0 | 1 | 0.000e+00 | 0.0% | `verified` |
 
 ## Condition-aware tolerance

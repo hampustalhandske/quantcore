@@ -843,18 +843,6 @@ TOLERANCES: dict[str, Tolerance] = {
     # report) AND the status decision itself: `build_report` passes this rtol/atol straight
     # into `classify_iterative_estimator`, so a case is a win/tie/loss margin of
     # `atol + rtol*|ref|` -- there is no second, harness-only decision tolerance.
-    "min_variance_weights": Tolerance(
-        rtol=1e-6,
-        atol=1e-8,
-        justification=(
-            "convex QP with a unique optimum; quantcore's SLSQP and the oracle's cvxpy/CLARABEL "
-            "interior-point solver are two different numerical procedures for the identical "
-            "program (same objective, same sum-to-one/long-only constraints, read directly from "
-            "quantcore.portfolio.optimization._min_variance_weights), so their attained objectives "
-            "should coincide far tighter than a generic iterative-estimator gap; measured relative "
-            "objective gap ~1e-8 to ~1e-10 on 300 well-conditioned random covariances up to k=10."
-        ),
-    ),
     "unconstrained_mean_variance_weights": Tolerance(
         rtol=1e-9,
         atol=1e-10,

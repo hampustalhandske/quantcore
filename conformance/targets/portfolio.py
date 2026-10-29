@@ -14,10 +14,7 @@ Litterman (1992), He & Litterman (1999) and Ledoit & Wolf (2004) are in `docs/RE
 
 import numpy as np
 import numpy.typing as npt
-from cvxpy import CLARABEL, Minimize, Problem, Variable
-from cvxpy.atoms.affine.sum import sum as cp_sum
-from cvxpy.atoms.affine.wraps import psd_wrap
-from cvxpy.atoms.quad_form import quad_form
+from cvxpy import CLARABEL, Problem, Variable
 from cvxpy.settings import OPTIMAL, OPTIMAL_INACCURATE
 from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
@@ -126,53 +123,13 @@ _LEDOIT_WOLF_SHRINKAGE = ConformanceTarget(
 )
 
 
-# --- mean-variance family: min_variance / unconstrained ------------------------------------------
+# --- mean-variance family: unconstrained ------------------------------------------
 # Each is registered as (objective, weights) under `DecisiveFloatArrayComparator`, classified by
 # the sign-test rule for iterative estimators (every case is `well_specified`: a convex program
 # has no misspecified family).
 
 OptimizerResult = tuple[float, FloatArray]
 """`(objective, weights)`, as every optimiser `ConformanceTarget` in this module returns it."""
-
-
-def _min_variance_objective(weights: FloatArray, cov_matrix: FloatArray) -> float:
-    return float(weights @ cov_matrix @ weights)
-
-
-def _min_variance_weights_quantcore(cov_matrix: FloatArray, allow_short: bool) -> OptimizerResult:
-    weights = np.asarray(
-        qc_portfolio.min_variance_weights(cov_matrix, allow_short), dtype=np.float64
-    )
-    return _min_variance_objective(weights, cov_matrix), weights
-
-
-def _min_variance_weights_reference(cov_matrix: FloatArray, allow_short: bool) -> OptimizerResult:
-    """Same problem quantcore solves with SLSQP, written as a DCP in `cvxpy`.
-
-    `min_variance_weights`: `min w^T Sigma w  s.t.  sum(w) = 1, [w >= 0]` -- read directly from
-    `quantcore.portfolio.optimization._min_variance_weights`'s `LinearConstraint`/`bounds`.
-    """
-    k = cov_matrix.shape[0]
-    weights = Variable(k)
-    constraints = [cp_sum(weights) == 1]
-    if not allow_short:
-        constraints.append(weights >= 0)
-    problem = Problem(Minimize(quad_form(weights, psd_wrap(cov_matrix))), constraints)
-    problem.solve(solver=_CVXPY_SOLVER)
-    _require_cvxpy_optimal(problem, "min_variance_weights")
-    w = _variable_value(weights, "min_variance_weights")
-    return _min_variance_objective(w, cov_matrix), w
-
-
-_MIN_VARIANCE_WEIGHTS = ConformanceTarget(
-    name="min_variance_weights",
-    tier=2,
-    oracle="cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP)",
-    citation="Markowitz (1952). Full citation in docs/REFERENCES.md.",
-    compare=DecisiveFloatArrayComparator(),
-    quantcore=_min_variance_weights_quantcore,
-    reference=_min_variance_weights_reference,
-)
 
 
 def _mean_variance_objective(

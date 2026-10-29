@@ -21,10 +21,8 @@ dependencies and the `oracle` extra; the dividend-yield oracle test uses py_voll
 ### QC-3: Remove unused portfolio, filtering and core helpers — in progress
 `mean_variance_weights`, `l1_turnover_penalized_weights`, `kelly_fraction`, `sample_covariance`,
 `ewma_covariance`, `kalman_filter`, `kalman_smooth`, `euler_maruyama`,
-`core.stochastic.simulate_heston_paths`. `dynamic_hedge_ratio` and `simulate_heston_price_paths` stay. The active-set quadratic-program solver in
-`portfolio/optimization.py` was written for the mean-variance and L1-turnover programs; only
-`min_variance_weights` still uses it. Replacing it with something smaller could move
-`min_variance_weights` results, so it is left as it is.
+`core.stochastic.simulate_heston_paths`. `dynamic_hedge_ratio` and `simulate_heston_price_paths` stay. The active-set quadratic-program
+solver in `portfolio/optimization.py` is removed in QC-14.
 
 ### QC-3b: Remove unused option helpers — in progress
 `implied_volatility`, `option_expiry_payoff`, `option_position_pnl`.
@@ -146,9 +144,14 @@ closed form.
 
 ## Evaluation
 
-### QC-14: Replace the active-set QP solver? — open (after QC-12)
-`portfolio/optimization.py` carries a general active-set solver (~700 lines) used only by
-`min_variance_weights`. Measure a replacement (`scipy.optimize` or a small QP library) on
-agentic's real covariance shapes for speed on the per-pod-per-day path and for the maximum
-weight difference. Replace it only if it is not slower and the weights agree to 1e-8; otherwise
-keep it and record the reason here.
+### QC-14: Replace the active-set QP solver — done (deleted)
+`portfolio/optimization.py` carried a general active-set solver (~700 lines) used only by
+`min_variance_weights`. No caller remained: agentic removed its `min_variance` method (AT-117),
+and edgelab and pitch-edge never called it. The solver and `min_variance_weights` are deleted.
+A replacement was measured before that and is recorded for anyone reintroducing the function:
+with shorting allowed it is a Cholesky solve of `Sigma w = 1` (least squares on the Lagrange
+system where `Sigma` is singular), which agreed with the removed solver to 5e-11 in the weights
+on 192 random covariances (k = 2 to 100, scales 1e-8 to 1e6) and was faster at every size
+(k = 300: 2.1 against 3.8 ms). A long-only SLSQP version differed by up to 1.2e-7 and was 26 times
+slower at k = 300, so it would need a better solver.
+Source lines in `portfolio/optimization.py`: 1034 to 234.

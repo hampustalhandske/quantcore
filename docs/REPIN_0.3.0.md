@@ -46,3 +46,8 @@ GARCH to get the old start, `omega / (1 - alpha - gamma / 2 - beta)` for GJR, an
 For each pinned result that calls the functions above, say whether it moves and which of
 items 1 to 3 explains it. A result that uses only the unchanged functions should reproduce to
 1e-12.
+
+## Removed
+
+- `min_variance_weights`, which no project calls.
+- `simulate_exp_ou_price_paths` and `simulate_regime_switching_price_paths`.

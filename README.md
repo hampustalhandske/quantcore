@@ -22,7 +22,7 @@ each module cites its entry in its own docstring). At a high level:
 | Option pricing | Black-Scholes closed-form, analytical Greeks, protective-put sizing, roll schedule |
 | SDE simulation | GBM, Ornstein-Uhlenbeck / Vasicek, CIR; generator-driven price paths (GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion) |
 | Risk | Value at Risk, Conditional VaR (Expected Shortfall), GARCH(1,1) (+ MLE fit), EGARCH(1,1), GJR-GARCH, EWMA volatility |
-| Portfolio | Unconstrained mean-variance / min-variance / risk-parity weights, Black-Litterman, Ledoit-Wolf shrinkage |
+| Portfolio | Unconstrained mean-variance / risk-parity weights, Black-Litterman, Ledoit-Wolf shrinkage |
 | Time series | ARIMA(p,d,q) by exact Gaussian maximum likelihood (conditional sum of squares optional) with exact conditional-mean forecasts and order selection, VAR(p) + impulse response + Granger causality, Ljung-Box test |
 | Statistics | OLS, Fama-MacBeth, Newey-West HAC errors, factor loadings, ADF unit-root and KPSS stationarity tests, Jarque-Bera normality and ARCH-LM tests, Engle-Granger cointegration, OU half-life/z-score |
 | Regime detection | Gaussian HMM (Baum-Welch fit, Viterbi decode, forward-filter predict) |
@@ -36,7 +36,7 @@ src/quantcore/
 ├── core/          # Numba-optimized kernels: SDE solvers, path simulation; generator-driven price paths
 ├── pricing/       # Black-Scholes, Greeks, protective-put sizing, roll schedule
 ├── risk/          # VaR/CVaR, GARCH/EGARCH/GJR-GARCH volatility models
-├── portfolio/      # Min-variance/risk-parity optimization, Black-Litterman, Ledoit-Wolf covariance
+├── portfolio/      # Mean-variance/risk-parity optimization, Black-Litterman, Ledoit-Wolf covariance
 ├── time_series/   # ARIMA, VAR, causality/unit-root/autocorrelation tests
 ├── statistics/    # OLS, factor regressions, cointegration, unit-root and diagnostic tests
 ├── regime/        # Gaussian HMM regime detection
@@ -118,7 +118,7 @@ re-exports its public functions:
 from quantcore.pricing import black_scholes_call, bs_delta
 from quantcore.risk import value_at_risk, conditional_value_at_risk, garch_11_variance
 from quantcore.core import simulate_gbm_paths, simulate_gbm_price_paths
-from quantcore.portfolio import min_variance_weights, black_litterman
+from quantcore.portfolio import risk_parity_weights, black_litterman
 
 price = black_scholes_call(spot=100, strike=105, rate=0.03, vol=0.2, maturity=1.0)
 ```
@@ -189,7 +189,7 @@ test-only and never imported from `src/quantcore`.
 - [x] Generator-driven price paths: GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion
 - [x] VaR / CVaR, component VaR
 - [x] GARCH(1,1), EGARCH(1,1), GJR-GARCH(1,1), EWMA volatility
-- [x] Portfolio optimization (min-variance, unconstrained mean-variance, risk parity), Black-Litterman, covariance shrinkage
+- [x] Portfolio optimization (unconstrained mean-variance, risk parity), Black-Litterman, covariance shrinkage
 - [x] ARIMA (exact maximum likelihood), VAR models, Granger causality, Ljung-Box test
 - [x] OLS, Fama-MacBeth, Newey-West, cointegration, ADF/KPSS/Jarque-Bera/ARCH-LM tests
 - [x] Gaussian HMM regime detection

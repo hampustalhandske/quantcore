@@ -82,7 +82,6 @@ from quantcore.performance import (
 )
 from quantcore.portfolio import (
     ledoit_wolf_shrinkage,
-    min_variance_weights,
 )
 from quantcore.risk import (
     conditional_value_at_risk,
@@ -824,100 +823,6 @@ def _solved_weights(problem: cp.Problem, weights: cp.Variable, name: str) -> Flo
     return np.asarray(weights.value, dtype=np.float64)
 
 
-def bench_portfolio_optimisers() -> list[Row]:
-    """`min_variance_weights` against the identical program in `cvxpy` solved by CLARABEL.
-
-    The program is long-only and fully invested (`sum(w) = 1`, `w >= 0`), on a
-    random factor-model covariance at daily-return scale: `min w'Sigma w`.
-
-    The cvxpy program is timed two ways, one library row each: "build +
-    solve" constructs the problem and solves it on every call, as quantcore's
-    function takes raw arrays; "solve only" calls `problem.solve` on a
-    problem built outside the timed call, the least cvxpy can cost per call.
-
-    Agreement is on the attained objective, evaluated by one NumPy function
-    at each side's weights, at abs 1e-8 + rel 1e-6 (CLARABEL's default
-    gap tolerance is of that order). The weights themselves are not compared:
-    they can differ along flat directions of the objective.
-    """
-    rows = []
-    for n_assets in (10, 50, 200):
-        cov = _factor_model_covariance(n_assets, SEED)
-
-        def min_variance_objective(w: FloatArray, cov: FloatArray = cov) -> float:
-            return float(w @ cov @ w)
-
-        def build_min_variance(cov: FloatArray = cov) -> tuple[cp.Problem, cp.Variable]:
-            w = cp.Variable(cov.shape[0])
-            problem = cp.Problem(
-                cp.Minimize(cp.quad_form(w, cp.psd_wrap(cov))), [cp.sum(w) == 1, w >= 0]
-            )
-            return problem, w
-
-        def quantcore_min_variance(cov: FloatArray = cov) -> FloatArray:
-            return min_variance_weights(cov)
-
-        cases: list[
-            tuple[
-                str,
-                Callable[[], FloatArray],
-                Callable[[], tuple[cp.Problem, cp.Variable]],
-                Callable[[FloatArray], float],
-            ]
-        ] = [
-            (
-                "min_variance_weights",
-                quantcore_min_variance,
-                build_min_variance,
-                min_variance_objective,
-            ),
-        ]
-        for name, quantcore_fn, build, objective in cases:
-            prebuilt_problem, prebuilt_weights = build()
-
-            def build_and_solve(
-                build: Callable[[], tuple[cp.Problem, cp.Variable]] = build, name: str = name
-            ) -> FloatArray:
-                problem, weights = build()
-                return _solved_weights(problem, weights, name)
-
-            def solve_only(
-                problem: cp.Problem = prebuilt_problem,
-                weights: cp.Variable = prebuilt_weights,
-                name: str = name,
-            ) -> FloatArray:
-                return _solved_weights(problem, weights, name)
-
-            t_quantcore = median_seconds(quantcore_fn)
-            t_build = median_seconds(build_and_solve)
-            t_solve = median_seconds(solve_only)
-            value_quantcore = objective(quantcore_fn())
-            value_cvxpy = objective(build_and_solve())
-            gap = abs(value_quantcore - value_cvxpy)
-            agree = bool(np.isclose(value_quantcore, value_cvxpy, rtol=1e-6, atol=1e-8))
-            verdict = yes_no(agree, f"objective abs 1e-8 + rel 1e-6, gap {gap:.1e}")
-            like_for_like = (
-                "yes: the same convex program; objectives agree, weights may differ along "
-                "flat directions"
-            )
-            for library, t_library in (
-                ("cvxpy/CLARABEL, build + solve per call", t_build),
-                ("cvxpy/CLARABEL, solve only (problem prebuilt)", t_solve),
-            ):
-                rows.append(
-                    Row(
-                        name,
-                        f"{n_assets} assets",
-                        t_quantcore,
-                        library,
-                        t_library,
-                        verdict,
-                        like_for_like,
-                    )
-                )
-    return rows
-
-
 def bench_diagnostics() -> list[Row]:
     """`jarque_bera_test` against `scipy.stats.jarque_bera`.
 
@@ -1095,7 +1000,6 @@ def main() -> None:
     print_table("OLS and Newey-West: quantcore vs statsmodels", bench_regression())
     print_table("Historical VaR / CVaR: quantcore vs empyrical and skfolio", bench_var_cvar())
     print_table("Ledoit-Wolf shrinkage: quantcore vs scikit-learn", bench_shrinkage())
-    print_table("Portfolio optimisers: quantcore vs cvxpy/CLARABEL", bench_portfolio_optimisers())
     print_table(
         "Diagnostics (KPSS, ARCH-LM, Jarque-Bera): quantcore vs statsmodels and scipy",
         bench_diagnostics(),

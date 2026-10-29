@@ -953,32 +953,6 @@
         "rtol": 1e-10
       }
     },
-    "min_variance_weights": {
-      "by_quantity": {
-        "objective": {
-          "cases": 200,
-          "max_abs_error": 1.09e-08,
-          "max_rel_error": 2.58e-06
-        },
-        "weights": {
-          "cases": 200,
-          "max_abs_error": 4.14e-06,
-          "max_rel_error": 1.0
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 4.14e-06,
-      "max_rel_error": 1.0,
-      "oracle": "cvxpy (same long-only/sum-to-one QP quantcore solves with SLSQP)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "convex QP with a unique optimum; quantcore's SLSQP and the oracle's cvxpy/CLARABEL interior-point solver are two different numerical procedures for the identical program (same objective, same sum-to-one/long-only constraints, read directly from quantcore.portfolio.optimization._min_variance_weights), so their attained objectives should coincide far tighter than a generic iterative-estimator gap; measured relative objective gap ~1e-8 to ~1e-10 on 300 well-conditioned random covariances up to k=10.",
-        "rtol": 1e-06
-      }
-    },
     "newey_west_cov": {
       "by_quantity": {
         "value": {

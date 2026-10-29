@@ -397,7 +397,6 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "option_roll_schedule": (tier2_pricing_extra, "OPTION_ROLL_SCHEDULE"),
     "protective_put_sizing": (tier2_pricing_extra, "PROTECTIVE_PUT_SIZING"),
     "ledoit_wolf_shrinkage": (tier2_portfolio, "LEDOIT_WOLF_SHRINKAGE"),
-    "min_variance_weights": (tier2_portfolio, "MIN_VARIANCE_WEIGHTS"),
     "unconstrained_mean_variance_weights": (
         tier2_portfolio,
         "UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS",
@@ -569,11 +568,9 @@ _ALL_COVARIANCE_FAMILIES = frozenset(COVARIANCE_FAMILIES)
 
 # Each fitter records the log-likelihood it attains (larger is better). Each optimiser records the
 # value of the objective its oracle optimises, evaluated at each solver's own weights
-# (`conformance.targets.portfolio`): portfolio variance for `min_variance_weights`, which the
-# program minimises, and mean-variance utility for the unconstrained optimiser, which it
-# maximises.
+# (`conformance.targets.portfolio`): mean-variance utility for the unconstrained optimiser,
+# which it maximises.
 ITERATIVE_ESTIMATORS: dict[str, IterativeEstimator] = {
-    "min_variance_weights": IterativeEstimator(_ALL_COVARIANCE_FAMILIES, "objective", "minimize"),
     "unconstrained_mean_variance_weights": IterativeEstimator(
         _ALL_COVARIANCE_FAMILIES, "objective", "maximize"
     ),

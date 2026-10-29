@@ -1546,8 +1546,6 @@ def _relaxed_and_constrained_objectives(name: str) -> tuple[float, float]:
     targets = registry()
     reference = targets[name].reference
     assert reference is not None
-    if name == "min_variance_weights":
-        return reference(cov, True)[0], reference(cov, False)[0]
     if name == "unconstrained_mean_variance_weights":
         return reference(mu, cov, 3.0)[0], _long_only_fully_invested_utility(mu, cov, 3.0)
     raise AssertionError(f"no relaxation written for {name!r}")
@@ -1582,11 +1580,9 @@ def test_every_log_likelihood_estimator_is_maximised() -> None:
             assert estimator.sense == "maximize", name
 
 
-def test_min_variance_weights_is_the_minimised_estimator() -> None:
-    """Portfolio variance is minimised; the utility objective is maximised."""
-    senses = {name: estimator.sense for name, estimator in ITERATIVE_ESTIMATORS.items()}
-    assert senses["min_variance_weights"] == "minimize"
-    assert senses["unconstrained_mean_variance_weights"] == "maximize"
+def test_unconstrained_mean_variance_is_the_maximised_estimator() -> None:
+    """The utility objective is maximised."""
+    assert ITERATIVE_ESTIMATORS["unconstrained_mean_variance_weights"].sense == "maximize"
 
 
 def test_explore_mismatches_judges_a_verified_iterative_estimator_by_its_sign_test(

@@ -313,23 +313,6 @@ cite the relevant entry in their docstrings.
   by damped Newton iteration; its first-order condition is the
   equal-risk-contribution condition and its minimiser is unique)
 
-- Lobo, M.S., Fazel, M., and Boyd, S. (2007). "Portfolio Optimization with
-  Linear and Fixed Transaction Costs." *Annals of Operations Research*,
-  152(1), 341–365.
-  → `portfolio/optimization.py` (L1 turnover-penalized mean-variance,
-  `l1_turnover_penalized_weights`)
-
-- Nocedal, J. and Wright, S.J. (2006). *Numerical Optimization* (2nd ed.).
-  Springer.
-  → `portfolio/optimization.py` (ch. 16, active-set method for convex
-  quadratic programming; `_solve_convex_qp`, used by `min_variance_weights`,
-  `mean_variance_weights` and `l1_turnover_penalized_weights`)
-
-- Bland, R.G. (1977). "New Finite Pivoting Rules for the Simplex Method."
-  *Mathematics of Operations Research*, 2(2), 103–107.
-  → `portfolio/optimization.py` (`_active_set_iterations`: lowest-index
-  leaving/entering rule after a zero-length step, to prevent cycling)
-
 - Black, F. and Litterman, R. (1992). "Global Portfolio Optimization."
   *Financial Analysts Journal*, 48(5), 28–43.
   → `portfolio/black_litterman.py` (Black-Litterman posterior returns)

@@ -36,6 +36,8 @@ the final tree only, not on each intermediate commit.
 
 ### Removed
 
+- `min_variance_weights` and the active-set quadratic-program solver behind it (no caller in
+  edgelab, agentic or pitch-edge).
 - `simulate_exp_ou_price_paths` and `simulate_regime_switching_price_paths`, which only unused wrappers in edgelab call.
   The other four price-path simulators and their output are unchanged.
 - `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price` and

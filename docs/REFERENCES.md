@@ -171,14 +171,9 @@ cite the relevant entry in their docstrings.
 - MacKinnon, J.G. (1994). "Approximate Asymptotic Distribution Functions for
   Unit-Root and Cointegration Tests." *Journal of Business & Economic
   Statistics*, 12(2), 167–176.
-  → `statistics/cointegration.py` (ADF/Engle-Granger p-values:
-  `Phi(polynomial(tau))` for the no-constant, constant and
-  constant-plus-trend cases, parameterized by N, the number of I(1) series in
-  the regression the tested residuals came from; exactly 0.0 or 1.0 outside
-  the tabulated range of tau; `_mackinnon_pvalue`. The small-p coefficients
-  were checked against the working-paper version of the article; the
-  large-p coefficients and the no-constant tables equal those of
-  `statsmodels.tsa.adfvalues` and were not checked against a primary source.)
+  → `statistics/cointegration.py` (ADF/Engle-Granger p-values, computed by
+  `statsmodels.tsa.stattools.adfuller` and `coint`; N=1 for `adf_test`, N=2 for
+  `engle_granger_test`)
 
 ## Time series
 

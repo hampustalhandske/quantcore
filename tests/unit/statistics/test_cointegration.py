@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from itertools import pairwise
-
 import numpy as np
 import pytest
 
+import quantcore.statistics.cointegration as cointegration
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
@@ -83,78 +82,6 @@ class TestAdfTest:
         assert isinstance(stat, float)
         assert isinstance(p_value, float)
 
-    @pytest.mark.parametrize(
-        ("t_stat", "expected_p", "tol"),
-        [
-            (-2.86, 0.05, 0.02),
-            (-3.43, 0.01, 0.02),
-            (-2.57, 0.10, 0.02),
-        ],
-    )
-    def test_mackinnon_pvalue_matches_known_critical_values(
-        self, t_stat: float, expected_p: float, tol: float
-    ) -> None:
-        # Import lazily to keep this internal helper's usage localized to the
-        # test that specifically validates its response-surface calibration.
-        from quantcore.statistics.cointegration import _mackinnon_pvalue
-
-        assert _mackinnon_pvalue(t_stat, n_series=1) == pytest.approx(expected_p, abs=tol)
-
-    def test_mackinnon_pvalue_monotonically_decreases_as_stat_falls(self) -> None:
-        from quantcore.statistics.cointegration import _mackinnon_pvalue
-
-        t_stats = np.linspace(-10.0, 0.9, 200)
-        p_values = [_mackinnon_pvalue(t, n_series=1) for t in t_stats]
-        assert all(a <= b for a, b in pairwise(p_values))
-
-    @pytest.mark.parametrize("regression", ["n", "c", "ct"])
-    def test_mackinnon_pvalue_is_exactly_zero_or_one_beyond_tabulated_range(
-        self, regression: str
-    ) -> None:
-        from quantcore.statistics.cointegration import _mackinnon_pvalue
-
-        assert _mackinnon_pvalue(-100.0, n_series=1, regression=regression) == 0.0
-        assert _mackinnon_pvalue(100.0, n_series=1, regression=regression) == 1.0
-
-    @pytest.mark.parametrize(
-        ("regression", "t_stat"),
-        [("n", -5.0), ("c", -6.0), ("ct", -6.5)],
-    )
-    def test_mackinnon_pvalue_has_no_floor_inside_tabulated_range(
-        self, regression: str, t_stat: float
-    ) -> None:
-        # Each statistic lies well inside MacKinnon's tabulated range, where
-        # the small-p response surface gives a p-value below 1e-4.
-        from quantcore.statistics.cointegration import _mackinnon_pvalue
-
-        p_value = _mackinnon_pvalue(t_stat, n_series=1, regression=regression)
-        assert 0.0 < p_value < 1e-5
-
-    @pytest.mark.parametrize(
-        ("regression", "tau_max", "cubic"),
-        [
-            ("c", 2.74, (1.7339, 0.93202, -0.12745, -0.010368)),
-            ("ct", 0.70, (2.5261, 0.61654, -0.37956, -0.060285)),
-        ],
-    )
-    def test_mackinnon_pvalue_at_the_tabulated_maximum_is_the_surface_value(
-        self, regression: str, tau_max: float, cubic: tuple[float, float, float, float]
-    ) -> None:
-        # The tabulated range includes its end points: exactly at the
-        # maximum the N=1 cubic still applies (0.99909 for "c", 0.99703 for
-        # "ct"), and only beyond it is the p-value 1.0.
-        from scipy.stats import norm
-
-        from quantcore.statistics.cointegration import _mackinnon_pvalue
-
-        c0, c1, c2, c3 = cubic
-        surface = float(norm.cdf(c0 + c1 * tau_max + c2 * tau_max**2 + c3 * tau_max**3))
-        at_maximum = _mackinnon_pvalue(tau_max, n_series=1, regression=regression)
-        assert at_maximum == pytest.approx(surface, rel=1e-12)
-        assert at_maximum < 0.9995
-        beyond = _mackinnon_pvalue(np.nextafter(tau_max, np.inf), n_series=1, regression=regression)
-        assert beyond == 1.0
-
     def test_adf_pvalue_of_strongly_stationary_series_is_below_one_in_ten_thousand(self) -> None:
         series = _stationary_ar1(500, phi=0.2)
         _, p_value = adf_test(series, max_lags=1)
@@ -167,30 +94,9 @@ class TestAdfTest:
         assert statistic > 2.74
         assert p_value == 1.0
 
-    def test_mackinnon_pvalue_rejects_n_series_outside_tabulated_range(self) -> None:
-        from quantcore.statistics.cointegration import _mackinnon_pvalue
-
-        with pytest.raises(ValueError):
-            _mackinnon_pvalue(-3.0, n_series=0)
-        with pytest.raises(ValueError):
-            _mackinnon_pvalue(-3.0, n_series=7)
-
-    def test_mackinnon_pvalue_shifts_left_as_n_series_grows(self) -> None:
-        # The defect this guards against: reusing the N=1 (plain
-        # Dickey-Fuller) distribution regardless of N understates how far
-        # left the null distribution of an N-variable residual-based test
-        # actually lies, and so overstates significance (a smaller p-value
-        # than is warranted). See engle_granger_test's docstring.
-        from quantcore.statistics.cointegration import _mackinnon_pvalue
-
-        assert _mackinnon_pvalue(-3.0, n_series=1) == pytest.approx(0.0349, abs=1e-3)
-        assert _mackinnon_pvalue(-3.0, n_series=2) == pytest.approx(0.1102, abs=1e-3)
-        assert _mackinnon_pvalue(-2.86, n_series=2) == pytest.approx(0.1473, abs=1e-3)
-
-    def test_random_walk_reports_large_pvalue_not_old_overconfident_value(self) -> None:
-        # Regression test for the production bug: the prior Student-t
-        # approximation reported p ~= 0.03 for genuine unit-root series,
-        # falsely signaling stationarity to downstream leg-selection filters.
+    def test_random_walk_reports_large_pvalue(self) -> None:
+        # Genuine unit-root series must not look stationary to downstream
+        # leg-selection filters.
         for seed in range(5):
             series = _random_walk(500, seed=seed)
             _, p_value = adf_test(series, max_lags=1)
@@ -200,6 +106,57 @@ class TestAdfTest:
         series = _stationary_ar1(500, phi=0.2)
         _, p_value = adf_test(series, max_lags=1)
         assert p_value < 0.05
+
+
+class TestStatsmodelsConventions:
+    """The statsmodels calls receive every option explicitly."""
+
+    @pytest.mark.parametrize("autolag", [None, "aic"])
+    def test_adf_passes_regression_lags_and_autolag(
+        self, monkeypatch: pytest.MonkeyPatch, autolag: str | None
+    ) -> None:
+        seen: dict[str, object] = {}
+
+        def spy(series: np.ndarray, **kwargs: object) -> tuple[float, float]:
+            seen.update(kwargs)
+            return -3.0, 0.04
+
+        monkeypatch.setattr(cointegration, "adfuller", spy)
+        assert adf_test(_random_walk(50), max_lags=3, trend="ct", autolag=autolag) == (-3.0, 0.04)
+        assert seen == {
+            "maxlag": 3,
+            "regression": "ct",
+            "autolag": autolag,
+            "store": False,
+            "regresults": False,
+            "result_object": False,
+        }
+
+    def test_engle_granger_passes_the_aeg_conventions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, object] = {}
+
+        def spy(y: np.ndarray, x: np.ndarray, **kwargs: object) -> tuple[float, float, object]:
+            seen.update(kwargs)
+            return -3.5, 0.02, None
+
+        monkeypatch.setattr(cointegration, "coint", spy)
+        x = _random_walk(50)
+        beta, statistic, p_value = engle_granger_test(2.0 * x + 1.0, x)
+        assert beta == pytest.approx(2.0)
+        assert (statistic, p_value) == (-3.5, 0.02)
+        assert seen == {
+            "trend": "c",
+            "method": "aeg",
+            "maxlag": 1,
+            "autolag": None,
+            "return_results": None,
+        }
+
+    def test_constant_series_raises(self) -> None:
+        with pytest.raises(ValueError):
+            adf_test(np.ones(50))
 
 
 class TestEngleGrangerTest:

@@ -13,7 +13,7 @@ dependencies = [
     # conditional_value_at_risk(method="historical") (empyrical).
     # statsmodels computes the Ljung-Box, ARCH-LM and KPSS tests.
     "arch>=7.0",
-    "statsmodels>=0.14,<0.16",
+    "statsmodels>=0.15,<0.16",
     "empyrical-reloaded>=0.5.11",
 ]
 

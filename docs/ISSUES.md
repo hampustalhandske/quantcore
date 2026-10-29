@@ -39,15 +39,21 @@ Every delegated call passes every option explicitly.
 
 ### QC-5: Ljung-Box, KPSS, ARCH-LM to statsmodels — code done, gates pending
 Moves: edgelab `stats/diagnostics`; agentic `arima_forecast_analyst` (Ljung-Box).
-`statsmodels` is now a runtime dependency (`>=0.14,<0.16`). Every option is passed
+`statsmodels` is now a runtime dependency (`>=0.15,<0.16`). Every option is passed
 explicitly; the conformance targets for the three are replaced by convention tests
 (`TestStatsmodelsConventions`, `test_ljung_box_passes_every_statsmodels_option_explicitly`).
 Unit tests that need running: the KPSS hand-computed values, the scale-invariance
 cases down to 1e-300, and the constant-series errors.
 
-### QC-6: ADF and Engle-Granger to statsmodels — open
+### QC-6: ADF and Engle-Granger to statsmodels — code done, gates pending
 Moves: ADF tail p-values (edgelab diagnostics; agentic pair admission, including
 `scripts/screen_cointegrated_pairs.py`).
+`adf_test` calls `adfuller` and `engle_granger_test` calls `coint` (beta from the step-1 OLS),
+all options explicit; `statsmodels>=0.15` is required because `result_object=False` is
+passed. The MacKinnon tables and the hand-written ADF regression are deleted, and with
+them the oracle tests that compared them with statsmodels. The `adf_test` and
+`engle_granger_test` conformance targets, repro configs and benchmark rows still compare
+statsmodels with itself; they go in QC-11 (conformance trim).
 
 ### QC-7: OLS with HAC (`ols`, `newey_west_cov`, `newey_west_optimal_lags`) — open
 Moves: edgelab `stats/hac`, `attribution/regression`; agentic Newey-West.

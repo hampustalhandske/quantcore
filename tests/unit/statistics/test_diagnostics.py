@@ -520,7 +520,7 @@ class TestStatsmodelsConventions:
 
         monkeypatch.setattr(diagnostics, "het_arch", spy)
         assert arch_lm_test(_white_noise(37)) == (3.0, 0.5)
-        assert seen == {"nlags": 7, "store": False, "ddof": 0, "n": 37}
+        assert seen == {"nlags": 7, "store": False, "ddof": 0, "result_object": False, "n": 37}
 
     @pytest.mark.parametrize(("n_lags", "expected"), [(None, "auto"), (4, 4)])
     @pytest.mark.parametrize("trend", ["c", "ct"])
@@ -535,5 +535,10 @@ class TestStatsmodelsConventions:
 
         monkeypatch.setattr(diagnostics, "kpss", spy)
         statistic, p_value, at_bound = kpss_test(_white_noise(50), n_lags, trend)
-        assert seen == {"regression": trend, "nlags": expected, "store": False}
+        assert seen == {
+            "regression": trend,
+            "nlags": expected,
+            "store": False,
+            "result_object": False,
+        }
         assert (statistic, p_value, at_bound) == (0.2, 0.1, True)

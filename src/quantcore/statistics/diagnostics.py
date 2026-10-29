@@ -236,7 +236,9 @@ def _arch_lm_test(residuals: npt.NDArray[np.float64], n_lags: int) -> tuple[floa
     if np.ptp(scaled[n_lags:] ** 2) == 0.0:
         raise ValueError(constant_message)
 
-    statistic, p_value, _, _ = het_arch(scaled, nlags=n_lags, store=False, ddof=0)
+    statistic, p_value, _, _ = het_arch(
+        scaled, nlags=n_lags, store=False, ddof=0, result_object=False
+    )
     return max(float(statistic), 0.0), float(p_value)
 
 
@@ -398,6 +400,7 @@ def _kpss_test(
             regression=trend,
             nlags="auto" if n_lags is None else n_lags,
             store=False,
+            result_object=False,
         )
     if not (math.isfinite(statistic) and math.isfinite(p_value)):
         raise ValueError(

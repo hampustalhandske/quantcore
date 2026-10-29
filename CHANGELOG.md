@@ -10,10 +10,11 @@ to see exactly what changed and why before upgrading.
 
 ### Changed
 
-- `ljung_box_test`, `arch_lm_test` and `kpss_test` are computed by `statsmodels`
-  (`acorr_ljungbox`, `het_arch`, `kpss`), with every option passed explicitly.
+- `ljung_box_test`, `arch_lm_test`, `kpss_test`, `adf_test` and `engle_granger_test`
+  are computed by `statsmodels` (`acorr_ljungbox`, `het_arch`, `kpss`, `adfuller`,
+  `coint`), with every option passed explicitly.
   Signatures and return values are unchanged. `statsmodels` is a runtime
-  dependency.
+  dependency (`>=0.15,<0.16`).
 
 ### Removed
 

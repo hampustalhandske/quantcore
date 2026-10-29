@@ -54,32 +54,25 @@ to see exactly what changed and why before upgrading.
 
 ### Changed — default behaviour changed
 
-**Two functions use an external library by default, selected by a new
-keyword-only `backend` argument.** `backend="quantcore"` selects quantcore's
-own implementation, which is what each function ran in 0.2.0. `arch` and
-`empyrical-reloaded` are therefore runtime dependencies of the package; each
-is imported inside its function on first use.
+**`fit_garch_11` is fitted by the `arch` package**, a runtime dependency imported
+when a fit runs. It returns the Gaussian GARCH(1,1) fit of the demeaned returns
+(the residuals are fitted in units of their standard deviation and `omega`
+converted back, so the result does not depend on the units of `returns`). The
+parameters differ from 0.2.0's: the two optimisers differ and `arch` seeds the
+variance recursion with its backcast, where 0.2.0 seeded it at
+`omega / (1 - alpha - beta)`. Both reach the same likelihood to about 1e-3
+relative. On 2,000 simulated percent returns (true parameters 0.05, 0.08,
+0.90): 0.2.0 gives (0.052542, 0.06296, 0.91242), now (0.053451, 0.06240,
+0.91201). Non-convergence of `arch` raises `ConvergenceError`; returns with no
+variation raise `ValueError` (0.2.0 returned (1e-10, 0.0, 0.0) for them).
 
-- `fit_garch_11(returns, *, backend="arch")` returns the `arch` package's
-  Gaussian GARCH(1,1) fit of the demeaned returns (the residuals are fitted in
-  units of their standard deviation and `omega` converted back, so the result
-  does not depend on the units of `returns`). The parameters differ from
-  0.2.0's: the two optimisers differ and `arch` seeds the variance recursion
-  with its backcast, where the `"quantcore"` backend seeds it at
-  `omega / (1 - alpha - beta)`. Both reach the same likelihood to about 1e-3
-  relative. On 2,000 simulated percent returns (true parameters 0.05, 0.08,
-  0.90): 0.2.0 and `backend="quantcore"` give (0.052542, 0.06296, 0.91242),
-  the default gives (0.053451, 0.06240, 0.91201). Non-convergence of `arch`
-  raises `ConvergenceError`; returns with no variation raise `ValueError`
-  (the `"quantcore"` backend returns (1e-10, 0.0, 0.0) for them).
-- `conditional_value_at_risk(..., method="historical", backend="empyrical")`
-  returns the negated `empyrical.conditional_value_at_risk`: the mean of the
-  `int((n - 1) * (1 - alpha)) + 1` smallest returns. `backend="quantcore"`
-  averages every return at or below the interpolated VaR threshold. The two
-  are equal unless returns tie at the threshold: for
-  `[-0.05, -0.02, -0.02, -0.02, 0.0, 0.01, 0.01, 0.02, 0.03, 0.04]` at 80%
-  the default gives 0.035 and `backend="quantcore"` (and 0.2.0) 0.0275. The
-  other methods have a single implementation and ignore `backend`.
+**`conditional_value_at_risk(..., method="historical")` averages the
+`int((n - 1) * (1 - alpha)) + 1` smallest returns**, the same number
+`empyrical.conditional_value_at_risk` returns, bit for bit (a partition and a
+mean in NumPy; `empyrical` is not a dependency). 0.2.0 averaged every return
+at or below the interpolated VaR threshold. The two are equal unless returns tie
+at the threshold: for `[-0.05, -0.02, -0.02, -0.02, 0.0, 0.01, 0.01, 0.02, 0.03, 0.04]`
+at 80% it now gives 0.035 and 0.2.0 gave 0.0275.
 
 **`arima_fit` estimates by exact Gaussian maximum likelihood by default.** It
 previously minimised a conditional sum of squares (CSS), whose optimum

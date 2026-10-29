@@ -99,11 +99,7 @@ than silently falling back to a slower implementation.
 
 Python 3.12+. Dependencies: NumPy, SciPy, Numba, `statsmodels` (the ADF,
 Engle-Granger, KPSS, ARCH-LM and Ljung-Box tests, and VAR with Granger causality)
-and `arch` (the GARCH, EGARCH and GJR-GARCH fits; imported when a fit runs). One
-more library is the default backend of one function and is imported only when
-that backend runs: `empyrical-reloaded`
-(`conditional_value_at_risk(method="historical")`, which takes
-`backend="quantcore"` to use quantcore's own implementation instead).
+and `arch` (the GARCH, EGARCH and GJR-GARCH fits; imported when a fit runs).
 
 ## Using it as a library (downstream projects)
 

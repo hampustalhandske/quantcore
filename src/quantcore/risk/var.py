@@ -63,7 +63,6 @@ import numpy.typing as npt
 from scipy.stats import norm
 
 VarMethod = Literal["gaussian", "historical", "cornish_fisher"]
-HistoricalCvarBackend = Literal["empyrical", "quantcore"]
 
 
 def _validate_returns_and_confidence(
@@ -191,8 +190,6 @@ def conditional_value_at_risk(
     mean: float | None = None,
     volatility: float | None = None,
     method: VarMethod = "gaussian",
-    *,
-    backend: HistoricalCvarBackend = "empyrical",
 ) -> float:
     """Compute Conditional Value at Risk (Expected Shortfall).
 
@@ -209,25 +206,16 @@ def conditional_value_at_risk(
             closed-form Gaussian expected-shortfall (truncated-normal tail
             mean): `CVaR_alpha = -mu + sigma*phi(z_alpha)/(1-alpha)`.
             `"historical"` — the empirical tail mean: the average of the
-            observations at or below the historical-method VaR threshold,
-            no distributional assumption. `"cornish_fisher"` — the same
+            `int((n - 1) * (1 - alpha)) + 1` smallest returns, no
+            distributional assumption; when several returns tie at the
+            largest value in that tail, only as many of them as the count
+            allows are included. `"cornish_fisher"` — the same
             Gaussian expected-shortfall formula with `z_alpha` replaced by
             the Cornish-Fisher-adjusted quantile (see `value_at_risk`).
             This substitution is a widely used practical approximation,
             not an exact expected shortfall under the Cornish-Fisher
             expansion (the exact integral has a more involved closed form
             — see Boudt, Peterson & Croux (2008) — not implemented here).
-        backend: Which implementation computes `method="historical"`; the
-            other methods have a single implementation and ignore it.
-            `"empyrical"` (default) calls
-            `empyrical.conditional_value_at_risk`: the mean of the
-            `int((n - 1) * (1 - alpha)) + 1` smallest returns. `"quantcore"`
-            averages every return at or below the linearly interpolated
-            `(1 - alpha)` quantile, the threshold `value_at_risk` reports.
-            The two are the same number unless several returns are equal
-            to the largest return in the tail, in which case `"quantcore"`
-            includes all of them and `"empyrical"` only as many as its
-            count allows.
 
     Returns:
         CVaR as a positive loss figure, in the same units as `returns`.
@@ -235,7 +223,7 @@ def conditional_value_at_risk(
     Raises:
         ValueError: If `returns` has fewer than two observations,
             `confidence_level` is not strictly between 0 and 1, `method`
-            or `backend` is not one of the documented values, or
+            is not one of the documented values, or
             `mean`/`volatility` is passed with `method="historical"`.
 
     References:
@@ -245,23 +233,13 @@ def conditional_value_at_risk(
     """
     _validate_returns_and_confidence(returns, confidence_level, volatility)
     _validate_method(method, mean, volatility)
-    if backend not in ("empyrical", "quantcore"):
-        raise ValueError('backend must be "empyrical" or "quantcore"')
-    if method == "historical" and backend == "empyrical":
-        return _historical_cvar_empyrical(returns, confidence_level)
     return _conditional_value_at_risk(returns, confidence_level, mean, volatility, method)
 
 
-def _historical_cvar_empyrical(returns: npt.NDArray[np.float64], confidence_level: float) -> float:
-    """Historical CVaR from `empyrical`, as a positive loss.
-
-    `empyrical` is imported on first use, so importing `quantcore.risk` does
-    not load it (and pandas with it).
-    """
-    import empyrical
-
-    tail_mean = empyrical.conditional_value_at_risk(returns, cutoff=1.0 - confidence_level)
-    return float(-tail_mean)
+def _historical_cvar(returns: npt.NDArray[np.float64], confidence_level: float) -> float:
+    """Mean of the `int((n - 1) * (1 - alpha)) + 1` smallest returns, as a positive loss."""
+    cutoff_index = int((len(returns) - 1) * (1.0 - confidence_level))
+    return float(-np.mean(np.partition(returns, cutoff_index)[: cutoff_index + 1]))
 
 
 def _conditional_value_at_risk(
@@ -272,11 +250,7 @@ def _conditional_value_at_risk(
     method: VarMethod,
 ) -> float:
     if method == "historical":
-        threshold = float(np.quantile(returns, 1.0 - confidence_level))
-        tail = returns[returns <= threshold]
-        if tail.size == 0:
-            tail = np.array([threshold])
-        return float(-np.mean(tail))
+        return _historical_cvar(returns, confidence_level)
 
     # Gaussian and Cornish-Fisher: same closed-form expected-shortfall
     # structure (the truncated-normal tail mean), evaluated at the

@@ -745,9 +745,7 @@ def bench_engle_granger() -> list[Row]:
 def bench_var_cvar() -> list[Row]:
     """Historical `value_at_risk` / `conditional_value_at_risk` against `empyrical`.
 
-    `conditional_value_at_risk`'s default backend for the historical method is
-    `empyrical` itself, so its rows time quantcore's own tail mean
-    (`backend="quantcore"`).
+    quantcore's historical CVaR is `empyrical`'s partition-and-mean, bit for bit.
 
     `skfolio.measures` is added when installed. Its VaR is an order statistic
     where quantcore and empyrical interpolate the empirical quantile linearly,
@@ -771,9 +769,7 @@ def bench_var_cvar() -> list[Row]:
             return value_at_risk(returns, confidence, method="historical")
 
         def cvar_quantcore(returns: FloatArray = returns) -> float:
-            return conditional_value_at_risk(
-                returns, confidence, method="historical", backend="quantcore"
-            )
+            return conditional_value_at_risk(returns, confidence, method="historical")
 
         def var_empyrical(returns: FloatArray = returns) -> float:
             return -float(empyrical.value_at_risk(returns, cutoff=1.0 - confidence))
@@ -790,11 +786,11 @@ def bench_var_cvar() -> list[Row]:
                 "yes: linearly interpolated empirical quantile",
             ),
             (
-                'conditional_value_at_risk (historical, backend="quantcore")',
+                "conditional_value_at_risk (historical)",
                 cvar_quantcore,
                 "empyrical",
                 cvar_empyrical,
-                "yes: mean of returns at or below the VaR threshold",
+                "yes: mean of the int((n - 1) x (1 - confidence)) + 1 smallest returns",
             ),
         ]
         if skfolio_measures is not None:
@@ -814,7 +810,7 @@ def bench_var_cvar() -> list[Row]:
                     "NOT COMPARABLE: skfolio returns an order statistic, no interpolation",
                 ),
                 (
-                    'conditional_value_at_risk (historical, backend="quantcore")',
+                    "conditional_value_at_risk (historical)",
                     cvar_quantcore,
                     "skfolio",
                     cvar_skfolio,

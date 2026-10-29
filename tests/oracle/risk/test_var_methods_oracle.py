@@ -63,12 +63,23 @@ class TestHistoricalMethodMatchesEmpyrical:
         rng = np.random.default_rng(RNG_SEED)
         returns = rng.standard_t(df=4, size=2000) * 0.01 + 0.001
 
-        quantcore_cvar = conditional_value_at_risk(
-            returns, confidence_level, method="historical", backend="quantcore"
-        )
+        quantcore_cvar = conditional_value_at_risk(returns, confidence_level, method="historical")
         empyrical_cvar = empyrical.conditional_value_at_risk(returns, cutoff=1.0 - confidence_level)
 
-        assert quantcore_cvar == pytest.approx(-empyrical_cvar, rel=1e-9)
+        assert quantcore_cvar == -empyrical_cvar
+
+    @pytest.mark.parametrize("seed", range(20))
+    @pytest.mark.parametrize("confidence_level", [0.5, 0.9, 0.95, 0.975, 0.99, 0.999])
+    def test_cvar_is_bit_identical_including_ties(self, seed: int, confidence_level: float) -> None:
+        rng = np.random.default_rng(seed)
+        n = int(rng.integers(2, 3000))
+        returns = np.round(rng.standard_t(df=3, size=n) * 0.01, 3)
+        returns[: n // 7] = returns[0]
+
+        quantcore_cvar = conditional_value_at_risk(returns, confidence_level, method="historical")
+        empyrical_cvar = empyrical.conditional_value_at_risk(returns, cutoff=1.0 - confidence_level)
+
+        assert quantcore_cvar == -empyrical_cvar
 
     def test_historical_method_rejects_mean_or_volatility_override(self) -> None:
         returns = np.array([0.01, -0.02, 0.03, -0.01])

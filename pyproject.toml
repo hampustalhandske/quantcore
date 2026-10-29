@@ -10,11 +10,9 @@ dependencies = [
     "scipy>=1.13",
     # arch fits GARCH, EGARCH and GJR-GARCH (imported when a fit runs);
     # statsmodels computes the ADF, Engle-Granger, KPSS, ARCH-LM and
-    # Ljung-Box tests and the VAR functions; empyrical is the default backend
-    # of conditional_value_at_risk(method="historical"), imported on first use.
+    # Ljung-Box tests and the VAR functions.
     "arch>=7.0",
     "statsmodels>=0.15,<0.16",
-    "empyrical-reloaded>=0.5.11",
 ]
 
 [project.optional-dependencies]
@@ -26,9 +24,8 @@ dev = [
     "scipy-stubs>=1.13",
 ]
 # Independent oracle implementations that tests/oracle/ and conformance/
-# verify quantcore's numbers against. Apart from the two default backends
-# listed under `dependencies` (arch, empyrical), none is imported
-# from src/quantcore. Pinned exactly: the conformance suite's derandomized
+# verify quantcore's numbers against. Apart from `arch`, listed under
+# `dependencies`, none is imported from src/quantcore. Pinned exactly: the conformance suite's derandomized
 # cases and recorded error bounds are only reproducible against fixed oracle
 # and hypothesis versions.
 oracle = [
@@ -119,8 +116,8 @@ module = "quantcore.core.*"
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
-# empyrical (a default backend) ships no type information.
-module = ["empyrical", "statsmodels.*"]
+# statsmodels ships no type information.
+module = ["statsmodels.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

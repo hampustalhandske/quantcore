@@ -108,9 +108,13 @@ The kernels' default `presample_variance` is arch's backcast of the residuals pa
 consumer that recomputes the variance path from a fit gets the fitted path without any change;
 passing the unconditional variance explicitly restores the previous start.
 
-### QC-10: Historical CVaR without empyrical — open
-Closed form that reproduces `empyrical.conditional_value_at_risk`, ties included, bit-identical
-on the conformance inputs. If it cannot be made identical, empyrical stays. Moves nothing.
+### QC-10: Historical CVaR without empyrical — done
+The mean of the `int((n - 1) * (1 - alpha)) + 1` smallest returns via `np.partition`, the
+same expression empyrical evaluates, so the result is bit-identical (pinned by
+`tests/oracle/risk/test_var_methods_oracle.py` on 120 inputs with heavy ties). `backend`,
+`HistoricalCvarBackend` and the tie-inclusive variant are gone; empyrical-reloaded is only in the
+oracle extra. The historical CVaR moves for returns that tie at the tail edge (0.2.0 included
+all tied values).
 
 ## Conformance
 

@@ -835,19 +835,17 @@ TOLERANCES: dict[str, Tolerance] = {
         atol=1e-3,
         justification=(
             "compared directly on WEIGHTS, not an objective (see conformance.targets.portfolio's "
-            "module docstring): Spinu "
-            "(2013)'s reformulation is strictly convex, so the risk-parity portfolio is unique and "
-            "two correct solvers must agree on the weight vector itself. Generous relative to the "
-            "closed-form default because quantcore's SLSQP least-squares-of-contribution-"
-            "differences formulation and the oracle's independent log-barrier L-BFGS-B solver "
-            "(conformance.targets.portfolio._spinu_risk_parity_weights) are very different "
-            "numerical paths to the same point; measured agreement ~1e-7 on well-behaved cases in "
-            "an empirical 200-case sweep (seed 100, k in 2..10, well_conditioned family), while "
-            "quantcore's SLSQP failed to reach an equal-risk-contribution solution (or raised "
-            "RuntimeError on non-convergence) on 13/200 cases, with weight deviations up to "
-            "0.39. This tolerance is tight "
-            "enough that both outcomes are correctly classified: convergent cases pass, divergent "
-            "ones fail by orders of magnitude."
+            "module docstring): Spinu (2013)'s reformulation is strictly convex, so the "
+            "risk-parity portfolio is unique and two correct solvers must agree on the weight "
+            "vector itself. quantcore solves it by damped Newton on the log-barrier objective; the "
+            "oracle (conformance.targets.portfolio._spinu_risk_parity_weights) is an independent "
+            "L-BFGS-B solve of the same objective with a Newton polish. Measured on a 200-case "
+            "sweep (seed 100, k in 2..10, well_conditioned family): quantcore raised on 0 cases, "
+            "the oracle failed on 0, the largest weight difference was 2.4e-9 and the largest "
+            "deviation of a risk-contribution share from 1/k was 9.8e-11. The tolerance is set "
+            "far above that to leave room for the oracle's own stopping point on "
+            "ill-conditioned draws, and far below the size of a wrong portfolio, so a solver that "
+            "stops short fails by orders of magnitude."
         ),
     ),
     "black_litterman": Tolerance(

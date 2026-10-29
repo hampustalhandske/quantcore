@@ -39,6 +39,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
@@ -113,6 +114,7 @@ FINDINGS_RELATIVE_DIR = "conformance/findings"
 FINDINGS_SRC_DIR = CONFORMANCE_DIR / "findings_src"
 CONFORMANCE_MAP_PATH = CONFORMANCE_DIR / "conformance_map.json"
 CONFORMANCE_MD_PATH = REPO_ROOT / "docs" / "CONFORMANCE.md"
+PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 BUILD_COMMAND = "uv run python -m conformance.build_report"
 
@@ -126,7 +128,6 @@ SCHEMA_VERSION = 1
 # oracles are closed forms or hand recursions built directly on these two.
 _NUMERICAL_BASE_DISTRIBUTIONS = ("numpy", "scipy")
 
-_ORACLE_EXTRA_RE = re.compile(r"""extra\s*==\s*['"]oracle['"]""")
 _REQUIREMENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
 type HypothesisProfile = Literal["ci", "full", "explore"]
@@ -386,14 +387,12 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "hmm_fit_log_likelihood": (tier2_regime, "HMM_FIT"),
     "hmm_decode": (tier2_regime, "HMM_DECODE"),
     "hmm_predict_proba": (tier2_regime, "HMM_PREDICT_PROBA"),
-    "hmm_filtered_proba": (tier2_regime, "HMM_FILTERED_PROBA"),
     "dynamic_hedge_ratio": (tier2_filtering, "DYNAMIC_HEDGE_RATIO"),
     "black_scholes_merton_price": (tier2_pricing_extra, "BSM"),
     "bsm_delta": (tier2_pricing_extra, "BSM"),
     "bsm_vega": (tier2_pricing_extra, "BSM"),
     "bs_gamma": (tier2_pricing_extra, "BSM"),
     "bs_theta": (tier2_pricing_extra, "BSM"),
-    "bs_rho": (tier2_pricing_extra, "BSM"),
     "option_roll_schedule": (tier2_pricing_extra, "OPTION_ROLL_SCHEDULE"),
     "protective_put_sizing": (tier2_pricing_extra, "PROTECTIVE_PUT_SIZING"),
     "ledoit_wolf_shrinkage": (tier2_portfolio, "LEDOIT_WOLF_SHRINKAGE"),
@@ -402,7 +401,6 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
         "UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS",
     ),
     "risk_parity_weights": (tier2_portfolio, "RISK_PARITY_WEIGHTS"),
-    "implied_equilibrium_returns": (tier2_portfolio, "IMPLIED_EQUILIBRIUM_RETURNS"),
     "black_litterman": (tier2_portfolio, "BLACK_LITTERMAN"),
     "factor_loadings_loadings": (tier2_time_series, "FACTOR_LOADINGS"),
     "factor_loadings_standard_errors": (tier2_time_series, "FACTOR_LOADINGS"),
@@ -1056,26 +1054,19 @@ def verified_functions_from_map(conformance_map: ConformanceMap) -> set[str]:
     return {name for name, entry in conformance_map.targets.items() if entry.status == "verified"}
 
 
-def oracle_extra_distributions(requirements: Iterable[str]) -> list[str]:
-    """Pick the distribution names of the `oracle` extra out of a requirement list.
-
-    Pure and I/O-free.
+def oracle_extra_distributions(pyproject: Path = PYPROJECT_PATH) -> list[str]:
+    """Name the distributions the `oracle` extra of a `pyproject.toml` pins.
 
     Args:
-        requirements: Requirement strings as `importlib.metadata.requires` returns them, e.g.
-            `'statsmodels==0.15.0; extra == "oracle"'`.
+        pyproject: The `pyproject.toml` to read; quantcore's own by default.
 
     Returns:
-        The name of every requirement whose marker selects the `oracle` extra, in input order.
+        The name of every requirement listed under `[project.optional-dependencies] oracle`, in
+        file order; empty when the extra is not declared.
     """
-    names: list[str] = []
-    for requirement in requirements:
-        if not _ORACLE_EXTRA_RE.search(requirement):
-            continue
-        match = _REQUIREMENT_NAME_RE.match(requirement.strip())
-        if match is not None:
-            names.append(match.group())
-    return names
+    with pyproject.open("rb") as handle:
+        extras = tomllib.load(handle)["project"].get("optional-dependencies", {})
+    return [m.group() for r in extras.get("oracle", []) if (m := _REQUIREMENT_NAME_RE.match(r))]
 
 
 def oracle_versions() -> dict[str, str]:
@@ -1090,15 +1081,12 @@ def oracle_versions() -> dict[str, str]:
         the extra that is not installed is absent.
 
     Raises:
-        RuntimeError: quantcore's installed metadata lists no `oracle` extra at all, so the
+        RuntimeError: quantcore's `pyproject.toml` lists no `oracle` extra at all, so the
             oracle libraries cannot be enumerated.
     """
-    extra = oracle_extra_distributions(importlib.metadata.requires("quantcore") or [])
+    extra = oracle_extra_distributions(PYPROJECT_PATH)
     if not extra:
-        raise RuntimeError(
-            "the installed quantcore distribution declares no 'oracle' extra; reinstall it with "
-            "`uv sync --extra dev --extra oracle`"
-        )
+        raise RuntimeError(f"{PYPROJECT_PATH} declares no 'oracle' extra")
     versions: dict[str, str] = {}
     for distribution_name in sorted({*extra, *_NUMERICAL_BASE_DISTRIBUTIONS}):
         try:

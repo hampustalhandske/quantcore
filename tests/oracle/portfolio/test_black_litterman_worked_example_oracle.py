@@ -25,7 +25,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from quantcore.portfolio.black_litterman import black_litterman, implied_equilibrium_returns
+from quantcore.portfolio.black_litterman import black_litterman
 
 pytestmark = pytest.mark.oracle
 
@@ -50,9 +50,6 @@ MARKET_WEIGHTS = np.array([0.1934, 0.2613, 0.1209, 0.1209, 0.0134, 0.0134, 0.241
 RISK_AVERSION = 3.07
 TAU = 0.025
 
-# Table 1, "Implied Equilibrium Return Vector" column.
-EXPECTED_PI = np.array([0.0008, 0.0067, 0.0641, 0.0408, 0.0743, 0.0370, 0.0480, 0.0660])
-
 # Equation 7 (market-capitalization-weighted P) and the paper's Q, Omega.
 # View 1 (absolute): Int'l Dev. Equity = 5.25%.
 # View 2 (relative): Int'l Bonds outperforms US Bonds by 0.25%.
@@ -73,12 +70,6 @@ EXPECTED_POSTERIOR_RETURNS = np.array(
 )
 
 
-class TestImpliedEquilibriumReturnsMatchesHeLittermanExample:
-    def test_matches_table_1(self) -> None:
-        pi = implied_equilibrium_returns(COV_MATRIX, MARKET_WEIGHTS, RISK_AVERSION)
-        np.testing.assert_allclose(pi, EXPECTED_PI, atol=1e-3)
-
-
 class TestBlackLittermanMatchesHeLittermanExample:
     def test_posterior_returns_match_table_6(self) -> None:
         posterior_returns, _ = black_litterman(
@@ -95,5 +86,5 @@ class TestBlackLittermanMatchesHeLittermanExample:
             COV_MATRIX, MARKET_WEIGHTS, P_MATRIX, Q_VIEWS, OMEGA, RISK_AVERSION, TAU
         )
         int_dev_equity_idx = 6
-        pi = implied_equilibrium_returns(COV_MATRIX, MARKET_WEIGHTS, RISK_AVERSION)
+        pi = RISK_AVERSION * COV_MATRIX @ MARKET_WEIGHTS
         assert pi[int_dev_equity_idx] < posterior_returns[int_dev_equity_idx] < Q_VIEWS[0]

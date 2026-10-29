@@ -544,15 +544,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "identical algorithm on identical numbers."
         ),
     ),
-    "hmm_filtered_proba": Tolerance(
-        rtol=1e-6,
-        atol=1e-8,
-        justification=(
-            "hand forward-algorithm implementation (conformance.targets.regime."
-            "_forward_filtered_proba), independent of quantcore's own (private) forward pass; "
-            "measured max abs difference ~3e-20 (machine precision)."
-        ),
-    ),
     "dynamic_hedge_ratio": Tolerance(
         rtol=1e-6,
         atol=1e-8,
@@ -626,21 +617,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "(the near-zero cases' relative error is cancellation noise, not a formula "
             "difference); rtol one order looser than the closed-form default to leave headroom "
             "above that measured 5.1e-13, atol one order above the measured 5.6e-17 max abs error."
-        ),
-    ),
-    "bs_rho": Tolerance(
-        rtol=1e-6,
-        atol=1e-11,
-        justification=(
-            "closed-form BSM rho = K*T*exp(-rT)*N(d2) (or the put mirror); a short-expiry deep "
-            "OTM rho is close to zero (little time for the rate to matter), so relative error "
-            "grows there from ordinary floating-point rounding in exp()/N(), not a formula "
-            "difference -- atol dominates. Measured max abs error 9.1e-13 across the full "
-            "3000-case sweep (any magnitude), max rel error 1.1e-8 restricted to cases with "
-            "|expected| > 1e-6; rtol two orders looser than the closed-form default and atol two "
-            "orders above the measured max abs error, both comfortably above the measured values "
-            "while still far tighter than a definitional mismatch (a wrong sign or a missing "
-            "factor of K*T) would produce."
         ),
     ),
     "option_roll_schedule": Tolerance(
@@ -872,17 +848,6 @@ TOLERANCES: dict[str, Tolerance] = {
             "0.39. This tolerance is tight "
             "enough that both outcomes are correctly classified: convergent cases pass, divergent "
             "ones fail by orders of magnitude."
-        ),
-    ),
-    "implied_equilibrium_returns": Tolerance(
-        rtol=1e-10,
-        atol=1e-10,
-        justification=(
-            "closed-form Pi = risk_aversion * Sigma @ w_mkt, hand-derived from He & Litterman "
-            "(1999) eq. 4 -- no library implements this single matrix-vector product, so the "
-            "reference is anchored by citation plus the two independent cross-checks in "
-            "conformance/test_tier2_portfolio.py (zero-confidence view recovers the prior; "
-            "infinite-confidence view recovers the view) that a wrong transcription would break."
         ),
     ),
     "black_litterman": Tolerance(

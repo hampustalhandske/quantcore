@@ -1,7 +1,6 @@
-"""Gaussian Hidden Markov Model regime detection: fit, decode, smoothed and filtered posteriors.
+"""Gaussian Hidden Markov Model regime detection: fit, decode and smoothed posteriors.
 
-`hmm_filtered_proba` (causal) is the only posterior safe in a walk-forward backtest or live
-signal; `hmm_predict_proba` conditions on the whole sequence, future included. `hmm_fit`'s
+`hmm_predict_proba` conditions on the whole sequence, future included. `hmm_fit`'s
 log-likelihood is checked through an independent forward algorithm and `hmmlearn`; its parameters
 are compared after relabelling states by ascending emission variance. `hmm_decode` and
 `hmm_predict_proba` are checked with the same parameters handed to `hmmlearn`.
@@ -53,7 +52,7 @@ def _forward_log_alpha(
     """Hand forward-algorithm log-alpha recursion (Baum et al. 1970).
 
     Written independently of quantcore's own (private) forward pass, so it can serve as an
-    oracle for `hmm_filtered_proba` and for cross-checking `hmm_fit`'s log-likelihood.
+    oracle for cross-checking `hmm_fit`'s log-likelihood.
     """
     log_b = _log_emission(observations, means, variances)
     log_a = np.log(np.clip(transition_matrix, _MIN_PROB, None))
@@ -78,19 +77,6 @@ def _forward_log_likelihood(
     """Total log-likelihood `log P(y_1..y_T)` via the hand forward algorithm above."""
     log_alpha = _forward_log_alpha(observations, transition_matrix, means, variances, initial_probs)
     return float(_logsumexp_rows(log_alpha[-1:]).item())
-
-
-def _forward_filtered_proba(
-    observations: npt.NDArray[np.float64],
-    transition_matrix: npt.NDArray[np.float64],
-    means: npt.NDArray[np.float64],
-    variances: npt.NDArray[np.float64],
-    initial_probs: npt.NDArray[np.float64],
-) -> npt.NDArray[np.float64]:
-    """Hand causal (filtered) posterior `P(s_t=k | y_1..y_t)`, from the forward pass alone."""
-    log_alpha = _forward_log_alpha(observations, transition_matrix, means, variances, initial_probs)
-    log_filtered = log_alpha - _logsumexp_rows(log_alpha)
-    return np.exp(log_filtered)
 
 
 def _quantile_bucket_init(
@@ -366,65 +352,4 @@ _HMM_PREDICT_PROBA = ConformanceTarget(
     compare=ArrayComparator(),
     quantcore=_hmm_predict_proba_quantcore,
     reference=_hmm_predict_proba_reference,
-)
-
-
-# --- hmm_filtered_proba: causal, hand forward-algorithm oracle -----------------------------------
-
-
-def _hmm_filtered_proba_quantcore(
-    observations: npt.NDArray[np.float64],
-    transition_matrix: npt.NDArray[np.float64],
-    means: npt.NDArray[np.float64],
-    variances: npt.NDArray[np.float64],
-    initial_probs: npt.NDArray[np.float64],
-) -> npt.NDArray[np.float64]:
-    return np.asarray(
-        qc_hmm.hmm_filtered_proba(observations, transition_matrix, means, variances, initial_probs),
-        dtype=np.float64,
-    )
-
-
-def _hmm_filtered_proba_reference(
-    observations: npt.NDArray[np.float64],
-    transition_matrix: npt.NDArray[np.float64],
-    means: npt.NDArray[np.float64],
-    variances: npt.NDArray[np.float64],
-    initial_probs: npt.NDArray[np.float64],
-) -> npt.NDArray[np.float64]:
-    return _forward_filtered_proba(observations, transition_matrix, means, variances, initial_probs)
-
-
-_HMM_FILTERED_PROBA = ConformanceTarget(
-    name="hmm_filtered_proba",
-    tier=1,
-    oracle="hand forward-algorithm implementation (Hamilton 1989)",
-    citation="Hamilton, J.D. (1989), 'A New Approach to the Economic Analysis of Nonstationary "
-    "Time Series and the Business Cycle.' Econometrica, 57(2), 357-384.",
-    compare=ArrayComparator(),
-    quantcore=_hmm_filtered_proba_quantcore,
-    reference=_hmm_filtered_proba_reference,
-)
-
-
-# --- select_hmm_n_states: no independent oracle (quantcore adapter only) ------------------------
-
-
-def _select_hmm_n_states_quantcore(
-    observations: npt.NDArray[np.float64], max_states: int, criterion: str
-) -> int:
-    return int(qc_hmm.select_hmm_n_states(observations, max_states, criterion))
-
-
-_SELECT_HMM_N_STATES = ConformanceTarget(
-    name="select_hmm_n_states",
-    tier=2,
-    oracle=(
-        "none (no independent library implements this selection rule); hand/invariant tests only"
-    ),
-    citation="Schwarz, G. (1978), 'Estimating the Dimension of a Model.' Annals of Statistics, "
-    "6(2), 461-464. (BIC.) Akaike, H. (1974), 'A New Look at the Statistical Model Identification.'"
-    " IEEE Transactions on Automatic Control, 19(6), 716-723. (AIC.)",
-    compare=ScalarComparator(),
-    quantcore=_select_hmm_n_states_quantcore,
 )

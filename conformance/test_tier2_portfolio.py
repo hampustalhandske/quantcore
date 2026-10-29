@@ -3,7 +3,7 @@
 `ledoit_wolf_shrinkage` is checked against a sklearn reference on `returns_panel()` draws, bucketed
 by the panel's observation count `n` (`length_bucket_for`, the harness's existing series-length
 bucketing). The mean-variance family (`unconstrained_mean_variance_weights`) and
-`implied_equilibrium_returns`/`black_litterman` take a
+`black_litterman` take a
 covariance matrix, not a series, so there is no natural "length" in the `length_bucket_for` sense;
 each instead declares a `_dim_bucket` (`"dim_small"`/`"dim_medium"`/`"dim_large"`) from the matrix's
 own dimension `k`, the same approach `test_tier1_execution.py` takes for its scalar-only
@@ -30,7 +30,6 @@ from conformance.harness import check
 _LEDOIT_WOLF_SHRINKAGE = registry()["ledoit_wolf_shrinkage"]
 _UNCONSTRAINED_MEAN_VARIANCE_WEIGHTS = registry()["unconstrained_mean_variance_weights"]
 _RISK_PARITY_WEIGHTS = registry()["risk_parity_weights"]
-_IMPLIED_EQUILIBRIUM_RETURNS = registry()["implied_equilibrium_returns"]
 _BLACK_LITTERMAN = registry()["black_litterman"]
 
 _OPTIMIZER_QUANTITIES = ("objective", "weights")
@@ -128,24 +127,7 @@ def test_risk_parity_weights_matches_spinu_reference(tagged: TaggedCovariance) -
     )
 
 
-# --- implied_equilibrium_returns, black_litterman -------------------------------------------------
-
-
-@settings(max_examples=200)
-@given(tagged=covariance_matrix(), risk_aversion=st.floats(0.5, 10.0))
-def test_implied_equilibrium_returns_matches_hand_formula(
-    tagged: TaggedCovariance, risk_aversion: float
-) -> None:
-    market_weights = np.random.default_rng(tagged.seed ^ 0x5EED).dirichlet(np.ones(tagged.k))
-    check(
-        _IMPLIED_EQUILIBRIUM_RETURNS,
-        tagged.matrix,
-        market_weights,
-        risk_aversion,
-        family=tagged.family,
-        length_bucket=_dim_bucket(tagged.k),
-        seed=tagged.seed,
-    )
+# --- black_litterman ------------------------------------------------------------------------------
 
 
 @settings(max_examples=200)

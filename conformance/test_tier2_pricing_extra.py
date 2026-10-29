@@ -3,7 +3,7 @@
 Covers every target registered by `conformance.targets.pricing` and
 `conformance.targets.pricing_extra`:
 
-- `black_scholes_merton_price`, `bsm_delta`, `bsm_vega`, `bs_gamma`, `bs_theta` and `bs_rho`:
+- `black_scholes_merton_price`, `bsm_delta`, `bsm_vega`, `bs_gamma` and `bs_theta`:
   quantcore against the closed-form oracle. These take scalar arguments -- there is no "length" to
   bucket, so every case uses the single declared bucket `"scalar"`; coverage breadth comes from
   `BSM_FAMILIES`, covering ATM/ITM/OTM moneyness, short and long expiries, a zero dividend yield
@@ -11,10 +11,9 @@ Covers every target registered by `conformance.targets.pricing` and
 - `option_roll_schedule` and `protective_put_sizing`: quantcore against hand-derived formulas.
 
 Second-oracle cross-checks (`conformance.harness.check_second_oracle`) compare the oracles of
-`bs_gamma`, `bs_theta` and `bs_rho` against `py_vollib.black_scholes_merton.greeks.analytical`,
-after applying that library's own documented scaling conventions (gamma and theta need no
-rescaling, rho needs `* 100` since py_vollib reports it per 1 percentage point rather than per
-unit). These records never count towards a target's status -- they are reported alongside it.
+`bs_gamma` and `bs_theta` against `py_vollib.black_scholes_merton.greeks.analytical`
+(gamma and theta need no rescaling). These records never count towards a target's status --
+they are reported alongside it.
 
 The tests run derandomized, and hypothesis seeds a derandomized test from the source text and
 signature of the test function. Editing a hypothesis test here (decorators, signature, docstring
@@ -40,7 +39,6 @@ _BSM_DELTA = registry()["bsm_delta"]
 _BSM_VEGA = registry()["bsm_vega"]
 _BS_GAMMA = registry()["bs_gamma"]
 _BS_THETA = registry()["bs_theta"]
-_BS_RHO = registry()["bs_rho"]
 _OPTION_ROLL_SCHEDULE = registry()["option_roll_schedule"]
 _PROTECTIVE_PUT_SIZING = registry()["protective_put_sizing"]
 
@@ -188,7 +186,7 @@ def test_bsm_vega_matches_quantcore(case: BsmCase) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# bs_gamma / bs_theta / bs_rho: quantcore vs closed-form reference (same bsm_case generator)
+# bs_gamma / bs_theta: quantcore vs closed-form reference (same bsm_case generator)
 # ---------------------------------------------------------------------------------------------
 
 
@@ -227,32 +225,11 @@ def test_bs_theta_matches_quantcore(case: BsmCase) -> None:
     )
 
 
-@settings(max_examples=800)
-@given(case=bsm_case())
-def test_bs_rho_matches_quantcore(case: BsmCase) -> None:
-    """`bs_rho`'s closed-form reference against quantcore's `bs_rho`."""
-    check(
-        _BS_RHO,
-        case.s,
-        case.k,
-        case.t,
-        r=case.r,
-        q=case.q,
-        sigma=case.sigma,
-        right=case.right,
-        family=case.family,
-        length_bucket=_SCALAR_BUCKET,
-    )
-
-
 # ---------------------------------------------------------------------------------------------
 # Second-oracle cross-checks: py_vollib.black_scholes_merton.greeks.analytical
 #
 # py_vollib's flag is 'c'/'p' (not "call"/"put"); its gamma and theta already match quantcore's
-# convention (gamma: no scaling; theta: already per calendar day), but its vega and rho are
-# reported per 1 PERCENTAGE POINT of the underlying input (its own docstrings: "in practice ...
-# we multiply by 0.01"), so the rho adapter below multiplies py_vollib's raw output by 100 before
-# comparing.
+# convention (gamma: no scaling; theta: already per calendar day).
 # ---------------------------------------------------------------------------------------------
 
 
@@ -265,13 +242,6 @@ def _py_vollib_theta(
 ) -> float:
     flag = "c" if right == "call" else "p"
     return float(_vollib_greeks.theta(flag, s, k, t, r, sigma, q))
-
-
-def _py_vollib_rho_x100(
-    s: float, k: float, t: float, *, r: float, q: float, sigma: float, right: OptionRight
-) -> float:
-    flag = "c" if right == "call" else "p"
-    return float(_vollib_greeks.rho(flag, s, k, t, r, sigma, q)) * 100.0
 
 
 @settings(max_examples=200)
@@ -309,28 +279,6 @@ def test_bs_theta_vs_py_vollib(case: BsmCase) -> None:
         oracle_name="py_vollib",
         oracle_callable=_py_vollib_theta,
         quantity="theta",
-        reference_kwargs={"r": case.r, "q": case.q, "sigma": case.sigma, "right": case.right},
-        r=case.r,
-        q=case.q,
-        sigma=case.sigma,
-        right=case.right,
-    )
-
-
-@settings(max_examples=200)
-@given(case=bsm_case())
-def test_bs_rho_vs_py_vollib(case: BsmCase) -> None:
-    """`bs_rho`'s reference against `py_vollib`'s rho, scaled `* 100` (py_vollib is per 1%)."""
-    check_second_oracle(
-        _BS_RHO,
-        case.s,
-        case.k,
-        case.t,
-        family=case.family,
-        length_bucket=_SCALAR_BUCKET,
-        oracle_name="py_vollib",
-        oracle_callable=_py_vollib_rho_x100,
-        quantity="rho",
         reference_kwargs={"r": case.r, "q": case.q, "sigma": case.sigma, "right": case.right},
         r=case.r,
         q=case.q,

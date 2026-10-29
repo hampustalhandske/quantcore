@@ -2,7 +2,6 @@ from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_pu
 from quantcore.pricing.greeks import (
     bs_delta,
     bs_gamma,
-    bs_rho,
     bs_theta,
     bs_vega,
 )
@@ -18,7 +17,6 @@ __all__ = [
     "black_scholes_put",
     "bs_delta",
     "bs_gamma",
-    "bs_rho",
     "bs_theta",
     "bs_vega",
     "option_roll_schedule",

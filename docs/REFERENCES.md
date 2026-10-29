@@ -147,8 +147,7 @@ cite the relevant entry in their docstrings.
 - Hamilton, J.D. (1989). "A New Approach to the Economic Analysis of
   Nonstationary Time Series and the Business Cycle." *Econometrica*, 57(2),
   357–384.
-  → `regime/hmm.py` (Markov-switching model applied to financial returns;
-  causal filtered-probability recursion, `hmm_filtered_proba`)
+  → `regime/hmm.py` (Markov-switching model applied to financial returns)
 
 ## Cointegration and mean reversion
 

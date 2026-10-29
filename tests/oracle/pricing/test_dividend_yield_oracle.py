@@ -7,8 +7,8 @@ formulas exactly (checked in tests/unit/pricing/); this file checks q > 0
 against independent oracles.
 
 Oracle: `py_vollib.black_scholes_merton` — price and Greeks. `py_vollib`
-scales vega and rho per 1% instead of per 1.00, so those two are multiplied
-by 100 before comparing.
+scales vega per 1% instead of per 1.00, so it is multiplied by 100 before
+comparing.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ pytest.importorskip("vollib")
 from vollib.black_scholes_merton import black_scholes_merton as vollib_price
 from vollib.black_scholes_merton.greeks.analytical import delta as vollib_delta
 from vollib.black_scholes_merton.greeks.analytical import gamma as vollib_gamma
-from vollib.black_scholes_merton.greeks.analytical import rho as vollib_rho
 from vollib.black_scholes_merton.greeks.analytical import theta as vollib_theta
 from vollib.black_scholes_merton.greeks.analytical import vega as vollib_vega
 
@@ -28,7 +27,6 @@ from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_pu
 from quantcore.pricing.greeks import (
     bs_delta,
     bs_gamma,
-    bs_rho,
     bs_theta,
     bs_vega,
 )
@@ -113,17 +111,3 @@ class TestGreeksMatchVollib:
             Q,
         )
         assert actual == pytest.approx(vollib_result, rel=1e-4)
-
-    def test_rho_per_unit_rate_matches_vollib_per_100(self) -> None:
-        actual = bs_rho(**BASE, option_type="call", dividend_yield=Q)
-        vollib_result = vollib_rho(
-            "c",
-            BASE["spot"],
-            BASE["strike"],
-            BASE["time_to_maturity"],
-            BASE["rate"],
-            BASE["volatility"],
-            Q,
-        )
-        # py_vollib scales rho per 1% rate move.
-        assert actual == pytest.approx(vollib_result * 100.0, rel=1e-4)

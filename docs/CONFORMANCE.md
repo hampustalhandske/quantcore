@@ -12,11 +12,11 @@ Hypothesis profile: `ci`
 
 | status | targets |
 |---|---|
-| verified | 67 |
+| verified | 64 |
 | non-standard | 0 |
 | defect | 0 |
-| unverifiable | 2 |
-| total | 69 |
+| unverifiable | 1 |
+| total | 65 |
 
 ## Status per target
 
@@ -31,7 +31,6 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `black_litterman` | `value` | hand-derived from He & Litterman 1999 eq. 8 | 200 | 0.000e+00 | 0.000e+00 | 1e-09 | 1e-09 | verified | — |
 | `black_scholes_merton_price` | `value` | Black-Scholes-Merton closed form on math.erf, independent of quantcore | 800 | 7.810e-14 | 1.480e-03 | 1e-09 | 1e-07 | verified | — |
 | `bs_gamma` | `value` | Black-Scholes-Merton closed-form gamma on math.erf; second oracle py_vollib.black_scholes_merton.greeks.analytical.gamma | 800 | 1.270e-21 | 3.770e-15 | 1e-10 | 1e-15 | verified | — |
-| `bs_rho` | `value` | Black-Scholes-Merton closed-form rho per unit rate move on math.erf; second oracle py_vollib.black_scholes_merton.greeks.analytical.rho (per 1 PERCENTAGE POINT of rate, i.e. quantcore's value / 100 -- multiply py_vollib's result by 100 to compare) | 800 | 4.550e-13 | 1.030e-04 | 1e-06 | 1e-11 | verified | — |
 | `bs_theta` | `value` | Black-Scholes-Merton closed-form theta per calendar day on math.erf; second oracle py_vollib.black_scholes_merton.greeks.analytical.theta (per calendar day, same convention as quantcore -- no rescaling needed) | 800 | 5.550e-17 | 1.210e-09 | 1e-08 | 1e-10 | verified | — |
 | `bsm_delta` | `value` | Black-Scholes-Merton closed-form delta on math.erf, independent of quantcore | 800 | 1.110e-16 | 9.270e-06 | 1e-08 | 1e-09 | verified | — |
 | `bsm_vega` | `value` | Black-Scholes-Merton closed-form vega on math.erf, independent of quantcore | 800 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-12 | verified | — |
@@ -56,14 +55,12 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `gjr_garch_11_variance` | `value` | arch (conditional variance via arch_model(vol='GARCH', o=1).fix(params)) | 400 | 8.670e-19 | 8.670e-16 | 1e-12 | 1e-14 | verified | — |
 | `hit_rate` | `value` | hand-computed; quantstats.stats.win_rate (second oracle) | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-10 | verified | — |
 | `hmm_decode` | `value` | hmmlearn.GaussianHMM.predict (Viterbi), given quantcore's own parameters directly | 30 | 0.000e+00 | 0.000e+00 | 0 | 1e-06 | verified | — |
-| `hmm_filtered_proba` | `value` | hand forward-algorithm implementation (Hamilton 1989) | 30 | 2.400e-12 | 5.860e+105 | 1e-06 | 1e-08 | verified | — |
 | `hmm_fit_initial_probs` | `value` | hmmlearn.GaussianHMM (independent EM fit, comparably seeded) | 30 | 2.250e-13 | 5.590e+261 | 0.05 | 0.05 | verified | — |
 | `hmm_fit_log_likelihood` | `value` | hmmlearn.GaussianHMM.score, loaded with quantcore's own fitted parameters | 30 | 0.000e+00 | 0.000e+00 | 1e-08 | 1e-08 | verified | — |
 | `hmm_fit_means` | `value` | hmmlearn.GaussianHMM (independent EM fit, comparably seeded) | 30 | 2.920e-02 | 7.970e-03 | 0.05 | 0.05 | verified | — |
 | `hmm_fit_transition_matrix` | `value` | hmmlearn.GaussianHMM (independent EM fit, comparably seeded) | 30 | 2.900e-02 | 6.990e+284 | 0.05 | 0.05 | verified | — |
 | `hmm_fit_variances` | `value` | hmmlearn.GaussianHMM (independent EM fit, comparably seeded) | 30 | 1.360e-02 | 1.460e-01 | 0.05 | 0.05 | verified | — |
 | `hmm_predict_proba` | `value` | hmmlearn.GaussianHMM.predict_proba, given quantcore's own parameters directly | 30 | 1.830e-11 | 3.720e+140 | 1e-06 | 1e-08 | verified | — |
-| `implied_equilibrium_returns` | `value` | hand-derived from He & Litterman 1999 eq. 4 | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-10 | verified | — |
 | `information_ratio` | `value` | empyrical-reloaded (excess_sharpe, annualised) | 200 | 5.330e-14 | 8.580e-15 | 1e-09 | 1e-09 | verified | — |
 | `jarque_bera` | `p_value` | scipy.stats.jarque_bera | 200 | 6.000e-15 | 1.300e-13 | 1e-09 | 1e-12 | verified | — |
 | `jarque_bera` | `statistic` | scipy.stats.jarque_bera | 200 | 1.490e-08 | 2.130e-14 | 1e-09 | 1e-12 | verified | — |
@@ -86,7 +83,6 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 | `risk_of_ruin` | `value` | quantstats.stats.risk_of_ruin | 200 | 0.000e+00 | 0.000e+00 | 1e-10 | 1e-12 | verified | — |
 | `risk_parity_weights` | `value` | independent Spinu (2013) convex reformulation, solved by L-BFGS-B | 200 | 1.860e-09 | 3.250e-08 | 0.001 | 0.001 | verified | — |
 | `select_arima_order` | `value` | statsmodels (ARIMA.fit, aic/bic; agreement rate reported, not asserted -- see module docstring) | 25 | 0.000e+00 | 0.000e+00 | 0 | 0 | unverifiable | — |
-| `select_hmm_n_states` | — | none (no independent library implements this selection rule); hand/invariant tests only | 0 | — | — | — | — | unverifiable | — |
 | `serenity_index` | `value` | quantstats.stats.serenity_index | 200 | 6.910e-06 | 3.980e-09 | 1e-10 | 1e-12 | verified | — |
 | `sharpe_ratio` | `value` | empyrical-reloaded | 200 | 8.380e-09 | 5.910e-13 | 1e-10 | 1e-09 | verified | — |
 | `short_borrow_cost` | `value` | hand-derived closed form | 200 | 0.000e+00 | 0.000e+00 | 1e-12 | 0 | verified | — |
@@ -105,7 +101,6 @@ One row per recorded quantity: a target recording several named quantities (e.g.
 A `defect` or `non-standard` target has a hand-written finding in `conformance/findings_src/`; building the report merges it with the run's evidence and an executed repro into the `finding` path of the table above, which is git-ignored.
 
 - `select_arima_order` (`unverifiable`): comparator is report-only (conformance.compare.ReportOnlyScalarComparator): agreement with the oracle is recorded for the report but never asserted, so this target is never classified verified whatever the recorded error magnitudes
-- `select_hmm_n_states` (`unverifiable`): no independent oracle is registered for this target
 
 ## Coverage
 
@@ -155,14 +150,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `bs_gamma` | `nonzero_dividend` | 143 |
 | `bs_gamma` | `negative_rate` | 78 |
 | `bs_gamma` | `high_vol` | 97 |
-| `bs_rho` | `atm_short_expiry` | 109 |
-| `bs_rho` | `atm_long_expiry` | 115 |
-| `bs_rho` | `deep_itm` | 122 |
-| `bs_rho` | `deep_otm` | 166 |
-| `bs_rho` | `zero_dividend` | 65 |
-| `bs_rho` | `nonzero_dividend` | 186 |
-| `bs_rho` | `negative_rate` | 76 |
-| `bs_rho` | `high_vol` | 161 |
 | `bs_theta` | `atm_short_expiry` | 116 |
 | `bs_theta` | `atm_long_expiry` | 124 |
 | `bs_theta` | `deep_itm` | 115 |
@@ -303,8 +290,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `hit_rate` | `huge_scale` | 40 |
 | `hmm_decode` | `two_state_separated` | 14 |
 | `hmm_decode` | `three_state_separated` | 16 |
-| `hmm_filtered_proba` | `two_state_separated` | 15 |
-| `hmm_filtered_proba` | `three_state_separated` | 15 |
 | `hmm_fit_initial_probs` | `two_state_separated` | 9 |
 | `hmm_fit_initial_probs` | `three_state_separated` | 21 |
 | `hmm_fit_log_likelihood` | `two_state_separated` | 9 |
@@ -317,11 +302,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `hmm_fit_variances` | `three_state_separated` | 21 |
 | `hmm_predict_proba` | `two_state_separated` | 16 |
 | `hmm_predict_proba` | `three_state_separated` | 14 |
-| `implied_equilibrium_returns` | `well_conditioned` | 37 |
-| `implied_equilibrium_returns` | `near_singular` | 33 |
-| `implied_equilibrium_returns` | `equal_vol` | 50 |
-| `implied_equilibrium_returns` | `one_dominant` | 47 |
-| `implied_equilibrium_returns` | `high_condition` | 33 |
 | `information_ratio` | `normal` | 17 |
 | `information_ratio` | `student_t3` | 14 |
 | `information_ratio` | `skewed` | 21 |
@@ -522,7 +502,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `black_litterman` | `dim_large` | 36 |
 | `black_scholes_merton_price` | `scalar` | 800 |
 | `bs_gamma` | `scalar` | 1000 |
-| `bs_rho` | `scalar` | 1000 |
 | `bs_theta` | `scalar` | 1000 |
 | `bsm_delta` | `scalar` | 800 |
 | `bsm_vega` | `scalar` | 800 |
@@ -588,8 +567,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `hit_rate` | `long` | 122 |
 | `hmm_decode` | `medium` | 26 |
 | `hmm_decode` | `long` | 4 |
-| `hmm_filtered_proba` | `medium` | 25 |
-| `hmm_filtered_proba` | `long` | 5 |
 | `hmm_fit_initial_probs` | `medium` | 24 |
 | `hmm_fit_initial_probs` | `long` | 6 |
 | `hmm_fit_log_likelihood` | `medium` | 24 |
@@ -602,9 +579,6 @@ Comparisons recorded by this run, per declared generator family and per declared
 | `hmm_fit_variances` | `long` | 6 |
 | `hmm_predict_proba` | `medium` | 23 |
 | `hmm_predict_proba` | `long` | 7 |
-| `implied_equilibrium_returns` | `dim_small` | 119 |
-| `implied_equilibrium_returns` | `dim_medium` | 37 |
-| `implied_equilibrium_returns` | `dim_large` | 44 |
 | `information_ratio` | `short` | 77 |
 | `information_ratio` | `medium` | 61 |
 | `information_ratio` | `long` | 62 |
@@ -721,7 +695,6 @@ A second, independent oracle checked against the same target's own oracle (its s
 | target | second oracle | quantity | cases | max abs diff | max rel diff | agrees | raised/non-finite |
 |---|---|---|---|---|---|---|---|
 | `bs_gamma` | `py_vollib` | `gamma` | 200 | 4.550e-13 | 2.950e-16 | yes | 0 |
-| `bs_rho` | `py_vollib` | `rho` | 200 | 1.140e-13 | 4.790e-05 | yes | 0 |
 | `bs_theta` | `py_vollib` | `theta` | 200 | 2.780e-17 | 3.050e-11 | yes | 0 |
 | `hit_rate` | `quantstats` | `win_rate` | 200 | 0.000e+00 | 0.000e+00 | yes | 0 |
 | `profit_factor` | `quantstats` | `profit_factor` | 200 | 0.000e+00 | 0.000e+00 | yes | 0 |

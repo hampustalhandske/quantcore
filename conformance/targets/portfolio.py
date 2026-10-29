@@ -301,34 +301,7 @@ _RISK_PARITY_WEIGHTS = ConformanceTarget(
 )
 
 
-# --- implied_equilibrium_returns, black_litterman ------------------------------------------------
-
-
-def _implied_equilibrium_returns_quantcore(
-    cov_matrix: FloatArray, market_weights: FloatArray, risk_aversion: float
-) -> FloatArray:
-    return np.asarray(
-        qc_portfolio.implied_equilibrium_returns(cov_matrix, market_weights, risk_aversion),
-        dtype=np.float64,
-    )
-
-
-def _implied_equilibrium_returns_reference(
-    cov_matrix: FloatArray, market_weights: FloatArray, risk_aversion: float
-) -> FloatArray:
-    """Hand formula `Pi = risk_aversion * Sigma @ w_mkt` (He & Litterman 1999)."""
-    return np.asarray(risk_aversion * cov_matrix @ market_weights, dtype=np.float64)
-
-
-_IMPLIED_EQUILIBRIUM_RETURNS = ConformanceTarget(
-    name="implied_equilibrium_returns",
-    tier=2,
-    oracle="hand-derived from He & Litterman 1999 eq. 4",
-    citation="He & Litterman (1999), eq. 4. Full citation in docs/REFERENCES.md.",
-    compare=ArrayComparator(),
-    quantcore=_implied_equilibrium_returns_quantcore,
-    reference=_implied_equilibrium_returns_reference,
-)
+# --- black_litterman ------------------------------------------------------------------------------
 
 
 def _pack_bl_posterior(posterior_returns: FloatArray, posterior_cov: FloatArray) -> FloatArray:

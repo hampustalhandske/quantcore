@@ -1885,16 +1885,15 @@ def test_conformance_map_from_json_rejects_another_schema_version() -> None:
         conformance_map_from_json(json.dumps(raw))
 
 
-def test_oracle_extra_distributions_keeps_only_the_oracle_extra() -> None:
-    """Only requirements whose marker selects the `oracle` extra are named, in input order."""
-    requirements = [
-        "numpy>=1.26",
-        'ruff>=0.6; extra == "dev"',
-        'statsmodels==0.15.0; extra == "oracle"',
-        "empyrical-reloaded==0.5.12 ; extra == 'oracle'",
-        'py_vollib==1.0.12; python_version >= "3.9" and extra == "oracle"',
-    ]
-    assert oracle_extra_distributions(requirements) == [
+def test_oracle_extra_distributions_names_the_oracle_extra_in_file_order(tmp_path) -> None:
+    """Only the requirements under the `oracle` extra are named, in file order."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "x"\n[project.optional-dependencies]\n'
+        'dev = ["ruff>=0.6"]\n'
+        'oracle = ["statsmodels==0.15.0", "empyrical-reloaded==0.5.12", "py_vollib==1.0.12"]\n'
+    )
+    assert oracle_extra_distributions(pyproject) == [
         "statsmodels",
         "empyrical-reloaded",
         "py_vollib",
@@ -1923,11 +1922,11 @@ def test_oracle_versions_covers_every_oracle_library_and_the_numerical_base() ->
         assert versions[distribution], distribution
 
 
-def test_oracle_versions_fails_when_the_oracle_extra_is_not_declared(monkeypatch) -> None:
-    """Metadata with no `oracle` extra cannot enumerate the oracle libraries, and says so."""
-    monkeypatch.setattr(
-        build_report_module.importlib.metadata, "requires", lambda name: ["numpy>=1.26"]
-    )
+def test_oracle_versions_fails_when_the_oracle_extra_is_not_declared(tmp_path, monkeypatch) -> None:
+    """A `pyproject.toml` with no `oracle` extra cannot enumerate the oracle libraries."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "x"\n')
+    monkeypatch.setattr(build_report_module, "PYPROJECT_PATH", pyproject)
     with pytest.raises(RuntimeError, match="'oracle' extra"):
         oracle_versions()
 

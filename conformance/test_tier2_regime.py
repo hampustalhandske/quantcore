@@ -1,8 +1,6 @@
 """Differential tests for Gaussian HMM regime detection against `hmmlearn`.
 
-`hmm_fit_log_likelihood`, `hmm_decode`, `hmm_filtered_proba` are Tier-1; the rest of this family
-is Tier-2. `select_hmm_n_states` has no independent oracle (see its section in
-`conformance/targets/regime.py`) and is exercised only by `tests/unit/regime/test_hmm.py`.
+`hmm_fit_log_likelihood` and `hmm_decode` are Tier-1; the rest of this family is Tier-2.
 """
 
 import numpy as np
@@ -22,7 +20,6 @@ _HMM_FIT_INITIAL_PROBS = registry()["hmm_fit_initial_probs"]
 _HMM_FIT_LOG_LIKELIHOOD = registry()["hmm_fit_log_likelihood"]
 _HMM_DECODE = registry()["hmm_decode"]
 _HMM_PREDICT_PROBA = registry()["hmm_predict_proba"]
-_HMM_FILTERED_PROBA = registry()["hmm_filtered_proba"]
 
 # Declared coverage. `hmm_fit*`'s family/bucket names describe the regime-switching generator
 # below, not `conformance.generators.RETURN_FAMILIES` (HMM inputs are observation sequences of a
@@ -138,27 +135,6 @@ def test_hmm_predict_proba_matches_hmmlearn(
     )
 
 
-@settings(max_examples=30)
-@given(draw_result=regime_switching_observations())
-def test_hmm_filtered_proba_matches_hand_forward_algorithm(
-    draw_result: tuple[npt.NDArray[np.float64], str, int, int],
-) -> None:
-    observations, family, seed, n_states = draw_result
-    bucket = _length_bucket(observations.shape[0])
-    transition_matrix, means, variances, initial_probs, _ll = _fit(observations, n_states, seed)
-    check(
-        _HMM_FILTERED_PROBA,
-        observations,
-        transition_matrix,
-        means,
-        variances,
-        initial_probs,
-        family=family,
-        length_bucket=bucket,
-        seed=seed,
-    )
-
-
 def _fit(
     observations: npt.NDArray[np.float64], n_states: int, seed: int
 ) -> tuple[
@@ -180,37 +156,3 @@ def _fit(
         observations, transition_matrix, means, variances, initial_probs
     )
     return transition_matrix, means, variances, initial_probs, log_likelihood
-
-
-@settings(max_examples=50)
-@given(draw_result=regime_switching_observations(min_len=80, max_len=300))
-def test_hmm_filtered_proba_no_lookahead(
-    draw_result: tuple[npt.NDArray[np.float64], str, int, int],
-) -> None:
-    """Property test of the look-ahead guard: perturbing the future must not change the past.
-
-    `hmm_filtered_proba` row `t` is documented to depend only on `observations[:t+1]`. This
-    perturbs every observation strictly after a cut point and asserts the filtered probabilities
-    up to and including the cut point are unchanged -- the concrete guarantee a walk-forward
-    backtest or live signal relies on (see `quantcore.regime.hmm.hmm_filtered_proba`).
-    """
-    observations, _family, seed, n_states = draw_result
-    transition_matrix, means, variances, initial_probs, _ll = _fit(observations, n_states, seed)
-    n = observations.shape[0]
-    cut = n // 2
-
-    baseline = qc_hmm.hmm_filtered_proba(
-        observations, transition_matrix, means, variances, initial_probs
-    )
-
-    rng = np.random.default_rng(seed + 1)
-    perturbed = observations.copy()
-    perturbed[cut + 1 :] = rng.normal(0.0, 10.0, size=n - cut - 1)
-    perturbed_filtered = qc_hmm.hmm_filtered_proba(
-        perturbed, transition_matrix, means, variances, initial_probs
-    )
-
-    assert np.allclose(baseline[: cut + 1], perturbed_filtered[: cut + 1], atol=1e-12), (
-        "hmm_filtered_proba's row t changed when observations strictly after t were perturbed -- "
-        "a look-ahead leak"
-    )

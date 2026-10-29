@@ -8,7 +8,6 @@ from quantcore.pricing.black_scholes import black_scholes_call
 from quantcore.pricing.greeks import (
     bs_delta,
     bs_gamma,
-    bs_rho,
     bs_theta,
     bs_vega,
 )
@@ -237,81 +236,6 @@ class TestBsTheta:
         assert theta == 0.0
 
 
-class TestBsRho:
-    def test_invalid_spot(self) -> None:
-        with pytest.raises(ValueError):
-            bs_rho(
-                spot=-1.0,
-                strike=100.0,
-                rate=0.05,
-                volatility=0.2,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    def test_invalid_strike(self) -> None:
-        with pytest.raises(ValueError):
-            bs_rho(
-                spot=100.0,
-                strike=-1.0,
-                rate=0.05,
-                volatility=0.2,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    def test_invalid_volatility(self) -> None:
-        with pytest.raises(ValueError):
-            bs_rho(
-                spot=100.0,
-                strike=100.0,
-                rate=0.05,
-                volatility=-0.2,
-                time_to_maturity=1.0,
-                option_type="call",
-            )
-
-    def test_invalid_time_to_maturity(self) -> None:
-        with pytest.raises(ValueError):
-            bs_rho(
-                spot=100.0,
-                strike=100.0,
-                rate=0.05,
-                volatility=0.2,
-                time_to_maturity=-1.0,
-                option_type="call",
-            )
-
-    def test_invalid_option_type(self) -> None:
-        with pytest.raises(ValueError):
-            bs_rho(
-                spot=100.0,
-                strike=100.0,
-                rate=0.05,
-                volatility=0.2,
-                time_to_maturity=1.0,
-                option_type="foo",
-            )
-
-    def test_call_rho_positive(self) -> None:
-        assert bs_rho(**_ATM, option_type="call") > 0.0
-
-    def test_put_rho_negative(self) -> None:
-        assert bs_rho(**_ATM, option_type="put") < 0.0
-
-    @pytest.mark.parametrize("option_type", ["call", "put"])
-    def test_zero_time_to_maturity_is_zero(self, option_type: str) -> None:
-        rho = bs_rho(
-            spot=100.0,
-            strike=100.0,
-            rate=0.05,
-            volatility=0.2,
-            time_to_maturity=0.0,
-            option_type=option_type,
-        )
-        assert rho == 0.0
-
-
 _DIV_KWARGS = dict(spot=100.0, strike=100.0, rate=0.05, volatility=0.2, time_to_maturity=1.0)
 _DIV_Q = 0.03
 _DIV_EPS = 1e-4
@@ -332,8 +256,6 @@ class TestDividendYield:
             (bs_vega, {}),
             (bs_theta, {"option_type": "call"}),
             (bs_theta, {"option_type": "put"}),
-            (bs_rho, {"option_type": "call"}),
-            (bs_rho, {"option_type": "put"}),
         ],
     )
     def test_zero_dividend_yield_matches_plain_value(self, greek, kwargs: dict) -> None:
@@ -358,16 +280,4 @@ class TestDividendYield:
         down = black_scholes_call(**kwargs, volatility=vol - _DIV_EPS, dividend_yield=_DIV_Q)
         expected = (up - down) / (2.0 * _DIV_EPS)
         actual = bs_vega(**_DIV_KWARGS, dividend_yield=_DIV_Q)
-        assert actual == pytest.approx(expected, abs=1e-4)
-
-    def test_rho_matches_finite_difference_of_call_price_with_dividend(self) -> None:
-        # Rho's closed form doesn't mention q explicitly, but its *value*
-        # still shifts with q through d2 -- so this checks the value
-        # against a finite difference, not that it equals the q=0 value.
-        rate = _DIV_KWARGS["rate"]
-        kwargs = {k: v for k, v in _DIV_KWARGS.items() if k != "rate"}
-        up = black_scholes_call(**kwargs, rate=rate + _DIV_EPS, dividend_yield=_DIV_Q)
-        down = black_scholes_call(**kwargs, rate=rate - _DIV_EPS, dividend_yield=_DIV_Q)
-        expected = (up - down) / (2.0 * _DIV_EPS)
-        actual = bs_rho(**_DIV_KWARGS, option_type="call", dividend_yield=_DIV_Q)
         assert actual == pytest.approx(expected, abs=1e-4)

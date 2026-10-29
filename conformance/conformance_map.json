@@ -150,27 +150,6 @@
         "rtol": 1e-10
       }
     },
-    "bs_rho": {
-      "by_quantity": {
-        "value": {
-          "cases": 800,
-          "max_abs_error": 4.55e-13,
-          "max_rel_error": 0.000103
-        }
-      },
-      "cases": 800,
-      "finding": null,
-      "max_abs_error": 4.55e-13,
-      "max_rel_error": 0.000103,
-      "oracle": "Black-Scholes-Merton closed-form rho per unit rate move on math.erf; second oracle py_vollib.black_scholes_merton.greeks.analytical.rho (per 1 PERCENTAGE POINT of rate, i.e. quantcore's value / 100 -- multiply py_vollib's result by 100 to compare)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-11,
-        "justification": "closed-form BSM rho = K*T*exp(-rT)*N(d2) (or the put mirror); a short-expiry deep OTM rho is close to zero (little time for the rate to matter), so relative error grows there from ordinary floating-point rounding in exp()/N(), not a formula difference -- atol dominates. Measured max abs error 9.1e-13 across the full 3000-case sweep (any magnitude), max rel error 1.1e-8 restricted to cases with |expected| > 1e-6; rtol two orders looser than the closed-form default and atol two orders above the measured max abs error, both comfortably above the measured values while still far tighter than a definitional mismatch (a wrong sign or a missing factor of K*T) would produce.",
-        "rtol": 1e-06
-      }
-    },
     "bs_theta": {
       "by_quantity": {
         "value": {
@@ -675,27 +654,6 @@
         "rtol": 0.0
       }
     },
-    "hmm_filtered_proba": {
-      "by_quantity": {
-        "value": {
-          "cases": 30,
-          "max_abs_error": 2.4e-12,
-          "max_rel_error": 5.86e+105
-        }
-      },
-      "cases": 30,
-      "finding": null,
-      "max_abs_error": 2.4e-12,
-      "max_rel_error": 5.86e+105,
-      "oracle": "hand forward-algorithm implementation (Hamilton 1989)",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-08,
-        "justification": "hand forward-algorithm implementation (conformance.targets.regime._forward_filtered_proba), independent of quantcore's own (private) forward pass; measured max abs difference ~3e-20 (machine precision).",
-        "rtol": 1e-06
-      }
-    },
     "hmm_fit_initial_probs": {
       "by_quantity": {
         "value": {
@@ -820,27 +778,6 @@
         "atol": 1e-08,
         "justification": "hmmlearn's forward-backward smoother, given quantcore's own parameters directly; measured max abs difference ~2e-21 (machine precision) since both implement the identical algorithm on identical numbers.",
         "rtol": 1e-06
-      }
-    },
-    "implied_equilibrium_returns": {
-      "by_quantity": {
-        "value": {
-          "cases": 200,
-          "max_abs_error": 0.0,
-          "max_rel_error": 0.0
-        }
-      },
-      "cases": 200,
-      "finding": null,
-      "max_abs_error": 0.0,
-      "max_rel_error": 0.0,
-      "oracle": "hand-derived from He & Litterman 1999 eq. 4",
-      "reason": "",
-      "status": "verified",
-      "tolerance": {
-        "atol": 1e-10,
-        "justification": "closed-form Pi = risk_aversion * Sigma @ w_mkt, hand-derived from He & Litterman (1999) eq. 4 -- no library implements this single matrix-vector product, so the reference is anchored by citation plus the two independent cross-checks in conformance/test_tier2_portfolio.py (zero-confidence view recovers the prior; infinite-confidence view recovers the view) that a wrong transcription would break.",
-        "rtol": 1e-10
       }
     },
     "information_ratio": {
@@ -1240,17 +1177,6 @@
         "justification": "order selection is inherently ambiguous between correlated models, so agreement rate is reported, not asserted -- this quantity's comparator (edgelab.backend.function.ReportOnlyScalarComparator) never fails a case and build_report.build_resolution_map records it as unverifiable without consulting this tolerance for a pass/fail decision at all, so rtol=atol=0 is the honest value rather than a wide number chosen to never trip: no code path judges 'close' against it any more.",
         "rtol": 0.0
       }
-    },
-    "select_hmm_n_states": {
-      "by_quantity": {},
-      "cases": 0,
-      "finding": null,
-      "max_abs_error": null,
-      "max_rel_error": null,
-      "oracle": "none (no independent library implements this selection rule); hand/invariant tests only",
-      "reason": "no independent oracle is registered for this target",
-      "status": "unverifiable",
-      "tolerance": null
     },
     "serenity_index": {
       "by_quantity": {

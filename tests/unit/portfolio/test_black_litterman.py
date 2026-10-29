@@ -1,41 +1,11 @@
-"""Tests for Black-Litterman implied equilibrium returns and posterior estimation."""
+"""Tests for Black-Litterman posterior estimation."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from quantcore.portfolio.black_litterman import black_litterman, implied_equilibrium_returns
-
-
-class TestImpliedEquilibriumReturns:
-    def test_invalid_inputs_non_square_cov_matrix(self) -> None:
-        cov_matrix = np.array([[0.04, 0.01, 0.0], [0.01, 0.09, 0.0]])
-        market_weights = np.array([0.5, 0.5])
-        with pytest.raises(ValueError):
-            implied_equilibrium_returns(cov_matrix, market_weights, risk_aversion=2.5)
-
-    def test_invalid_inputs_mismatched_weights_length(self) -> None:
-        cov_matrix = np.array([[0.04, 0.01], [0.01, 0.09]])
-        market_weights = np.array([0.3, 0.3, 0.4])
-        with pytest.raises(ValueError):
-            implied_equilibrium_returns(cov_matrix, market_weights, risk_aversion=2.5)
-
-    def test_invalid_inputs_non_positive_risk_aversion(self) -> None:
-        cov_matrix = np.array([[0.04, 0.01], [0.01, 0.09]])
-        market_weights = np.array([0.5, 0.5])
-        with pytest.raises(ValueError):
-            implied_equilibrium_returns(cov_matrix, market_weights, risk_aversion=0.0)
-
-    def test_matches_reverse_optimization_formula(self) -> None:
-        cov_matrix = np.array([[0.04, 0.01], [0.01, 0.09]])
-        market_weights = np.array([0.6, 0.4])
-        risk_aversion = 2.5
-
-        expected = risk_aversion * cov_matrix @ market_weights
-        actual = implied_equilibrium_returns(cov_matrix, market_weights, risk_aversion)
-
-        assert actual == pytest.approx(expected, abs=1e-10)
+from quantcore.portfolio.black_litterman import black_litterman
 
 
 class TestBlackLitterman:
@@ -91,7 +61,7 @@ class TestBlackLitterman:
             )
 
     def test_uninformative_view_matches_equilibrium_returns(self) -> None:
-        pi = implied_equilibrium_returns(self.cov_matrix, self.market_weights, self.risk_aversion)
+        pi = self.risk_aversion * self.cov_matrix @ self.market_weights
         P = np.array([[1.0, 0.0]])
         Q = np.array([pi[0]])
         omega = np.array([[1e8]])
@@ -103,7 +73,7 @@ class TestBlackLitterman:
         assert posterior_returns == pytest.approx(pi, abs=1e-3)
 
     def test_strong_view_shifts_posterior_toward_view(self) -> None:
-        pi = implied_equilibrium_returns(self.cov_matrix, self.market_weights, self.risk_aversion)
+        pi = self.risk_aversion * self.cov_matrix @ self.market_weights
         strong_view_value = pi[0] + 0.10
         P = np.array([[1.0, 0.0]])
         Q = np.array([strong_view_value])
@@ -120,7 +90,7 @@ class TestBlackLitterman:
         # deliberately supported "no informative prior" input (Pi = 0),
         # leaving the posterior driven entirely by the views.
         market_weights = np.zeros(2)
-        pi = implied_equilibrium_returns(self.cov_matrix, market_weights, self.risk_aversion)
+        pi = self.risk_aversion * self.cov_matrix @ market_weights
         assert pi == pytest.approx(np.zeros(2), abs=1e-12)
 
         P = np.array([[1.0, -1.0]])

@@ -1,12 +1,12 @@
 """The quantcore `pricing` surface beyond the Black-Scholes-Merton price, delta and vega.
 
-Gamma, theta and rho, and option roll and sizing helpers. Each is registered as a
+Gamma and theta, and option roll and sizing helpers. Each is registered as a
 `ConformanceTarget` pairing a quantcore adapter (a thin call into `quantcore.pricing`) with an
 independent oracle (the BSM closed form or a hand-derived formula). Importing this module
 registers all of them.
 
 Conventions the oracles share with quantcore: theta is per calendar day (the annualised closed
-form over 365) and rho is per unit of the rate (not per percentage point).
+form over 365).
 """
 
 import math
@@ -94,41 +94,6 @@ _BS_THETA = ConformanceTarget(
     compare=ScalarComparator(),
     quantcore=_bs_theta_quantcore,
     reference=_bs_theta_reference,
-)
-
-
-# bs_rho
-
-
-def _bs_rho_reference(
-    s: float, k: float, t: float, *, r: float, q: float, sigma: float, right: OptionRight
-) -> float:
-    """BSM closed-form rho for `t > 0`, per unit of `r`; the oracle for `bs_rho`."""
-    _, d2 = _d1_d2(s, k, t, r=r, q=q, sigma=sigma)
-    discount = math.exp(-r * t)
-    if right == "call":
-        return k * t * discount * _norm_cdf(d2)
-    return -k * t * discount * _norm_cdf(-d2)
-
-
-def _bs_rho_quantcore(
-    s: float, k: float, t: float, *, r: float, q: float, sigma: float, right: OptionRight
-) -> float:
-    """`quantcore.pricing.bs_rho` adapter, `t > 0` only."""
-    return float(_qc_pricing.bs_rho(s, k, r, sigma, t, right, q))
-
-
-_BS_RHO = ConformanceTarget(
-    name="bs_rho",
-    tier=1,
-    oracle="Black-Scholes-Merton closed-form rho per unit rate move on math.erf; second oracle "
-    "py_vollib.black_scholes_merton.greeks.analytical.rho "
-    "(per 1 PERCENTAGE POINT of rate, i.e. quantcore's value / 100 -- multiply py_vollib's "
-    "result by 100 to compare)",
-    citation="Black, F. and Scholes, M. (1973); Merton, R.C. (1973).",
-    compare=ScalarComparator(),
-    quantcore=_bs_rho_quantcore,
-    reference=_bs_rho_reference,
 )
 
 

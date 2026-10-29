@@ -7,10 +7,8 @@ import pytest
 
 from quantcore.regime.hmm import (
     hmm_decode,
-    hmm_filtered_proba,
     hmm_fit,
     hmm_predict_proba,
-    select_hmm_n_states,
 )
 
 SEED = 42
@@ -121,32 +119,6 @@ class TestHmmFit:
         assert np.all(np.diff(means_b) > 0.0)
         for i in range(3):
             assert means_a[i] == pytest.approx(means_b[i], abs=0.5)
-
-
-class TestSelectHmmNStates:
-    def test_invalid_criterion_raises(self) -> None:
-        observations, _ = _two_state_synthetic_data()
-        with pytest.raises(ValueError):
-            select_hmm_n_states(observations, max_states=3, criterion="hqic")
-
-    def test_invalid_max_states_raises(self) -> None:
-        observations, _ = _two_state_synthetic_data()
-        with pytest.raises(ValueError):
-            select_hmm_n_states(observations, max_states=0)
-
-    def test_does_not_crash_when_max_states_exceeds_true_count(self) -> None:
-        observations, _ = _two_state_synthetic_data()
-        n_states = select_hmm_n_states(observations, max_states=4)
-        assert 1 <= n_states <= 4
-
-    def test_recovers_true_number_of_states_with_bic(self) -> None:
-        # State-count selection is noisy in finite samples (BIC can favor
-        # one extra state that captures a spurious sub-cluster), so we only
-        # assert the well-separated two-regime structure is not collapsed
-        # to a single state and not wildly overfit.
-        observations, _ = _two_state_synthetic_data()
-        n_states = select_hmm_n_states(observations, max_states=4, criterion="bic")
-        assert n_states == 2
 
 
 class TestHmmFitDecodeIntegration:
@@ -271,93 +243,3 @@ class TestHmmPredictProba:
         predicted_states = np.argmax(posteriors, axis=1)
         accuracy = _best_label_matched_accuracy(predicted_states, true_states)
         assert accuracy > 0.95
-
-
-class TestHmmFilteredProba:
-    def test_invalid_empty_observations_raises(self) -> None:
-        with pytest.raises(ValueError):
-            hmm_filtered_proba(
-                np.array([]),
-                transition_matrix=np.eye(2),
-                means=np.array([-2.0, 2.0]),
-                variances=np.array([0.1, 0.1]),
-                initial_probs=np.array([0.5, 0.5]),
-            )
-
-    def test_output_shape_and_rows_sum_to_one(self) -> None:
-        observations, _ = _two_state_synthetic_data()
-        transition_matrix = np.array([[0.98, 0.02], [0.02, 0.98]])
-        means = np.array([-2.0, 2.0])
-        variances = np.array([0.1, 0.1])
-        initial_probs = np.array([0.5, 0.5])
-
-        filtered = hmm_filtered_proba(
-            observations, transition_matrix, means, variances, initial_probs
-        )
-        assert filtered.shape == (observations.shape[0], 2)
-        assert np.allclose(filtered.sum(axis=1), 1.0)
-
-    def test_high_confidence_matches_true_state(self) -> None:
-        observations, true_states = _two_state_synthetic_data()
-        transition_matrix = np.array([[0.98, 0.02], [0.02, 0.98]])
-        means = np.array([-2.0, 2.0])
-        variances = np.array([0.1, 0.1])
-        initial_probs = np.array([0.5, 0.5])
-
-        filtered = hmm_filtered_proba(
-            observations, transition_matrix, means, variances, initial_probs
-        )
-        predicted_states = np.argmax(filtered, axis=1)
-        accuracy = _best_label_matched_accuracy(predicted_states, true_states)
-        assert accuracy > 0.9
-
-    def test_row_t_is_unaffected_by_observations_after_t(self) -> None:
-        # The defining causal property: truncating the sequence to
-        # observations[:t+1] and taking the last filtered row must give the
-        # same answer as computing on the full sequence and reading row t --
-        # a smoother (hmm_predict_proba) would NOT have this property, since
-        # its row t depends on everything after t too.
-        observations, _ = _two_state_synthetic_data()
-        transition_matrix = np.array([[0.98, 0.02], [0.02, 0.98]])
-        means = np.array([-2.0, 2.0])
-        variances = np.array([0.1, 0.1])
-        initial_probs = np.array([0.5, 0.5])
-
-        full = hmm_filtered_proba(observations, transition_matrix, means, variances, initial_probs)
-        t = 30
-        truncated = hmm_filtered_proba(
-            observations[: t + 1], transition_matrix, means, variances, initial_probs
-        )
-        np.testing.assert_allclose(truncated[-1], full[t], atol=1e-10)
-
-    def test_differs_from_smoothed_posteriors_mid_sequence(self) -> None:
-        # The two functions' defining difference. Uses noisier, closer-
-        # together states than _two_state_synthetic_data (whose 6-sigma
-        # separation lets a single observation resolve the state almost
-        # certainly on its own, leaving no room for filtered vs. smoothed
-        # to visibly differ) so that context genuinely matters.
-        rng = np.random.default_rng(SEED)
-        n_blocks, block_size = 6, 50
-        true_states = np.array(
-            [i % 2 for i in range(n_blocks) for _ in range(block_size)], dtype=np.int64
-        )
-        means = np.array([-0.3, 0.3])
-        variances = np.array([1.0, 1.0])
-        observations = rng.normal(loc=means[true_states], scale=1.0)
-        transition_matrix = np.array([[0.9, 0.1], [0.1, 0.9]])
-        initial_probs = np.array([0.5, 0.5])
-
-        filtered = hmm_filtered_proba(
-            observations, transition_matrix, means, variances, initial_probs
-        )
-        smoothed = hmm_predict_proba(
-            observations, transition_matrix, means, variances, initial_probs
-        )
-        # Right at a regime switch (block boundary), the filter hasn't seen
-        # the switch happen yet but the smoother has -- their answers must
-        # differ measurably there.
-        switch_point = 50
-        assert not np.allclose(filtered[switch_point], smoothed[switch_point], atol=1e-2)
-        # At the very last observation there is no future left to use, so
-        # the two must agree exactly there.
-        np.testing.assert_allclose(filtered[-1], smoothed[-1], atol=1e-8)

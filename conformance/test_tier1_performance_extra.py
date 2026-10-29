@@ -21,6 +21,7 @@ from conformance.generators import (
     returns_series,
 )
 from conformance.harness import check, check_second_oracle
+from conformance.targets.performance_extra import _sharpe_and_factor
 
 _SORTINO_RATIO = registry()["sortino_ratio"]
 _CALMAR_RATIO = registry()["calmar_ratio"]
@@ -37,6 +38,31 @@ _CPC_INDEX = registry()["cpc_index"]
 _OUTLIER_WIN_RATIO = registry()["outlier_win_ratio"]
 _OUTLIER_LOSS_RATIO = registry()["outlier_loss_ratio"]
 _RISK_OF_RUIN = registry()["risk_of_ruin"]
+_SHARPE_SE_MERTENS = registry()["sharpe_se_mertens"]
+_PROBABILISTIC_SHARPE_RATIO = registry()["probabilistic_sharpe_ratio"]
+_MINIMUM_TRACK_RECORD_LENGTH = registry()["minimum_track_record_length"]
+_EXPECTED_MAX_SHARPE = registry()["expected_max_sharpe"]
+_DEFLATED_SHARPE_RATIO = registry()["deflated_sharpe_ratio"]
+
+SHARPE_INFERENCE_MIN_LEN = 10
+SHARPE_INFERENCE_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
+SHARPE_INFERENCE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
+
+SHARPE_SE_MERTENS_MIN_LEN = SHARPE_INFERENCE_MIN_LEN
+SHARPE_SE_MERTENS_FAMILIES = SHARPE_INFERENCE_FAMILIES
+SHARPE_SE_MERTENS_BUCKETS = SHARPE_INFERENCE_BUCKETS
+PROBABILISTIC_SHARPE_RATIO_MIN_LEN = SHARPE_INFERENCE_MIN_LEN
+PROBABILISTIC_SHARPE_RATIO_FAMILIES = SHARPE_INFERENCE_FAMILIES
+PROBABILISTIC_SHARPE_RATIO_BUCKETS = SHARPE_INFERENCE_BUCKETS
+MINIMUM_TRACK_RECORD_LENGTH_MIN_LEN = SHARPE_INFERENCE_MIN_LEN
+MINIMUM_TRACK_RECORD_LENGTH_FAMILIES = SHARPE_INFERENCE_FAMILIES
+MINIMUM_TRACK_RECORD_LENGTH_BUCKETS = SHARPE_INFERENCE_BUCKETS
+DEFLATED_SHARPE_RATIO_MIN_LEN = SHARPE_INFERENCE_MIN_LEN
+DEFLATED_SHARPE_RATIO_FAMILIES = SHARPE_INFERENCE_FAMILIES
+DEFLATED_SHARPE_RATIO_BUCKETS = SHARPE_INFERENCE_BUCKETS
+
+EXPECTED_MAX_SHARPE_FAMILIES: tuple[str, ...] = ("few_trials", "many_trials")
+EXPECTED_MAX_SHARPE_BUCKETS: tuple[str, ...] = ("scalar",)
 
 SORTINO_RATIO_MIN_LEN = 2
 SORTINO_RATIO_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
@@ -494,4 +520,123 @@ def test_risk_of_ruin_matches_quantstats(tagged: TaggedReturns) -> None:
         family=tagged.family,
         length_bucket=length_bucket_for(tagged.n),
         seed=tagged.seed,
+    )
+
+
+def _usable_for_inference(values: np.ndarray) -> bool:
+    """Whether scipy's moments are finite and the Sharpe variance factor is positive."""
+    if not float(np.ptp(values)) > 0.0:
+        return False
+    with np.errstate(all="ignore"):
+        sr, factor = _sharpe_and_factor(values)
+    return bool(np.isfinite(sr) and np.isfinite(factor) and factor > 0.0)
+
+
+@given(
+    tagged=returns_series(min_len=SHARPE_INFERENCE_MIN_LEN),
+    periods_per_year=st.sampled_from([1, 12, 52, 252]),
+)
+def test_sharpe_se_mertens_matches_scipy_formula(
+    tagged: TaggedReturns, periods_per_year: int
+) -> None:
+    """Quantcore's `sharpe_se_mertens` against the scipy-moment hand formula."""
+    assume(_usable_for_inference(tagged.values))
+    check(
+        _SHARPE_SE_MERTENS,
+        tagged.values,
+        periods_per_year,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
+        quantities=("sharpe", "se"),
+    )
+
+
+@given(
+    tagged=returns_series(min_len=SHARPE_INFERENCE_MIN_LEN),
+    sr_star=st.floats(min_value=-0.5, max_value=0.5),
+)
+def test_probabilistic_sharpe_ratio_matches_scipy_formula(
+    tagged: TaggedReturns, sr_star: float
+) -> None:
+    """Quantcore's `probabilistic_sharpe_ratio` against the scipy-moment hand formula."""
+    assume(_usable_for_inference(tagged.values))
+    check(
+        _PROBABILISTIC_SHARPE_RATIO,
+        tagged.values,
+        sr_star,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
+    )
+
+
+@given(
+    tagged=returns_series(min_len=SHARPE_INFERENCE_MIN_LEN),
+    sr_star=st.floats(min_value=-0.5, max_value=0.5),
+    alpha=st.floats(min_value=0.001, max_value=0.5),
+)
+def test_minimum_track_record_length_matches_scipy_formula(
+    tagged: TaggedReturns, sr_star: float, alpha: float
+) -> None:
+    """Quantcore's `minimum_track_record_length` against the scipy-moment hand formula."""
+    assume(_usable_for_inference(tagged.values))
+    sr = float(np.mean(tagged.values) / np.std(tagged.values, ddof=1))
+    assume(abs(sr - sr_star) > 1e-3 * max(1.0, abs(sr)))
+    check(
+        _MINIMUM_TRACK_RECORD_LENGTH,
+        tagged.values,
+        sr_star,
+        alpha,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
+    )
+
+
+@given(
+    few=st.booleans(),
+    data=st.data(),
+    var_sharpe=st.floats(min_value=0.0, max_value=100.0),
+)
+def test_expected_max_sharpe_matches_scipy_formula(
+    few: bool, data: st.DataObject, var_sharpe: float
+) -> None:
+    """Quantcore's `expected_max_sharpe` against the formula evaluated with `norm.isf`."""
+    n_trials = data.draw(st.floats(min_value=2.0, max_value=50.0) if few else st.floats(50.0, 1e7))
+    check(
+        _EXPECTED_MAX_SHARPE,
+        n_trials,
+        var_sharpe,
+        family="few_trials" if few else "many_trials",
+        length_bucket="scalar",
+    )
+
+
+@given(
+    tagged=returns_series(min_len=SHARPE_INFERENCE_MIN_LEN),
+    family_sharpes=st.lists(st.floats(min_value=-0.5, max_value=0.5), min_size=1, max_size=60),
+    n_effective=st.floats(min_value=0.5, max_value=1e4),
+    trial_variance=st.sampled_from(["family", "no_skill"]),
+)
+def test_deflated_sharpe_ratio_matches_scipy_formula(
+    tagged: TaggedReturns,
+    family_sharpes: list[float],
+    n_effective: float,
+    trial_variance: str,
+) -> None:
+    """Quantcore's `deflated_sharpe_ratio` against the scipy-moment hand formula."""
+    # 1 < n_effective < 2 is rejected by `expected_max_sharpe` (the formula needs N >= 2).
+    assume(n_effective <= 1.0 or n_effective >= 2.0)
+    assume(_usable_for_inference(tagged.values))
+    check(
+        _DEFLATED_SHARPE_RATIO,
+        tagged.values,
+        np.array(family_sharpes),
+        n_effective,
+        trial_variance,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
+        quantities=("dsr", "sr_zero", "psr_naive"),
     )

@@ -371,6 +371,27 @@ cite the relevant entry in their docstrings.
   → `performance/ratios.py` (gambler's ruin, the model behind
   `risk_of_ruin`)
 
+- Mertens, E. (2002). "Comments on Variance of the IID Estimator in Lo
+  (2002)." Working paper, University of Basel.
+  → `performance/sharpe_inference.py` (`sharpe_se_mertens`: the variance of
+  the Sharpe ratio under non-normal, serially independent returns)
+
+- Opdyke, J.D. (2007). "Comparing Sharpe Ratios: So Where Are the p-values?"
+  *Journal of Asset Management*, 8(5), 308–336.
+  → `performance/sharpe_inference.py` (`sharpe_se_mertens`: the same
+  variance, derived for the general non-normal case)
+
+- Bailey, D.H. and Lopez de Prado, M. (2012). "The Sharpe Ratio Efficient
+  Frontier." *Journal of Risk*, 15(2), 3–44.
+  → `performance/sharpe_inference.py` (`probabilistic_sharpe_ratio`,
+  `minimum_track_record_length`)
+
+- Bailey, D.H. and Lopez de Prado, M. (2014). "The Deflated Sharpe Ratio:
+  Correcting for Selection Bias, Backtest Overfitting and Non-Normality."
+  *Journal of Portfolio Management*, 40(5), 94–107.
+  → `performance/sharpe_inference.py` (`expected_max_sharpe`, the asymptotic
+  formula for `SR0` as published; `deflated_sharpe_ratio`)
+
 - Cited by attribution only; details not verified, and no primary text is
   cited in the code: a KeyQuant white paper that QuantStats names as its
   source for the Serenity index (`serenity_index`; title and year not

@@ -266,6 +266,80 @@ TOLERANCES: dict[str, Tolerance] = {
             "absorb that extra multiplication's rounding."
         ),
     ),
+    "sharpe_se_mertens": Tolerance(
+        rtol=1e-10,
+        atol=1e-12,
+        justification=(
+            "the per-period Sharpe ratio, population skewness and kurtosis and the variance "
+            "factor `1 - g3 SR + (g4 - 1) / 4 SR^2`, scaled by sqrt(periods_per_year). "
+            "Quantcore and the scipy- moment oracle differ only in how the central moments are "
+            "summed; the factor is bounded below by `(1 - g3 SR / 2)^2` so its cancellation is "
+            "mild on ordinary inputs. Measured over 5000 cases of every return family at the "
+            "full profile: 0 on the Sharpe ratio and 1.5e-15 relative on the standard error, so "
+            "rtol is the closed-form default, 1e-10, five orders above the largest measured "
+            "error and far below the 1/n effect of using sample instead of population moments. "
+            "atol covers a standard error that is exactly zero."
+        ),
+    ),
+    "probabilistic_sharpe_ratio": Tolerance(
+        rtol=1e-10,
+        atol=1e-12,
+        justification=(
+            "Phi of `(SR - SR*) / sqrt(factor / (n - 1))`. The oracle forms the moments through "
+            "scipy; a relative error d in z moves Phi(z) by about |z| d relative, which is "
+            "largest in the lower tail. Measured over 5000 cases of every return family at the "
+            "full profile with SR* in [-0.5, 0.5]: 4.6e-13 relative (all_negative, tail "
+            "p-values), 2.2e-16 absolute. rtol is the closed-form default, 1e-10, 200 times "
+            "above the largest measured error; atol 1e-11 covers p-values below 1e-12, which "
+            "are indistinguishable from zero."
+        ),
+    ),
+    "minimum_track_record_length": Tolerance(
+        rtol=1e-10,
+        atol=1e-10,
+        justification=(
+            "`1 + factor (z / (SR - SR*))^2` with z = Phi^-1(1 - alpha). A relative error e in "
+            "the factor or in SR - SR* moves the result by 1 and 2 times e; the gap SR - SR* is "
+            "conditioned by |SR| / |SR - SR*|, which the test bounds to at most 1e3 by "
+            "excluding gaps below 1e-3 max(1, |SR|). Measured over 5000 cases of every return "
+            "family at the full profile: 6.8e-15 relative. rtol is the closed-form "
+            "default, 1e-10, and far below the roughly 1e-3 effect of sample instead of "
+            "population moments or of a one-sided/two- sided z mix-up."
+        ),
+    ),
+    "expected_max_sharpe": Tolerance(
+        rtol=1e-9,
+        atol=1e-12,
+        justification=(
+            "quantcore forms Phi^-1(1 - 1/N) by evaluating 1 - 1/N and then inverting, as the "
+            "published formula is written; the oracle uses the survival function "
+            "`norm.isf(1/N)`, which does not form 1 - 1/N. The rounding of 1 - 1/N (half an "
+            "ulp, 1.1e-16) moves the quantile by 1.1e-16 / phi(z) = 1.1e-16 N / z with z ~ "
+            "sqrt(2 ln N), a relative error that grows linearly with N: about 1e-16 N / z^2. At "
+            "the largest N the test draws, 1e7, that is about 4e-11; measured over 5000 cases "
+            "(N in [2, 1e7], variance in [0, 100]) the largest relative error is 3.2e-11 and it "
+            "is below 1e-13 for N < 1e4. rtol 1e-9 is 30 times that and still 1e6 times below "
+            "the 1e-3 difference an altered Euler-Mascheroni term or a mixed-up quantile "
+            "produces. atol covers a zero variance."
+        ),
+    ),
+    "deflated_sharpe_ratio": Tolerance(
+        rtol=2e-9,
+        atol=1e-11,
+        justification=(
+            "the same variance factor as the Sharpe-ratio standard error, a family variance, "
+            "the expected maximum Sharpe ratio and a Normal CDF. Phi(z) has relative error "
+            "about |z| times the error of z, so the tail of a large negative z (best trial far "
+            "below the multiple-testing hurdle) is the worst case; the hurdle's own arithmetic "
+            "adds the N-dependent term described under expected_max_sharpe (below 1e-13 here as "
+            "N <= 1e4). Measured over 5000 cases of every return family at the full profile "
+            "(n_effective in [0.5, 1e4], family of 1 to 60 Sharpe ratios in [-0.5, 0.5], both "
+            "variance modes): 8.2e-11 relative and 8.7e-13 absolute on the DSR, 6.3e-14 on the "
+            "hurdle, 4.6e-13 on the naive PSR. rtol 2e-9 is 24 times the largest measured error "
+            "and far below the 1e-3 or larger differences a moment-convention or quantile "
+            "mismatch gives; atol 1e-11 is 10 times the largest absolute error."
+        ),
+    ),
     "hit_rate": Tolerance(
         rtol=1e-10,
         atol=1e-10,

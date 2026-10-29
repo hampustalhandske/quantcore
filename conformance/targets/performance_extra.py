@@ -13,6 +13,7 @@ annualised and none takes a risk-free rate (`quantstats`' `rf` is passed as 0 wh
 out the inputs on which that guess is wrong, since quantcore always treats its input as returns.
 """
 
+import math
 from collections.abc import Callable
 
 import numpy as np
@@ -23,9 +24,12 @@ from empyrical import calmar_ratio as _empyrical_calmar_ratio
 from empyrical import excess_sharpe as _empyrical_excess_sharpe
 from empyrical import max_drawdown as _empyrical_max_drawdown
 from empyrical import sortino_ratio as _empyrical_sortino_ratio
+from scipy.stats import kurtosis as _scipy_kurtosis
+from scipy.stats import norm as _norm
+from scipy.stats import skew as _scipy_skew
 
 import quantcore.performance as qc_performance
-from conformance.compare import ConformanceTarget, ScalarComparator
+from conformance.compare import ConformanceTarget, ScalarComparator, TupleComparator
 
 # --- Sortino ratio ----------------------------------------------------------------------------
 
@@ -417,4 +421,164 @@ _CPC_INDEX = ConformanceTarget(
     compare=ScalarComparator(),
     quantcore=_cpc_index_quantcore,
     reference=_cpc_index_reference,
+)
+
+
+# --- Sharpe-ratio inference -----------------------------------------------------------------------
+
+_PUBLISHED_INFERENCE_CITATION = (
+    "Bailey, D.H. and Lopez de Prado, M. (2012), 'The Sharpe Ratio Efficient Frontier.' "
+    "Journal of Risk, 15(2), 3-44; Mertens, E. (2002); Opdyke, J.D. (2007), Journal of Asset "
+    "Management, 8(5), 308-336."
+)
+
+
+def _sharpe_and_factor(x: npt.NDArray[np.float64]) -> tuple[float, float]:
+    """Per-period Sharpe ratio and `1 - g3 SR + (g4 - 1) / 4 SR^2` from scipy's biased moments."""
+    sr = float(np.mean(x) / np.std(x, ddof=1))
+    g3 = float(_scipy_skew(x, bias=True))
+    g4 = float(_scipy_kurtosis(x, fisher=False, bias=True))
+    return sr, 1.0 - g3 * sr + (g4 - 1.0) / 4.0 * sr**2
+
+
+def _sharpe_se_mertens_quantcore(
+    returns: npt.NDArray[np.float64], periods_per_year: int
+) -> tuple[float, float]:
+    result = qc_performance.sharpe_se_mertens(returns, periods_per_year=periods_per_year)
+    return result.sharpe, result.se
+
+
+def _sharpe_se_mertens_reference(
+    returns: npt.NDArray[np.float64], periods_per_year: int
+) -> tuple[float, float]:
+    sr, factor = _sharpe_and_factor(returns)
+    scale = math.sqrt(periods_per_year)
+    return sr * scale, math.sqrt(factor / (returns.size - 1)) * scale
+
+
+_SHARPE_SE_MERTENS = ConformanceTarget(
+    name="sharpe_se_mertens",
+    tier=1,
+    oracle="scipy.stats skew/kurtosis (bias=True) hand formula",
+    citation=_PUBLISHED_INFERENCE_CITATION,
+    compare=TupleComparator(ScalarComparator(), ScalarComparator()),
+    quantcore=_sharpe_se_mertens_quantcore,
+    reference=_sharpe_se_mertens_reference,
+)
+
+
+def _psr_quantcore(returns: npt.NDArray[np.float64], sr_star: float) -> float:
+    return qc_performance.probabilistic_sharpe_ratio(returns, sr_star)
+
+
+def _psr_reference(returns: npt.NDArray[np.float64], sr_star: float) -> float:
+    sr, factor = _sharpe_and_factor(returns)
+    return float(_norm.cdf((sr - sr_star) / math.sqrt(factor / (returns.size - 1))))
+
+
+_PROBABILISTIC_SHARPE_RATIO = ConformanceTarget(
+    name="probabilistic_sharpe_ratio",
+    tier=1,
+    oracle="scipy.stats skew/kurtosis (bias=True) and norm.cdf hand formula",
+    citation=_PUBLISHED_INFERENCE_CITATION,
+    compare=ScalarComparator(),
+    quantcore=_psr_quantcore,
+    reference=_psr_reference,
+)
+
+
+def _min_trl_quantcore(returns: npt.NDArray[np.float64], sr_star: float, alpha: float) -> float:
+    return qc_performance.minimum_track_record_length(returns, sr_star, alpha)
+
+
+def _min_trl_reference(returns: npt.NDArray[np.float64], sr_star: float, alpha: float) -> float:
+    sr, factor = _sharpe_and_factor(returns)
+    return 1.0 + factor * (float(_norm.isf(alpha)) / (sr - sr_star)) ** 2
+
+
+_MINIMUM_TRACK_RECORD_LENGTH = ConformanceTarget(
+    name="minimum_track_record_length",
+    tier=1,
+    oracle="scipy.stats skew/kurtosis (bias=True) and norm.isf hand formula",
+    citation=_PUBLISHED_INFERENCE_CITATION,
+    compare=ScalarComparator(),
+    quantcore=_min_trl_quantcore,
+    reference=_min_trl_reference,
+)
+
+
+def _expected_max_sharpe_quantcore(n_trials: float, var_sharpe: float) -> float:
+    return qc_performance.expected_max_sharpe(n_trials, var_sharpe)
+
+
+def _expected_max_sharpe_reference(n_trials: float, var_sharpe: float) -> float:
+    gamma = 0.5772156649015329
+    # The survival function isf(p) = Phi^-1(1 - p) avoids forming 1 - 1/N before inverting.
+    z1 = float(_norm.isf(1.0 / n_trials))
+    z2 = float(_norm.isf(1.0 / (n_trials * math.e)))
+    return math.sqrt(var_sharpe) * ((1.0 - gamma) * z1 + gamma * z2)
+
+
+_EXPECTED_MAX_SHARPE = ConformanceTarget(
+    name="expected_max_sharpe",
+    tier=1,
+    oracle="scipy.stats.norm.isf hand formula",
+    citation=(
+        "Bailey, D.H. and Lopez de Prado, M. (2014), 'The Deflated Sharpe Ratio: Correcting for "
+        "Selection Bias, Backtest Overfitting and Non-Normality.' Journal of Portfolio "
+        "Management, 40(5), 94-107."
+    ),
+    compare=ScalarComparator(),
+    quantcore=_expected_max_sharpe_quantcore,
+    reference=_expected_max_sharpe_reference,
+)
+
+
+def _dsr_quantcore(
+    returns_best: npt.NDArray[np.float64],
+    family_sharpes: npt.NDArray[np.float64],
+    n_effective: float,
+    trial_variance: str,
+) -> tuple[float, float, float]:
+    result = qc_performance.deflated_sharpe_ratio(
+        returns_best,
+        family_sharpes,
+        n_effective=n_effective,
+        trial_variance=trial_variance,  # type: ignore[arg-type]
+    )
+    return result.dsr, result.sr_zero, result.psr_naive
+
+
+def _dsr_reference(
+    returns_best: npt.NDArray[np.float64],
+    family_sharpes: npt.NDArray[np.float64],
+    n_effective: float,
+    trial_variance: str,
+) -> tuple[float, float, float]:
+    sr, factor = _sharpe_and_factor(returns_best)
+    n = returns_best.size
+    if trial_variance == "no_skill":
+        variance = 1.0 / (n - 1)
+    else:
+        variance = float(np.var(family_sharpes, ddof=1)) if family_sharpes.size > 1 else 0.0
+    sr_zero = _expected_max_sharpe_reference(n_effective, variance) if n_effective > 1.0 else 0.0
+
+    def psr(threshold: float) -> float:
+        return float(_norm.cdf((sr - threshold) / math.sqrt(factor / (n - 1))))
+
+    return psr(sr_zero), sr_zero, psr(0.0)
+
+
+_DEFLATED_SHARPE_RATIO = ConformanceTarget(
+    name="deflated_sharpe_ratio",
+    tier=1,
+    oracle="scipy.stats skew/kurtosis/norm hand formula",
+    citation=(
+        "Bailey, D.H. and Lopez de Prado, M. (2014), 'The Deflated Sharpe Ratio: Correcting for "
+        "Selection Bias, Backtest Overfitting and Non-Normality.' Journal of Portfolio "
+        "Management, 40(5), 94-107."
+    ),
+    compare=TupleComparator(ScalarComparator(), ScalarComparator(), ScalarComparator()),
+    quantcore=_dsr_quantcore,
+    reference=_dsr_reference,
 )

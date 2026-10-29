@@ -9,7 +9,6 @@ matrix Kalman filter in NumPy, and `scipy.signal.lfilter`.
 from __future__ import annotations
 
 import itertools
-import platform
 import time
 
 import numpy as np
@@ -25,11 +24,8 @@ from quantcore.time_series.arima import (
     _EXACT_MLE_INFEASIBLE_PENALTY,
     _MAX_ABS_UNCONSTRAINED,
     _PACF_MARGIN,
-    _arima_fit_css,
     _arma_kalman_filter_kernel,
     _coefs_to_pacf_kernel,
-    _css_objective,
-    _css_residuals_numba_kernel,
     _difference,
     _exact_mle_objective,
     _exact_mle_objective_and_gradient_kernel,
@@ -270,49 +266,27 @@ class TestArimaFit:
         assert ar_coefs[0] == pytest.approx(0.6, abs=0.15)
         assert sigma2 > 0.0
 
-    @pytest.mark.parametrize("method", ["mle", "css"])
-    def test_invalid_series_too_short_for_order(self, method: str) -> None:
+    def test_invalid_series_too_short_for_order(self) -> None:
         with pytest.raises(ValueError):
-            arima_fit(np.arange(3, dtype=np.float64), p=2, d=1, q=0, method=method)
+            arima_fit(np.arange(3, dtype=np.float64), p=2, d=1, q=0)
 
-    @pytest.mark.parametrize("method", ["mle", "css"])
     @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
-    def test_invalid_non_finite_series(self, method: str, bad_value: float) -> None:
+    def test_invalid_non_finite_series(self, bad_value: float) -> None:
         series = _simulate_ar1(phi=0.6, n=50, seed=RNG_SEED)
         series[17] = bad_value
         with pytest.raises(ValueError, match="finite"):
-            arima_fit(series, p=1, d=0, q=1, method=method)
+            arima_fit(series, p=1, d=0, q=1)
 
-    @pytest.mark.parametrize("method", ["mle", "css"])
-    def test_invalid_series_not_one_dimensional(self, method: str) -> None:
+    def test_invalid_series_not_one_dimensional(self) -> None:
         series = _simulate_ar1(phi=0.6, n=50, seed=RNG_SEED).reshape(25, 2)
         with pytest.raises(ValueError, match="1-D"):
-            arima_fit(series, p=1, d=0, q=0, method=method)
+            arima_fit(series, p=1, d=0, q=0)
 
-    def test_invalid_method_raises(self) -> None:
-        series = _simulate_ar1(phi=0.6, n=50, seed=RNG_SEED)
-        with pytest.raises(ValueError, match="method"):
-            arima_fit(series, p=1, d=0, q=0, method="ols")  # type: ignore[arg-type]
-
-    def test_method_is_keyword_only(self) -> None:
-        series = _simulate_ar1(phi=0.6, n=50, seed=RNG_SEED)
-        with pytest.raises(TypeError):
-            arima_fit(series, 1, 0, 0, "css")  # type: ignore[misc]
-
-    def test_default_method_is_exact_maximum_likelihood(self) -> None:
-        series = _simulate_arma((0.5,), (0.3,), 200, RNG_SEED)
-        default = arima_fit(series, 1, 0, 1)
-        explicit = arima_fit(series, 1, 0, 1, method="mle")
-        np.testing.assert_array_equal(default[0], explicit[0])
-        np.testing.assert_array_equal(default[1], explicit[1])
-        assert default[2] == explicit[2]
-
-    @pytest.mark.parametrize("method", ["mle", "css"])
     @pytest.mark.parametrize("order", [(1, 0, 0), (0, 1, 2), (2, 2, 1)])
-    def test_return_types_and_shapes(self, method: str, order: tuple[int, int, int]) -> None:
+    def test_return_types_and_shapes(self, order: tuple[int, int, int]) -> None:
         p, d, q = order
         series = np.cumsum(_simulate_ar1(phi=0.3, n=120, seed=RNG_SEED))
-        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p, d, q, method=method)
+        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p, d, q)
         assert isinstance(ar_coefs, np.ndarray) and ar_coefs.dtype == np.float64
         assert isinstance(ma_coefs, np.ndarray) and ma_coefs.dtype == np.float64
         assert ar_coefs.shape == (p,)
@@ -373,26 +347,6 @@ class TestArimaResiduals:
         with pytest.raises(ValueError):
             arima_residuals(series, np.array([0.5, 0.2, 0.1]), np.array([]), d=0)
 
-    def test_bit_identical_to_arima_fit_internal_residuals(self) -> None:
-        # arima_residuals must reproduce the CSS fit's internal residual
-        # computation exactly, since both route through the same CSS kernel
-        # call with the winning parameters.
-        series = _simulate_ar1(phi=0.6, n=300, seed=RNG_SEED)
-        p, d, q = 2, 0, 1
-
-        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p=p, d=d, q=q, method="css")
-
-        y = _difference(series, d)
-        params = np.concatenate([ar_coefs, ma_coefs])
-        internal_sum_sq = _css_objective(params, y, p, q)
-        internal_residuals = _css_residuals_numba_kernel(params[:p], params[p : p + q], y)
-
-        residuals = arima_residuals(series, ar_coefs, ma_coefs, d)
-
-        assert np.array_equal(residuals, internal_residuals)
-        assert float(np.sum(residuals**2)) == internal_sum_sq
-        assert sigma2 == internal_sum_sq / residuals.size
-
     def test_residuals_feed_ljung_box_no_rejection_on_well_specified_fit(self) -> None:
         series = _simulate_ar1(phi=0.6, n=500, seed=RNG_SEED)
         ar_coefs, ma_coefs, _ = arima_fit(series, p=1, d=0, q=0)
@@ -409,19 +363,11 @@ class TestArimaResiduals:
         assert residuals.shape == (differenced.size - max(p, q),)
 
 
-class TestCssRefactorRegression:
-    def test_ar1_fit_matches_expected_coefficient_after_numba_refactor(self) -> None:
-        series = _simulate_ar1(phi=0.6, n=300, seed=RNG_SEED)
-        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p=1, d=0, q=0, method="css")
-        assert ar_coefs[0] == pytest.approx(0.6, abs=0.15)
-        assert ma_coefs.shape == (0,)
-        assert sigma2 > 0.0
-
-    @pytest.mark.parametrize("method", ["mle", "css"])
-    def test_arma_fit_is_self_consistent_across_repeated_calls(self, method: str) -> None:
+class TestArimaFitRegression:
+    def test_arma_fit_is_self_consistent_across_repeated_calls(self) -> None:
         series = _simulate_ar1(phi=0.4, n=250, seed=RNG_SEED + 1)
-        first = arima_fit(series, p=1, d=0, q=1, method=method)
-        second = arima_fit(series, p=1, d=0, q=1, method=method)
+        first = arima_fit(series, p=1, d=0, q=1)
+        second = arima_fit(series, p=1, d=0, q=1)
         np.testing.assert_array_equal(first[0], second[0])
         np.testing.assert_array_equal(first[1], second[1])
         assert first[2] == second[2]
@@ -817,8 +763,6 @@ class TestArimaFitExactMle:
                 moved[index] += shift
                 assert _concentrated_loglike(series, moved[:p], moved[p:]) < attained
 
-        css_ar, css_ma, _ = arima_fit(series, *order, method="css")
-        assert _concentrated_loglike(series, css_ar, css_ma) < attained
         if len(ar) == p and len(ma) == q:
             assert _concentrated_loglike(series, np.array(ar), np.array(ma)) < attained
 
@@ -944,106 +888,6 @@ class TestArimaFitExactMle:
         assert list(_exact_mle_objective_and_gradient_kernel.signatures) == compiled[1]
 
 
-# CSS estimates on fixed inputs: (series, order) -> (AR coefficients, MA
-# coefficients, sigma2_hat). The values are the float64 results on macOS
-# arm64, where they are compared to the last bit. A Nelder-Mead search turns a
-# last-bit difference in a dot product (another BLAS, another CPU) into a
-# slightly different end point, so elsewhere they are held to 1e-6 relative,
-# which a different estimator misses by orders of magnitude.
-_CSS_PINS_ARE_BIT_EXACT_HERE = platform.system() == "Darwin" and platform.machine() == "arm64"
-_CSS_PIN_RTOL_ELSEWHERE = 1e-6
-
-CSS_PINNED = [
-    ((0.6, 300, 7), (1, 0, 0), [0.6365242614746099], [], 0.8689611975116575),
-    (
-        (0.6, 300, 7),
-        (2, 0, 1),
-        [1.3516771615835992, -0.42011017595510924],
-        [-0.7581443290783403],
-        0.8671102827045445,
-    ),
-    ((0.4, 250, 8), (1, 0, 1), [0.4806375099555108], [-0.08093142856255497], 1.1265769859167853),
-    (
-        (0.5, 200, 7),
-        (0, 2, 2),
-        [],
-        [-1.3600562715297642, 0.4076538057877188],
-        1.0015197150863469,
-    ),
-]
-
-
-class TestArimaFitCss:
-    @pytest.mark.parametrize(("simulation", "order", "ar", "ma", "sigma2"), CSS_PINNED)
-    def test_reproduces_pinned_estimates(
-        self,
-        simulation: tuple[float, int, int],
-        order: tuple[int, int, int],
-        ar: list[float],
-        ma: list[float],
-        sigma2: float,
-    ) -> None:
-        phi, n, seed = simulation
-        series = _simulate_ar1(phi=phi, n=n, seed=seed)
-
-        ar_coefs, ma_coefs, sigma2_hat = arima_fit(series, *order, method="css")
-
-        expected_ar = np.array(ar, dtype=np.float64)
-        expected_ma = np.array(ma, dtype=np.float64)
-        if _CSS_PINS_ARE_BIT_EXACT_HERE:
-            np.testing.assert_array_equal(ar_coefs, expected_ar)
-            np.testing.assert_array_equal(ma_coefs, expected_ma)
-            assert sigma2_hat == sigma2
-        else:
-            np.testing.assert_allclose(ar_coefs, expected_ar, rtol=_CSS_PIN_RTOL_ELSEWHERE)
-            np.testing.assert_allclose(ma_coefs, expected_ma, rtol=_CSS_PIN_RTOL_ELSEWHERE)
-            assert sigma2_hat == pytest.approx(sigma2, rel=_CSS_PIN_RTOL_ELSEWHERE)
-
-    @pytest.mark.skipif(
-        not _CSS_PINS_ARE_BIT_EXACT_HERE,
-        reason="the point where Nelder-Mead exhausts its budget is pinned on macOS arm64 only",
-    )
-    def test_evaluation_cap_raises_with_the_pinned_stopping_point(self) -> None:
-        # On this input Nelder-Mead uses all 5,000 evaluations without
-        # converging; the point it stops at, a non-invertible MA(1)
-        # coefficient included, travels in the exception.
-        series = _simulate_ar1(phi=0.5, n=200, seed=7)
-        with pytest.raises(quantcore.risk.ConvergenceError) as excinfo:
-            arima_fit(series, 2, 1, 1, method="css")
-        assert excinfo.value.params == (
-            0.5414763610774975,
-            0.06958851561399748,
-            -1.0739280352460199,
-            0.6991458191721374,
-        )
-
-    @pytest.mark.parametrize("order", [(1, 0, 0), (1, 1, 1), (0, 2, 2), (3, 0, 2)])
-    def test_is_the_conditional_sum_of_squares_routine(self, order: tuple[int, int, int]) -> None:
-        series = np.cumsum(_simulate_ar1(phi=0.3, n=150, seed=RNG_SEED))
-        public = arima_fit(series, *order, method="css")
-        direct = _arima_fit_css(series, *order)
-        np.testing.assert_array_equal(public[0], direct[0])
-        np.testing.assert_array_equal(public[1], direct[1])
-        assert public[2] == direct[2]
-
-    def test_sigma2_divides_by_the_number_of_residuals(self) -> None:
-        series = _simulate_ar1(phi=0.5, n=200, seed=RNG_SEED)
-        p, d, q = 1, 1, 2
-        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p, d, q, method="css")
-        residuals = arima_residuals(series, ar_coefs, ma_coefs, d)
-        assert residuals.size == series.size - d - max(p, q)
-        assert sigma2 == float(np.sum(residuals**2)) / residuals.size
-
-    def test_places_no_constraint_where_the_exact_fit_does(self) -> None:
-        # A linear trend in levels: the unconstrained CSS estimate is an
-        # explosive AR(1), the exact-likelihood estimate a stationary one.
-        series = 3.0 + 0.5 * np.arange(40, dtype=np.float64)
-        css_ar, _, _ = arima_fit(series, p=1, d=0, q=0, method="css")
-        mle_ar, _, _ = arima_fit(series, p=1, d=0, q=0)
-        assert css_ar[0] > 1.0
-        assert 0.0 < mle_ar[0] < 1.0
-
-
 def _never_converging_minimize(fun: object, x0: np.ndarray, **kwargs: object) -> OptimizeResult:
     """Stand-in for `scipy.optimize.minimize` that returns its starting point unconverged."""
     return OptimizeResult(
@@ -1126,43 +970,6 @@ class TestArimaFitConvergence:
             arima_fit(series, 1, 0, 1)
         assert excinfo.value.params is None
         assert excinfo.value.log_likelihood is None
-
-    def test_css_method_raises_when_its_optimizer_reports_failure(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        series = _simulate_arma((0.5,), (0.3,), 100, RNG_SEED)
-        monkeypatch.setattr(
-            arima_module,
-            "minimize",
-            lambda fun, x0, **kwargs: OptimizeResult(
-                x=np.asarray(x0), fun=fun(x0, *kwargs["args"]), success=False, message="stub"
-            ),
-        )
-
-        with pytest.raises(quantcore.risk.ConvergenceError) as excinfo:
-            arima_fit(series, 1, 0, 1, method="css")
-
-        # The stub stops at the starting point, all coefficients 0, where
-        # the residuals are the series from index 1 on.
-        error = excinfo.value
-        sigma2 = float(np.sum(series[1:] ** 2)) / (series.size - 1)
-        assert error.params == (0.0, 0.0, sigma2)
-        assert error.optimizer_message == "stub"
-        assert error.log_likelihood == pytest.approx(
-            -0.5 * (series.size - 1) * (np.log(2.0 * np.pi * sigma2) + 1.0), rel=1e-12
-        )
-
-    def test_css_evaluation_cap_raises_with_the_best_attempt(self) -> None:
-        # Nelder-Mead exhausts its evaluation budget on this ARMA(4,4).
-        series = np.random.default_rng(3).standard_normal(200)
-        with pytest.raises(quantcore.risk.ConvergenceError) as excinfo:
-            arima_fit(series, 4, 0, 4, method="css")
-        error = excinfo.value
-        assert "ARIMA(4,0,4)" in str(error)
-        assert error.params is not None and len(error.params) == 9
-        assert all(np.isfinite(value) for value in error.params)
-        assert error.log_likelihood is not None and np.isfinite(error.log_likelihood)
-        assert error.optimizer_message
 
 
 def _simulate_multimodal_arma22(seed: int) -> np.ndarray:

@@ -11,6 +11,13 @@ to see exactly what changed and why before upgrading.
 The changes on the `trim` branch were gated (full tests, mypy, conformance, conformance map) on
 the final tree only, not on each intermediate commit.
 
+### Removed
+
+- The `method` argument of `arima_fit` and its conditional-sum-of-squares fit. `arima_fit` is
+  the exact Gaussian maximum-likelihood fit, the former default; `arima_residuals` still returns
+  conditional residuals. statsmodels' `ARIMA`/`SARIMAX` was tried as a replacement and does
+  not reproduce these estimates (`docs/ISSUES.md` QC-15).
+
 ### Changed
 
 - `ljung_box_test`, `arch_lm_test`, `kpss_test`, `adf_test` and `engle_granger_test`

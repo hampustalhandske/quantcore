@@ -10,13 +10,6 @@ parameters: `statsmodels`' own `loglike` is evaluated at quantcore's
 solution (never re-fit) and compared with the log-likelihood `statsmodels`
 reports for its own fit. Parameters are compared too, at a looser bound.
 
-`arima_fit(..., method="css")` is a different estimator (conditional sum of
-squares, Box, Jenkins & Reinsel 2015) that agrees with maximum likelihood
-only asymptotically, and `statsmodels`' `ARIMA` offers no CSS fit to
-compare against directly. What is checked for it is the large-sample
-agreement: on a long, well-behaved series the CSS estimate lands close to
-`statsmodels`' maximum-likelihood estimate.
-
 `arima_forecast` is compared at fixed coefficients (no fit on either side)
 with the forecast of `statsmodels`' state-space ARIMA model filtered at
 those coefficients: both are the Gaussian conditional mean of the future
@@ -127,44 +120,41 @@ def _simulate_integrated_ar1(phi: float, n: int, seed: int) -> np.ndarray:
     return np.cumsum(diffs) + 100.0
 
 
-# (absolute bound on a coefficient, relative bound on sigma2) per estimator.
-# Maximum likelihood: both sides maximize the same likelihood, so they
-# differ only by where each optimizer stops (the 1e-3 argument above). With
-# d = 1 statsmodels also gives the integrated state an approximate diffuse
-# prior, which moves its optimum by less than that.
-# CSS: a different estimator whose distance to the maximum-likelihood
-# estimate shrinks like 1/n, so only large-sample closeness is asserted.
-_PARAMETER_BOUNDS = {"mle": (1e-3, 1e-3), "css": (0.02, 0.05)}
+# (absolute bound on a coefficient, relative bound on sigma2). Both sides
+# maximize the same likelihood, so they differ only by where each optimizer
+# stops (the 1e-3 argument above). With d = 1 statsmodels also gives the
+# integrated state an approximate diffuse prior, which moves its optimum by
+# less than that.
+_PARAMETER_BOUNDS = (1e-3, 1e-3)
 
 
-@pytest.mark.parametrize("method", ["mle", "css"])
 class TestArimaFitClosesToStatsmodelsMle:
-    def test_ar1_matches_closely(self, method: str) -> None:
-        coef_atol, sigma2_rtol = _PARAMETER_BOUNDS[method]
+    def test_ar1_matches_closely(self) -> None:
+        coef_atol, sigma2_rtol = _PARAMETER_BOUNDS
         series = _simulate_ar1(phi=0.6, n=1000, innovation_scale=0.3, seed=RNG_SEED)
 
-        ar_coefs, _, sigma2 = arima_fit(series, p=1, d=0, q=0, method=method)
+        ar_coefs, _, sigma2 = arima_fit(series, p=1, d=0, q=0)
         sm_result = ARIMA(series, order=(1, 0, 0), trend="n").fit()
 
         assert ar_coefs[0] == pytest.approx(sm_result.params[0], abs=coef_atol)
         assert sigma2 == pytest.approx(sm_result.params[1], rel=sigma2_rtol)
 
-    def test_arma11_matches_closely(self, method: str) -> None:
-        coef_atol, sigma2_rtol = _PARAMETER_BOUNDS[method]
+    def test_arma11_matches_closely(self) -> None:
+        coef_atol, sigma2_rtol = _PARAMETER_BOUNDS
         series = _simulate_arma11(phi=0.5, theta=0.3, n=1500, seed=RNG_SEED)
 
-        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p=1, d=0, q=1, method=method)
+        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p=1, d=0, q=1)
         sm_result = ARIMA(series, order=(1, 0, 1), trend="n").fit()
 
         assert ar_coefs[0] == pytest.approx(sm_result.params[0], abs=coef_atol)
         assert ma_coefs[0] == pytest.approx(sm_result.params[1], abs=coef_atol)
         assert sigma2 == pytest.approx(sm_result.params[2], rel=sigma2_rtol)
 
-    def test_ar1_with_differencing_matches_closely(self, method: str) -> None:
-        coef_atol, sigma2_rtol = _PARAMETER_BOUNDS[method]
+    def test_ar1_with_differencing_matches_closely(self) -> None:
+        coef_atol, sigma2_rtol = _PARAMETER_BOUNDS
         series = _simulate_integrated_ar1(phi=0.4, n=1000, seed=RNG_SEED + 1)
 
-        ar_coefs, _, sigma2 = arima_fit(series, p=1, d=1, q=0, method=method)
+        ar_coefs, _, sigma2 = arima_fit(series, p=1, d=1, q=0)
         sm_result = ARIMA(series, order=(1, 1, 0), trend="n").fit()
 
         assert ar_coefs[0] == pytest.approx(sm_result.params[0], abs=coef_atol)

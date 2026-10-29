@@ -51,3 +51,6 @@ items 1 to 3 explains it. A result that uses only the unchanged functions should
 
 - `min_variance_weights`, which no project calls.
 - `simulate_exp_ou_price_paths` and `simulate_regime_switching_price_paths`.
+- The `method` argument of `arima_fit` and its conditional-sum-of-squares fit. `arima_fit` is
+  always the exact Gaussian maximum-likelihood fit, which was the default, so calls that did not
+  pass `method` return the same numbers. `arima_residuals` is unchanged.

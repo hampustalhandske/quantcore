@@ -35,13 +35,9 @@ Phillips 1980; Harvey 1989, ch. 3):
     Barndorff-Nielsen & Schou 1973). The search starts from the two-stage
     regression estimate of Hannan & Rissanen (1982).
 
-Conditional sum of squares (`arima_fit(..., method="css")`; Box, Jenkins &
-Reinsel 2015, ch. 7):
-    residuals are computed recursively from the AR/MA polynomials with
-    pre-sample residuals (and, for the CSS objective, pre-sample y-lags)
-    treated as 0, and the parameters minimize sum_t e_t^2. It approximates
-    the exact likelihood by conditioning on the pre-sample values instead
-    of integrating over them, and agrees with it only as n grows.
+Conditional residuals (`arima_residuals`; Box, Jenkins & Reinsel 2015, ch. 7):
+    computed recursively from the AR/MA polynomials with pre-sample residuals treated as 0, so
+    they differ from the prediction errors of the exact likelihood at the first observations.
 
 Ljung-Box Q-statistic (Ljung & Box 1978):
     Q(m) = T*(T+2) * sum_{k=1}^m rho_k^2 / (T-k)
@@ -78,7 +74,7 @@ References:
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import Literal, NamedTuple
+from typing import NamedTuple
 
 import numba
 import numpy as np
@@ -182,8 +178,6 @@ def arima_fit(
     p: int,
     d: int,
     q: int,
-    *,
-    method: Literal["mle", "css"] = "mle",
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]:
     """Estimate ARIMA(p, d, q) parameters, by exact maximum likelihood by default.
 
@@ -205,20 +199,11 @@ def arima_fit(
     cost of fitting every order (i, j) with i <= p and j <= q. These
     starting points do not guarantee the global maximum.
 
-    `method="css"` minimizes the conditional sum of squares instead: the
-    residual recursion is started with every pre-sample value set to 0 and
-    the first `max(p, q)` values of `w_t` are used only as lags. It is an
-    approximation to the estimator above that converges to it as `n`
-    grows, places no constraint on the coefficients, and attains a lower
-    exact likelihood on any finite sample.
-
     Args:
         series: Raw (undifferenced) time series, 1-D and finite.
         p: AR order.
         d: Integration order (0, 1, or 2).
         q: MA order.
-        method: Estimator, `"mle"` (exact Gaussian maximum likelihood) or
-            `"css"` (conditional sum of squares). Keyword-only.
 
     Returns:
         Tuple (ar_coefficients, ma_coefficients, sigma2_hat):
@@ -227,8 +212,7 @@ def arima_fit(
         `theta(B) = 1 + theta_1*B + ...`; `sigma2_hat` is the innovation
         variance estimate.
 
-        With `method="mle"`, `sigma2_hat` is the maximum-likelihood
-        variance `(1/n) * sum_t v_t^2 / F_t` (divisor `n`, no
+        `sigma2_hat` is the maximum-likelihood variance `(1/n) * sum_t v_t^2 / F_t` (divisor `n`, no
         degrees-of-freedom correction). The returned AR coefficients are
         stationary and the MA coefficients invertible, exactly, as the
         floating-point numbers they are: every partial autocorrelation of
@@ -241,17 +225,11 @@ def arima_fit(
         information about the coefficients and returns all-zero
         coefficients with `sigma2_hat = 0.0`.
 
-        With `method="css"`, `sigma2_hat = SSE / (n - max(p, q))`.
-
     Raises:
         ValueError: If `series` is empty, not 1-D, or contains a non-finite
             value; if `p` or `q` is negative, both are 0, or `d` is not 0,
-            1, or 2; if `series` has at most `d + max(p, q)` values; or if
-            `method` is not `"mle"` or `"css"`.
-        ConvergenceError: With `method="css"`, if Nelder-Mead stops on its
-            iteration or evaluation limit; `params` then holds the point
-            it stopped at and `log_likelihood` the conditional Gaussian
-            log-likelihood there. With `method="mle"`, if the optimizer
+            1, or 2; or if `series` has at most `d + max(p, q)` values.
+        ConvergenceError: If the optimizer
             converges from no starting point (`quantcore.risk.ConvergenceError`,
             a `RuntimeError` subclass, the same exception the GARCH-family
             fitters raise). No partial result is returned; the exception's
@@ -293,11 +271,7 @@ def arima_fit(
         (The model; ch. 7 for the conditional sum of squares.) See
         docs/REFERENCES.md.
     """
-    if method not in ("mle", "css"):
-        raise ValueError('method must be "mle" or "css"')
     _validate_arima_fit_inputs(series, p, d, q)
-    if method == "css":
-        return _arima_fit_css(series, p, d, q)
     return _arima_fit_exact_mle(series, p, d, q)
 
 
@@ -364,11 +338,8 @@ def arima_residuals(
       modulus: visible in the first observations, negligible after a few
       dozen unless a root is close to the unit circle.
 
-    For coefficients from `arima_fit(..., method="css")` these are exactly
-    the residuals whose sum of squares that fit minimized, and
-    `sum(residuals**2) / residuals.size` is its `sigma2_hat`. For
-    coefficients from the default exact-likelihood fit their mean square
-    is close to but not equal to its `sigma2_hat`.
+    For coefficients from `arima_fit` their mean square is close to but not
+    equal to its `sigma2_hat`.
 
     Args:
         series: Raw (undifferenced) series, on the same scale `arima_fit`
@@ -545,55 +516,6 @@ def _css_residuals_numba_kernel(
         residuals[t] = y[t] - ar_term - ma_term
 
     return residuals[start:]
-
-
-def _css_objective(
-    params: npt.NDArray[np.float64],
-    y: npt.NDArray[np.float64],
-    p: int,
-    q: int,
-) -> float:
-    phi = params[:p]
-    ma = params[p : p + q]
-    residuals = _css_residuals_numba_kernel(phi, ma, y)
-    return float(np.sum(residuals**2))
-
-
-def _arima_fit_css(
-    series: npt.NDArray[np.float64],
-    p: int,
-    d: int,
-    q: int,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]:
-    y = _difference(series, d)
-    x0 = np.zeros(p + q, dtype=np.float64)
-
-    result = minimize(
-        _css_objective,
-        x0,
-        args=(y, p, q),
-        method="Nelder-Mead",
-        options={"xatol": 1e-8, "fatol": 1e-10, "maxiter": 5000, "maxfev": 5000},
-    )
-
-    params = result.x
-    ar_coefs = params[:p]
-    ma_coefs = params[p : p + q]
-    n_used = y.size - max(p, q)
-    sigma2_hat = float(result.fun) / n_used
-
-    if not result.success:
-        with np.errstate(divide="ignore"):
-            conditional_log_likelihood = -0.5 * n_used * (np.log(2.0 * np.pi * sigma2_hat) + 1.0)
-        raise ConvergenceError(
-            f"arima_fit: ARIMA({p},{d},{q}) conditional sum-of-squares minimization "
-            "did not converge",
-            params=(*ar_coefs.tolist(), *ma_coefs.tolist(), sigma2_hat),
-            log_likelihood=float(conditional_log_likelihood),
-            optimizer_message=str(result.message),
-        )
-
-    return ar_coefs, ma_coefs, sigma2_hat
 
 
 # --- exact Gaussian maximum likelihood -----------------------------------

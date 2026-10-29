@@ -23,7 +23,7 @@ each module cites its entry in its own docstring). At a high level:
 | SDE simulation | GBM, Ornstein-Uhlenbeck / Vasicek, CIR; generator-driven price paths (GBM, exp-OU, Heston, GARCH-t, regime-switching, jump diffusion) |
 | Risk | Value at Risk, Conditional VaR (Expected Shortfall), GARCH(1,1) (+ MLE fit), EGARCH(1,1), GJR-GARCH, EWMA volatility |
 | Portfolio | Unconstrained mean-variance / risk-parity weights, Black-Litterman, Ledoit-Wolf shrinkage |
-| Time series | ARIMA(p,d,q) by exact Gaussian maximum likelihood (conditional sum of squares optional) with exact conditional-mean forecasts and order selection, VAR(p) + impulse response + Granger causality, Ljung-Box test |
+| Time series | ARIMA(p,d,q) by exact Gaussian maximum likelihood with exact conditional-mean forecasts and order selection, VAR(p) + impulse response + Granger causality, Ljung-Box test |
 | Statistics | OLS, Fama-MacBeth, Newey-West HAC errors, factor loadings, ADF unit-root and KPSS stationarity tests, Jarque-Bera normality and ARCH-LM tests, Engle-Granger cointegration, OU half-life/z-score |
 | Regime detection | Gaussian HMM (Baum-Welch fit, Viterbi decode, forward-filter predict) |
 | Filtering | Dynamic hedge ratio (Kalman) estimation |

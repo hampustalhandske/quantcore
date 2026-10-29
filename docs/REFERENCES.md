@@ -185,7 +185,7 @@ cite the relevant entry in their docstrings.
   Series Analysis: Forecasting and Control* (5th ed.). Wiley.
   → `time_series/arima.py` (ARIMA(p,d,q) model; ch. 5, minimum mean square
   error forecast, `arima_forecast`; ch. 7, conditional sum-of-squares
-  estimation, `arima_fit(method="css")` and `arima_residuals`)
+  residual recursion, `arima_residuals`)
 
 - Gardner, G., Harvey, A.C., and Phillips, G.D.A. (1980). "Algorithm AS 154:
   An Algorithm for Exact Maximum Likelihood Estimation of

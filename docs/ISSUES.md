@@ -155,3 +155,26 @@ on 192 random covariances (k = 2 to 100, scales 1e-8 to 1e6) and was faster at e
 (k = 300: 2.1 against 3.8 ms). A long-only SLSQP version differed by up to 1.2e-7 and was 26 times
 slower at k = 300, so it would need a better solver.
 Source lines in `portfolio/optimization.py`: 1034 to 234.
+
+### QC-15: ARIMA by statsmodels — rejected, CSS path deleted
+`arima_fit` stays quantcore's exact Gaussian maximum-likelihood fit (zero-mean ARMA on the
+differenced series, parametrised through partial autocorrelations so every estimate is
+stationary and invertible). The conditional-sum-of-squares fit (`method="css"`) had no caller
+and is deleted; `arima_residuals` keeps the conditional-residual kernel.
+
+statsmodels was compared on 250-point log-price windows (AR(1), MA(1), ARMA(1,1), AR(2), 12
+seeds each, d = 1; 48 fits), against the tolerances 1e-6 relative on the log-likelihood and 1e-4
+on coefficients and forecasts. To score both on one function, statsmodels was run as
+`SARIMAX(order=(p,1,q), trend="n", simple_differencing=True)` with stationarity and invertibility
+enforced, L-BFGS `maxiter=1000`, `pgtol=1e-10`, `factr=10`:
+- The statsmodels log-likelihood evaluated at quantcore's estimates is at least as high as at
+  statsmodels' own in all 48 fits (higher by more than 1e-9 relative in 47; largest gap
+  4.3e-4 relative). quantcore's own likelihood agrees with statsmodels' at identical parameters
+  to 8.4e-9, so both are the same function.
+- No quantcore estimate is non-stationary or non-invertible (0 of 48); neither is statsmodels'.
+- statsmodels met its convergence flag in 43 of 48 fits.
+- Coefficient differences: maximum 0.10, median 1.9e-3; 6 of 48 within 1e-4. Forecast
+  differences: maximum 1.6e-3 in log price; 34 of 48 within 1e-4. Log-likelihood within 1e-6
+  relative in 24 of 48.
+With the statsmodels defaults (`ARIMA`, d = 1 in the state space) the non-convergence rate over
+800 fits per length was 16.1% at 60 points and 11.5% at 120 points, against 0% for quantcore.

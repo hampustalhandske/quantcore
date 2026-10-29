@@ -54,7 +54,14 @@ class TestEgarch11Variance:
 
     def test_first_value_seeded_at_stationary_log_variance(self) -> None:
         omega, beta = 0.02, 0.9
-        result = egarch_11_variance(RETURNS, omega=omega, alpha=0.1, gamma=-0.05, beta=beta)
+        result = egarch_11_variance(
+            RETURNS,
+            omega=omega,
+            alpha=0.1,
+            gamma=-0.05,
+            beta=beta,
+            presample_variance=float(np.exp(omega / (1.0 - beta))),
+        )
         assert result[0] == pytest.approx(omega / (1.0 - beta), abs=1e-9)
 
 

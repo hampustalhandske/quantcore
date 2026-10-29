@@ -180,7 +180,11 @@ def test_fit_garch_11_synthetic_generator_is_self_consistent() -> None:
         200, omega_true, alpha_true, beta_true, seed=RNG_SEED
     )
     recomputed_variance = garch_11_variance(
-        epsilon, omega=omega_true, alpha=alpha_true, beta=beta_true
+        epsilon,
+        omega=omega_true,
+        alpha=alpha_true,
+        beta=beta_true,
+        presample_variance=omega_true / (1.0 - alpha_true - beta_true),
     )
     assert np.allclose(recomputed_variance, variance, rtol=1e-10, atol=1e-15)
 

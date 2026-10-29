@@ -107,15 +107,13 @@ def _conditional_variance_from_arch(returns: np.ndarray, vol: str, o: int) -> np
 
 
 class TestFittedVariancePathsMatchArch:
-    """With the fit's pre-sample variance, quantcore's kernels reproduce arch's variance path."""
+    """The kernels' default seed reproduces arch's variance path on the fit sample."""
 
     @pytest.mark.parametrize("scale", [1e-3, 1.0, 1e2])
     def test_garch_11(self, scale: float) -> None:
         returns = _simulate_garch(1000, 0.05, 0.08, 0.9, RNG_SEED) * scale + 0.02 * scale
         epsilon = returns - returns.mean()
-        path = garch_11_variance(
-            epsilon, *fit_garch_11(returns), presample_variance=variance_backcast(returns)
-        )
+        path = garch_11_variance(epsilon, *fit_garch_11(returns))
         reference = _conditional_variance_from_arch(returns, "GARCH", 0)
         np.testing.assert_allclose(path, reference, rtol=1e-10)
 
@@ -124,9 +122,7 @@ class TestFittedVariancePathsMatchArch:
         returns = _simulate_garch(1000, 0.05, 0.08, 0.9, RNG_SEED + 1) * scale
         epsilon = returns - returns.mean()
         fit = gjr_garch_fit(returns)
-        path = gjr_garch_11_variance(
-            epsilon, fit.omega, fit.alpha, fit.gamma, fit.beta, fit.presample_variance
-        )
+        path = gjr_garch_11_variance(epsilon, fit.omega, fit.alpha, fit.gamma, fit.beta)
         reference = _conditional_variance_from_arch(returns, "GARCH", 1)
         np.testing.assert_allclose(path, reference, rtol=1e-10)
 
@@ -135,9 +131,7 @@ class TestFittedVariancePathsMatchArch:
         returns = _simulate_garch(1000, 0.05, 0.08, 0.9, RNG_SEED + 2) * scale
         epsilon = returns - returns.mean()
         fit = egarch_fit(returns)
-        log_path = egarch_11_variance(
-            epsilon, fit.omega, fit.alpha, fit.gamma, fit.beta, fit.presample_variance
-        )
+        log_path = egarch_11_variance(epsilon, fit.omega, fit.alpha, fit.gamma, fit.beta)
         reference = _conditional_variance_from_arch(returns, "EGARCH", 1)
         np.testing.assert_allclose(np.exp(log_path), reference, rtol=1e-10)
 
@@ -154,9 +148,26 @@ class TestFittedVariancePathsMatchArch:
 
 
 class TestPresampleVariance:
-    def test_default_is_the_unconditional_variance(self) -> None:
+    def test_default_is_the_backcast_of_the_given_residuals(self) -> None:
         epsilon = _simulate_garch(50, 0.05, 0.08, 0.9, RNG_SEED)
-        path = garch_11_variance(epsilon, 0.05, 0.08, 0.9)
+        epsilon = epsilon - epsilon.mean()
+        b = variance_backcast(epsilon)
+        np.testing.assert_array_equal(
+            garch_11_variance(epsilon, 0.05, 0.08, 0.9),
+            garch_11_variance(epsilon, 0.05, 0.08, 0.9, presample_variance=b),
+        )
+        np.testing.assert_array_equal(
+            gjr_garch_11_variance(epsilon, 0.05, 0.08, 0.04, 0.85),
+            gjr_garch_11_variance(epsilon, 0.05, 0.08, 0.04, 0.85, b),
+        )
+        np.testing.assert_array_equal(
+            egarch_11_variance(epsilon, -0.1, 0.1, -0.05, 0.9),
+            egarch_11_variance(epsilon, -0.1, 0.1, -0.05, 0.9, b),
+        )
+
+    def test_unconditional_seed_is_available_explicitly(self) -> None:
+        epsilon = _simulate_garch(50, 0.05, 0.08, 0.9, RNG_SEED)
+        path = garch_11_variance(epsilon, 0.05, 0.08, 0.9, presample_variance=0.05 / 0.02)
         assert path[0] == pytest.approx(0.05 / (1.0 - 0.08 - 0.9))
 
     def test_pre_sample_value_enters_the_first_variance(self) -> None:

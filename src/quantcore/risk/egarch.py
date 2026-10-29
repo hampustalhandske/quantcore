@@ -51,8 +51,8 @@ import numpy as np
 import numpy.typing as npt
 
 from quantcore.risk.volatility import (
-    _checked_presample,
     _fit_with_arch,
+    _presample,
     _raise_unless_converged,
     variance_backcast,
 )
@@ -89,10 +89,11 @@ def egarch_11_variance(
         beta: Persistence (must satisfy |beta| < 1 for stationarity).
         presample_variance: The variance assumed before the first observation,
             strictly positive: ln(sigma_0^2) is then
-            `omega + beta * ln(presample_variance)`. `None` (default) seeds
-            ln(sigma_0^2) at `omega / (1 - beta)`. Pass the
-            `presample_variance` of the fitted `EGARCHParams` to reproduce
-            the path the parameters were fitted to.
+            `omega + beta * ln(presample_variance)`. `None` (default) uses
+            `variance_backcast`'s rule on `returns` (`arch`'s backcast), the
+            start `egarch_fit` fits with, so the default path is the fitted
+            path. Pass `exp(omega / (1 - beta))` to seed ln(sigma_0^2) at
+            `omega / (1 - beta)`.
 
     Returns:
         ln(sigma_t^2), the log-conditional-variance series, same length as
@@ -103,8 +104,8 @@ def egarch_11_variance(
         New Approach." See docs/REFERENCES.md.
     """
     _validate_egarch_inputs(returns, omega, beta)
-    presample = _checked_presample(presample_variance)
-    initial = float("nan") if presample is None else float(np.exp(omega + beta * np.log(presample)))
+    presample = _presample(returns, presample_variance)
+    initial = float(np.exp(omega + beta * np.log(presample)))
     return _egarch_11_variance(returns, omega, alpha, gamma, beta, initial)
 
 
@@ -315,10 +316,11 @@ def gjr_garch_11_variance(
         presample_variance: The variance and squared residual assumed before
             the first observation, strictly positive: sigma_0^2 is then
             `omega + (alpha + gamma/2 + beta) * presample_variance`. `None`
-            (default) uses the unconditional variance
-            `omega / (1 - alpha - gamma/2 - beta)`. Pass the
-            `presample_variance` of the fitted `GJRGARCHParams` to reproduce
-            the path the parameters were fitted to.
+            (default) uses `variance_backcast`'s rule on `returns` (`arch`'s
+            backcast), the start `gjr_garch_fit` fits with, so the default
+            path is the fitted path. Pass the unconditional variance
+            `omega / (1 - alpha - gamma/2 - beta)` to start the recursion
+            there.
 
     Returns:
         Conditional variance series sigma_t^2, same length as `returns`.
@@ -327,10 +329,8 @@ def gjr_garch_11_variance(
         Glosten, Jagannathan & Runkle (1993). See docs/REFERENCES.md.
     """
     _validate_gjr_garch_inputs(returns, omega, alpha, gamma, beta)
-    presample = _checked_presample(presample_variance)
-    initial = (
-        float("nan") if presample is None else omega + (alpha + gamma / 2.0 + beta) * presample
-    )
+    presample = _presample(returns, presample_variance)
+    initial = omega + (alpha + gamma / 2.0 + beta) * presample
     return _gjr_garch_11_variance(returns, omega, alpha, gamma, beta, initial)
 
 

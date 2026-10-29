@@ -77,8 +77,8 @@ Moves: agentic egarch and gjr analysts, and the GARCH overlay (together with the
 `fit_garch_11` default already in this tree).
 The fit options are explicit (`mean="Zero"`, normal innovations, `rescale=False`, residuals
 divided by their standard deviation, `maxiter=1000`) and the constant is converted back to the
-units of `returns`. The variance kernels take `presample_variance`, the fit returns the value it
-used, and the kernel path equals arch's `conditional_volatility**2` to 1e-10 (pinned in
+units of `returns`. The variance kernels take `presample_variance` (default: the backcast of the residuals), the
+fit returns the value it used, and the default kernel path equals arch's `conditional_volatility**2` to 1e-10 (pinned in
 `tests/unit/risk/test_arch_fits.py`).
 
 Decision: arch is kept as the only implementation. agentic fits on the last 750 returns
@@ -104,9 +104,9 @@ log-likelihood by more than 1e-4 in 92 of 98 EGARCH and 99 of 100 GJR cases (med
 therefore move by the seeding rule, not by a worse optimum. Previous EGARCH parameters could
 not be evaluated under arch's recursion in 2 of 100 windows at n=750 and 18 at n=250, where the
 recursion divides by an underflowed standard deviation.
-Consumers that recompute the variance path from a fit pass `presample_variance` (the fitted
-`EGARCHParams`/`GJRGARCHParams` field, or `variance_backcast(returns)` for `fit_garch_11`);
-without it the path starts from the unconditional variance and differs from the fitted path.
+The kernels' default `presample_variance` is arch's backcast of the residuals passed in, so a
+consumer that recomputes the variance path from a fit gets the fitted path without any change;
+passing the unconditional variance explicitly restores the previous start.
 
 ### QC-10: Historical CVaR without empyrical — open
 Closed form that reproduces `empyrical.conditional_value_at_risk`, ties included, bit-identical

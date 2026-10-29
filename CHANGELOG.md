@@ -25,8 +25,10 @@ to see exactly what changed and why before upgrading.
   recursion from a backcast, returned as `EGARCHParams.presample_variance` and
   `GJRGARCHParams.presample_variance` and available for `fit_garch_11` as
   `variance_backcast(returns)`. `garch_11_variance`, `egarch_11_variance` and
-  `gjr_garch_11_variance` take it as the new keyword `presample_variance`, which reproduces the
-  fitted variance path to 1e-10; the default is unchanged. An `arch` fit that lands outside the
+  `gjr_garch_11_variance` take it as the new keyword `presample_variance`. Its default is now the
+  same backcast, computed from the residuals passed in, so the default path equals `arch`'s
+  conditional variance on the fit sample to 1e-10; the previous default, the unconditional
+  variance, is obtained by passing it explicitly. An `arch` fit that lands outside the
   stationary region raises `ConvergenceError` like a non-converged one.
 
 ### Removed

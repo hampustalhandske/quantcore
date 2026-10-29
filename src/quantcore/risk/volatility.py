@@ -118,9 +118,10 @@ def garch_11_variance(
         presample_variance: The variance and squared residual assumed before
             the first observation, strictly positive: sigma_0^2 is then
             `omega + (alpha + beta) * presample_variance`. `None` (default)
-            starts at the unconditional variance `omega / (1 - alpha - beta)`.
-            Pass `variance_backcast(returns)` to reproduce the path
-            `fit_garch_11`'s parameters were fitted to.
+            uses `variance_backcast`'s rule on `returns` (`arch`'s backcast),
+            the start `fit_garch_11` fits with, so the default path is the
+            fitted path. Pass the unconditional variance
+            `omega / (1 - alpha - beta)` to start the recursion there.
 
     Returns:
         Conditional variance series sigma_t^2, same length as `returns`.
@@ -130,18 +131,24 @@ def garch_11_variance(
         Heteroskedasticity." See REFERENCES.md.
     """
     _validate_garch_inputs(returns, omega, alpha, beta)
-    presample = _checked_presample(presample_variance)
-    initial = float("nan") if presample is None else omega + (alpha + beta) * presample
-    return _garch_11_variance(returns, omega, alpha, beta, initial)
+    presample = _presample(returns, presample_variance)
+    return _garch_11_variance(returns, omega, alpha, beta, omega + (alpha + beta) * presample)
 
 
-def _checked_presample(presample_variance: float | None) -> float | None:
-    """Validate the optional pre-sample variance (`None` selects the unconditional variance)."""
-    if presample_variance is not None and not (
-        np.isfinite(presample_variance) and presample_variance > 0.0
-    ):
+def _backcast(residuals: npt.NDArray[np.float64]) -> float:
+    """`arch`'s pre-sample variance: weights `0.94**j` on the first `min(75, n)` squares."""
+    tau = min(75, residuals.shape[0])
+    weights = 0.94 ** np.arange(tau)
+    return float(np.sum(residuals[:tau] ** 2 * (weights / weights.sum())))
+
+
+def _presample(residuals: npt.NDArray[np.float64], presample_variance: float | None) -> float:
+    """The pre-sample variance to use: `presample_variance`, or the backcast of `residuals`."""
+    if presample_variance is None:
+        return _backcast(residuals)
+    if not (np.isfinite(presample_variance) and presample_variance > 0.0):
         raise ValueError("presample_variance must be finite and strictly positive")
-    return None if presample_variance is None else float(presample_variance)
+    return float(presample_variance)
 
 
 def _garch_11_variance_numpy(
@@ -221,11 +228,10 @@ def variance_backcast(returns: npt.NDArray[np.float64]) -> float:
     The mean-adjusted returns' first squared values, `min(75, n)` of them,
     averaged with exponentially decaying weights `0.94**j`. `fit_garch_11`,
     `egarch_fit` and `gjr_garch_fit` start their recursions from this value
-    (as the variance and squared residual before the first observation), so
-    passing it as `presample_variance` to `garch_11_variance`,
-    `egarch_11_variance` or `gjr_garch_11_variance` (on the same
-    mean-adjusted returns) reproduces the variance path the parameters were
-    fitted to. `arch` is imported on first use.
+    (as the variance and squared residual before the first observation), and
+    `garch_11_variance`, `egarch_11_variance` and `gjr_garch_11_variance`
+    use the same rule on the residuals they are given when no
+    `presample_variance` is passed.
 
     Args:
         returns: Raw (not mean-adjusted) return series, non-empty.
@@ -237,9 +243,7 @@ def variance_backcast(returns: npt.NDArray[np.float64]) -> float:
         ValueError: If `returns` is empty.
     """
     _validate_fit_garch_inputs(returns)
-    from arch.univariate import GARCH
-
-    return float(GARCH().backcast(returns - returns.mean()))
+    return _backcast(returns - returns.mean())
 
 
 def _fit_with_arch(
@@ -329,7 +333,8 @@ def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]
     Returns:
         Tuple (omega_hat, alpha_hat, beta_hat) of fitted GARCH(1,1)
         parameters. `garch_11_variance(returns - returns.mean(), *params,
-        presample_variance=variance_backcast(returns))` is the variance path
+        presample_variance=variance_backcast(returns))` (the default start of
+        `garch_11_variance`) is the variance path
         they were fitted to.
 
     Raises:

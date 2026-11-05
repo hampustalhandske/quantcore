@@ -294,6 +294,22 @@ cite the relevant entry in their docstrings.
   → `statistics/diagnostics.py` (constant 1.1447 and `n^(1/3)` rate of the
   automatic lag count in `kpss_test`)
 
+## Multiple testing
+
+- Bailey, D.H., Borwein, J.M., Lopez de Prado, M. and Zhu, Q.J. (2016).
+  "The Probability of Backtest Overfitting." *Journal of Computational
+  Finance*, 20(4), 39–69.
+  → `statistics/multiple_testing.py` (`cscv_pbo`: combinatorially symmetric
+  cross-validation, the relative rank `omega`, its logit and
+  `PBO = P(logit <= 0)`)
+
+- Bailey, D.H. and Lopez de Prado, M. (2014), as under Performance metrics.
+  → `statistics/multiple_testing.py` (`effective_n_eigen`: the effective
+  number of independent trials the Deflated Sharpe Ratio is deflated with.
+  The eigenvalue participation ratio `(sum lambda)^2 / sum lambda^2` is the
+  estimator quantcore uses for it; that the paper gives this exact form is
+  not verified against the text)
+
 ## Portfolio optimization
 
 - Markowitz, H. (1952). "Portfolio Selection." *Journal of Finance*, 7(1),

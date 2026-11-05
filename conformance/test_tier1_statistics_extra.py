@@ -1,22 +1,28 @@
 """Tier-1 differential tests for the statistics functions a downstream pipeline calls.
 
 `ols`, `newey_west_optimal_lags` and `hac_t_test` against `statsmodels`, `jarque_bera_test`
-against `scipy`. The Ljung-Box, ARCH-LM and KPSS tests are computed by `statsmodels` itself, so
-their checks are the convention tests in `tests/unit/statistics` and `tests/unit/time_series`.
+against `scipy`, `cscv_pbo` against a hand CSCV with `scipy.stats.rankdata` mid-ranks and
+`effective_n_eigen` against the trace identity. The Ljung-Box, ARCH-LM and KPSS tests are
+computed by `statsmodels` itself, so their checks are the convention tests in
+`tests/unit/statistics` and `tests/unit/time_series`.
 """
 
 import numpy as np
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
+import conformance.targets.statistics_extra  # noqa: F401
 from conformance.compare import registry
 from conformance.generators import (
+    COVARIANCE_FAMILIES,
     REGRESSION_FAMILIES,
     RETURN_FAMILIES,
+    TaggedPanel,
     TaggedRegression,
     TaggedReturns,
     length_bucket_for,
     regression_problem,
+    returns_panel,
     returns_series,
 )
 from conformance.harness import check
@@ -26,6 +32,8 @@ _OLS_R_SQUARED = registry()["ols_r_squared"]
 _NEWEY_WEST_OPTIMAL_LAGS = registry()["newey_west_optimal_lags"]
 _JARQUE_BERA = registry()["jarque_bera"]
 _HAC_T_TEST = registry()["hac_t_test"]
+_CSCV_PBO = registry()["cscv_pbo"]
+_EFFECTIVE_N_EIGEN = registry()["effective_n_eigen"]
 
 OLS_MIN_LEN = 3
 OLS_FAMILIES: tuple[str, ...] = REGRESSION_FAMILIES
@@ -42,6 +50,14 @@ JARQUE_BERA_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 HAC_T_TEST_MIN_LEN = 10
 HAC_T_TEST_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
 HAC_T_TEST_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
+
+CSCV_PBO_MIN_LEN = 20
+CSCV_PBO_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
+CSCV_PBO_BUCKETS: tuple[str, ...] = ("medium", "long")
+
+EFFECTIVE_N_EIGEN_MIN_LEN = 20
+EFFECTIVE_N_EIGEN_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
+EFFECTIVE_N_EIGEN_BUCKETS: tuple[str, ...] = ("medium", "long")
 
 
 @given(problem=regression_problem(min_len=OLS_MIN_LEN))
@@ -115,4 +131,32 @@ def test_hac_t_test_matches_statsmodels(
         lags=lags,
         alternative=alternative,
         null=null_scale * float(tagged.values.std()),
+    )
+
+
+@given(
+    tagged=returns_panel(min_len=CSCV_PBO_MIN_LEN, max_len=1500, max_k=10),
+    n_splits=st.sampled_from([2, 4, 6, 8, 10]),
+)
+def test_cscv_pbo_matches_hand_cscv(tagged: TaggedPanel, n_splits: int) -> None:
+    """Quantcore's `cscv_pbo` against a hand CSCV with `scipy.stats.rankdata` mid-ranks."""
+    check(
+        _CSCV_PBO,
+        tagged.values,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
+        n_splits=n_splits,
+    )
+
+
+@given(tagged=returns_panel(min_len=EFFECTIVE_N_EIGEN_MIN_LEN, max_k=30))
+def test_effective_n_eigen_matches_trace_identity(tagged: TaggedPanel) -> None:
+    """Quantcore's `effective_n_eigen` against `trace(C)^2 / ||C||_F^2`."""
+    check(
+        _EFFECTIVE_N_EIGEN,
+        tagged.values,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
     )

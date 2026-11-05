@@ -382,6 +382,8 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "newey_west_optimal_lags": (tier1_statistics_extra, "NEWEY_WEST_OPTIMAL_LAGS"),
     "jarque_bera": (tier1_statistics_extra, "JARQUE_BERA"),
     "hac_t_test": (tier1_statistics_extra, "HAC_T_TEST"),
+    "cscv_pbo": (tier1_statistics_extra, "CSCV_PBO"),
+    "effective_n_eigen": (tier1_statistics_extra, "EFFECTIVE_N_EIGEN"),
     "ewma_variance": (tier2_risk_models, "EWMA_VARIANCE"),
     "garch_11_variance": (tier2_risk_models, "GARCH_11_VARIANCE"),
     "egarch_11_variance": (tier2_risk_models, "EGARCH_11_VARIANCE"),

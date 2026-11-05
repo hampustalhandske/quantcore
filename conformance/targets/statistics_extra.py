@@ -1,18 +1,24 @@
-"""Tier-1 statistics targets: OLS, the Newey-West lag rule, Jarque-Bera and the HAC t-test.
+"""Tier-1 statistics targets: OLS, Newey-West lags, Jarque-Bera, HAC t-test, PBO and effective N.
 
 OLS is two targets, `ols_coefficients` and `ols_r_squared` (centred R-squared with a constant
 column, else uncentred). The Newey-West lag count is the rule of thumb
 `floor(4 * (n/100)^(2/9))`, not the data-driven procedure. `jarque_bera` is checked
 against `scipy.stats.jarque_bera`. `hac_t_test` is checked against a `statsmodels` constant-only
 OLS with `cov_type="HAC"`, Bartlett kernel, `use_correction=True` and `use_t=True`.
+`cscv_pbo` is checked against an independent implementation of the CSCV procedure of Bailey,
+Borwein, Lopez de Prado and Zhu (2016) with `scipy.stats.rankdata` mid-ranks, and
+`effective_n_eigen` against the trace identity `trace(C)^2 / ||C||_F^2`.
 """
 
+import math
+from itertools import combinations
 from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import statsmodels.api as sm
 from scipy.stats import jarque_bera as _scipy_jarque_bera
+from scipy.stats import rankdata as _rankdata
 from scipy.stats import t as _student_t
 
 import quantcore.statistics as qc_statistics
@@ -176,6 +182,81 @@ _HAC_T_TEST = ConformanceTarget(
     compare=TupleComparator(ScalarComparator(), ScalarComparator(), ScalarComparator()),
     quantcore=_hac_t_test_quantcore,
     reference=_hac_t_test_reference,
+)
+
+
+# --- Multiple testing: CSCV probability of backtest overfitting and effective N -------------------
+
+
+def _cscv_pbo_quantcore(returns: npt.NDArray[np.float64], *, n_splits: int) -> float:
+    return qc_statistics.cscv_pbo(returns, n_splits=n_splits).pbo
+
+
+def _column_sharpe(x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Per-period Sharpe ratio of every column, 0.0 where the standard deviation is 0."""
+    sigma = x.std(axis=0, ddof=1)
+    safe = np.where(sigma == 0.0, 1.0, sigma)
+    sharpe: npt.NDArray[np.float64] = np.where(sigma == 0.0, 0.0, x.mean(axis=0) / safe)
+    return sharpe
+
+
+def _cscv_pbo_reference(returns: npt.NDArray[np.float64], *, n_splits: int) -> float:
+    n_trials = returns.shape[1]
+    block = returns.shape[0] // n_splits
+    m = returns[: block * n_splits]
+    block_of_row = np.arange(m.shape[0]) // block
+    overfit = 0
+    total = 0
+    for train in combinations(range(n_splits), n_splits // 2):
+        in_train = np.isin(block_of_row, train)
+        best = int(np.argmax(_column_sharpe(m[in_train])))
+        omega = float(_rankdata(_column_sharpe(m[~in_train]), method="average")[best])
+        omega /= n_trials + 1
+        overfit += math.log(omega / (1.0 - omega)) <= 0.0
+        total += 1
+    return overfit / total
+
+
+_CSCV_PBO = ConformanceTarget(
+    name="cscv_pbo",
+    tier=1,
+    oracle="CSCV procedure by hand with scipy.stats.rankdata(method='average')",
+    citation=(
+        "Bailey, D.H., Borwein, J.M., Lopez de Prado, M. and Zhu, Q.J. (2016), 'The Probability "
+        "of Backtest Overfitting.' Journal of Computational Finance, 20(4), 39-69."
+    ),
+    compare=ScalarComparator(),
+    quantcore=_cscv_pbo_quantcore,
+    reference=_cscv_pbo_reference,
+)
+
+
+def _effective_n_eigen_quantcore(returns: npt.NDArray[np.float64]) -> float:
+    return qc_statistics.effective_n_eigen(returns)
+
+
+def _effective_n_eigen_reference(returns: npt.NDArray[np.float64]) -> float:
+    centred = returns - returns.mean(axis=0)
+    norms = np.sqrt((centred**2).sum(axis=0))
+    unit = np.divide(centred, norms, out=np.zeros_like(centred), where=norms > 0.0)
+    corr = unit.T @ unit
+    np.fill_diagonal(corr, (norms > 0.0).astype(np.float64))
+    frobenius_sq = float((corr**2).sum())
+    return float(np.trace(corr)) ** 2 / frobenius_sq if frobenius_sq > 0.0 else 1.0
+
+
+_EFFECTIVE_N_EIGEN = ConformanceTarget(
+    name="effective_n_eigen",
+    tier=1,
+    oracle="trace identity trace(C)^2 / ||C||_F^2",
+    citation=(
+        "Bailey, D.H. and Lopez de Prado, M. (2014), 'The Deflated Sharpe Ratio: Correcting for "
+        "Selection Bias, Backtest Overfitting and Non-Normality.' Journal of Portfolio "
+        "Management, 40(5), 94-107."
+    ),
+    compare=ScalarComparator(),
+    quantcore=_effective_n_eigen_quantcore,
+    reference=_effective_n_eigen_reference,
 )
 
 

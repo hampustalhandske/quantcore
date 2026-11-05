@@ -537,6 +537,37 @@ TOLERANCES: dict[str, Tolerance] = {
             "atol covers p-values below 1e-12, which are indistinguishable from zero."
         ),
     ),
+    "cscv_pbo": Tolerance(
+        rtol=0.0,
+        atol=1e-12,
+        justification=(
+            "a PBO is k / C(S, S/2) for an integer count k of combinations whose logit is <= 0; "
+            "both sides divide an exact integer count by the same integer, so equal verdicts "
+            "give the identical double. One combination judged differently (a different "
+            "in-sample winner, rank or tie rule) moves the PBO by at least 1/C(S, S/2), which is "
+            "1/252 at the S = 10 drawn here and 1/12870 at S = 16. The only rounding is in the "
+            "per-period Sharpe ratios, about n*eps relative, which changes a verdict only when two "
+            "trials' Sharpe ratios agree to that precision. Measured: identical PBO on 400 "
+            "panels of every covariance family (S in {2, 4, 6, 8, 10}, up to 10 trials). atol is "
+            "eight orders below the smallest step a real difference produces."
+        ),
+    ),
+    "effective_n_eigen": Tolerance(
+        rtol=1e-12,
+        atol=0.0,
+        justification=(
+            "quantcore sums the eigenvalues of np.corrcoef from a symmetric eigensolver; the "
+            "oracle forms trace(C)^2 / ||C||_F^2 from hand-standardised columns with no "
+            "eigendecomposition. The correlations differ by a few eps between the two "
+            "constructions, and the eigensolver's backward error is about k*eps*||C||_2, so the "
+            "relative difference in N_eff is of order k*eps, 7e-15 at the k = 30 drawn here. "
+            "Measured: 1.8e-15 relative over 1500 panels of every covariance family (k in [2, "
+            "30], T in [20, 2000]), including the near_singular and high_condition families. "
+            "rtol is set 500 times above that, far below the change of order 1 that a different "
+            "constant-column rule or a covariance in place of the correlation produces. "
+            "N_eff >= 1, so no atol is needed."
+        ),
+    ),
     "ewma_variance": Tolerance(
         rtol=1e-10,
         atol=1e-10,

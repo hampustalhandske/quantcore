@@ -134,14 +134,14 @@ harness, classifier, builder and findings code no remaining target uses.
 
 ### QC-12: Compatible dependency ranges — open
 `statsmodels` and `arch` declared as ranges in `pyproject.toml` (scikit-learn stays out of the
-runtime dependencies: Ledoit-Wolf is kept, master session 2026-11-05);
+runtime dependencies: Ledoit-Wolf is kept, 2026-11-05);
 `uv.lock` holds the exact versions for quantcore's CI. Ranges are checked against both
 consumers' locks.
 
 ## Receive from edgelab
 
 ### QC-13: General calculations moved in from edgelab — in progress
-Agreed list (edgelab-dc audit, edgelab-57 rulings): numpy in, frozen dataclass or tuple out, no
+Agreed list (edgelab audit and rulings): numpy in, frozen dataclass or tuple out, no
 pandas and no edgelab types; edgelab keeps N logic, annual-to-per-period rf conversion and the
 `StatOutcome` wrappers.
 1. `hac_t_test` (`statistics/hac.py`): done (ffc4e26).
@@ -162,12 +162,12 @@ pandas and no edgelab types; edgelab keeps N logic, annual-to-per-period rf conv
    `statistics/multiple_testing.py`: in progress. The logits, per-combination records,
    `prob_oos_loss` and the degradation regression stay out: no consumer reads them.
 5. `effective_n_eigen(returns) -> float` in `statistics/multiple_testing.py`: in progress.
-API agreed with edgelab-06 on 2026-11-05. edgelab keeps the 20-observation floor, the
+API agreed with edgelab on 2026-11-05. edgelab keeps the 20-observation floor, the
 10%-dropped rule, the Ljung-Box warning, the 3-trial floor, the returns-to-losses conversion and
 the SPA block-size resolution. Every move is bit-identical.
 Not moved, deleted in edgelab: `sharpe_se_lo`, `sharpe_power`, `min_detectable_sharpe`,
 `stationary_bootstrap_resamples`, `paired_stationary_bootstrap_replicates`,
-`effective_n_clustered` (with it the k-means and silhouette wrappers). Master session, 2026-11-05:
+`effective_n_clustered` (with it the k-means and silhouette wrappers). Ruled 2026-11-05:
 `dsr_trial_count` stays in edgelab (N logic), and Ledoit-Wolf stays quantcore's own code.
 The conformance targets are added per item; `conformance_map.json` and `docs/CONFORMANCE.md` are
 regenerated once after the last item (one conformance run), so `build_report --check` fails on the

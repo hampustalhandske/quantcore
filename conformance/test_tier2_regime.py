@@ -39,10 +39,6 @@ HMM_PREDICT_PROBA_MIN_LEN = 60
 HMM_PREDICT_PROBA_FAMILIES = _HMM_FAMILIES
 HMM_PREDICT_PROBA_BUCKETS = _HMM_BUCKETS
 
-HMM_FILTERED_PROBA_MIN_LEN = 60
-HMM_FILTERED_PROBA_FAMILIES = _HMM_FAMILIES
-HMM_FILTERED_PROBA_BUCKETS = _HMM_BUCKETS
-
 
 def _length_bucket(n: int) -> str:
     return "medium" if n <= 500 else "long"
@@ -144,7 +140,7 @@ def _fit(
     npt.NDArray[np.float64],
     float,
 ]:
-    """Fit once directly via quantcore, reused across decode/predict_proba/filtered_proba cases.
+    """Fit once directly via quantcore, reused across decode/predict_proba cases.
 
     Calls `quantcore.regime.hmm.hmm_fit` directly. Only used to build a shared parameter set for
     the downstream tests; `hmm_fit` itself is exercised by `test_hmm_fit_matches_hmmlearn`.

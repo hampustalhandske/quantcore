@@ -89,10 +89,10 @@ _MAX_INPUT_REPR_LEN = 60_000
 """Truncation length for one argument's repr in a recorded case.
 
 Generous rather than tight: a findings write-up copy-pastes this verbatim as its minimal repro.
-A `float64` array's `repr()` runs roughly 20 characters per element, so this comfortably holds a
-full `n<=1000` regression/cointegration array or an `n<=2000` returns array (the largest a Tier-1
-generator draws by default under the `ci` hypothesis profile) without truncating mid-array;
-only the `full` profile's rarer `n` close to 5000 can still exceed it.
+A `float64` array's `repr()` runs roughly 20 characters per element, so this comfortably holds an
+`n<=2000` returns or regression array (the largest a generator draws by default under the `ci`
+hypothesis profile) without truncating mid-array; only the `full` profile's rarer `n` close to
+5000 can still exceed it.
 """
 
 
@@ -138,20 +138,15 @@ def _split_value(value: Any, n_quantities: int) -> tuple[Any, ...]:
     return tuple(value)
 
 
-def _magnitude(comparator: Comparator[Any], value: Any) -> float:
+def _magnitude(value: Any) -> float:
     """Absolute magnitude of a scalar or array quantity, for the near-zero rel-error floor.
 
-    A single recorded "value" quantity that is itself a tuple (e.g. a Monte Carlo pricer's
-    `(price, standard_error)`, judged as one opaque unit by its own custom `Comparator` rather
-    than split via `quantities=`) reports the magnitude of its first, primary component. A
-    quantity with no numeric magnitude at all (e.g. a `datetime.date`, judged by its own
+    A quantity with no numeric magnitude at all (e.g. a `datetime.date`, judged by its own
     `Comparator` such as `_DateComparator`) reports `0.0`: this value only ever feeds the
     near-zero relative-error-floor exclusion in `ReproDetail`, not a pass/fail decision.
     """
     if isinstance(value, np.ndarray):
         return float(np.max(np.abs(value))) if value.size else 0.0
-    if isinstance(value, tuple):
-        return abs(float(value[0]))
     try:
         return abs(float(value))
     except (TypeError, ValueError):
@@ -281,7 +276,7 @@ def check(
                 seed=seed,
                 abs_err=abs_err,
                 rel_err=rel_err,
-                expected_abs=_magnitude(comparator, expected),
+                expected_abs=_magnitude(expected),
                 quantcore_value=actual_repr,
                 reference_value=repr(expected),
                 inputs_repr=_repr_inputs(args),

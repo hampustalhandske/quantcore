@@ -3,9 +3,10 @@
 Each quantity is registered as a `ConformanceTarget` pairing a quantcore adapter (a thin call into
 `quantcore.portfolio`) with an independent oracle. Importing this module registers all of them.
 
-Covariance: Ledoit-Wolf (population `1/T` normalisation, identity-scaled target). The two
-mean-variance optimisers are solved in `cvxpy` and compared on the attained objective, not the
-weights; `risk_parity_weights` (unique, Spinu 2013) is compared on its weights.
+Covariance: Ledoit-Wolf (population `1/T` normalisation, identity-scaled target). The
+unconstrained mean-variance optimiser is solved by a direct linear solve and compared on the
+attained objective, not the weights; `risk_parity_weights` (unique, Spinu 2013) is compared on its
+weights.
 
 Full citations for Markowitz (1952), Maillard, Roncalli & Teiletche (2010), Spinu (2013), Black &
 Litterman (1992), He & Litterman (1999) and Ledoit & Wolf (2004) are in `docs/REFERENCES.md` under
@@ -14,8 +15,6 @@ Litterman (1992), He & Litterman (1999) and Ledoit & Wolf (2004) are in `docs/RE
 
 import numpy as np
 import numpy.typing as npt
-from cvxpy import CLARABEL, Problem, Variable
-from cvxpy.settings import OPTIMAL, OPTIMAL_INACCURATE
 from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
 
@@ -27,22 +26,6 @@ from conformance.compare import (
 )
 
 type FloatArray = npt.NDArray[np.float64]
-
-_CVXPY_SOLVER = CLARABEL
-
-
-def _require_cvxpy_optimal(problem: Problem, func_name: str) -> None:
-    """Mirror quantcore's own `_require_slsqp_success`: no silent fallback on a bad solve."""
-    if problem.status not in (OPTIMAL, OPTIMAL_INACCURATE):
-        raise RuntimeError(f"{func_name}: cvxpy solver did not reach optimality: {problem.status}")
-
-
-def _variable_value(variable: Variable, func_name: str) -> FloatArray:
-    value = variable.value
-    if value is None:
-        raise RuntimeError(f"{func_name}: cvxpy returned no solution value")
-    return np.asarray(value, dtype=np.float64)
-
 
 # --- ledoit_wolf_shrinkage --------------------------------------------------------------------
 
@@ -156,8 +139,8 @@ def _unconstrained_mean_variance_weights_reference(
 ) -> OptimizerResult:
     """`max w^T mu - 0.5*ra*w^T Sigma w`, NO constraints at all; closed form Sigma^-1 mu / ra.
 
-    Solved directly via `numpy.linalg.solve` (an independent direct linear solve, not `cvxpy`) for
-    the same reason quantcore's own docstring gives for preferring `solve` over `inv`: no
+    Solved directly via `numpy.linalg.solve` (an independent direct linear solve) for the same
+    reason quantcore's own docstring gives for preferring `solve` over `inv`: no
     constraints means there is nothing for a QP solver to add over the closed form itself, and a
     direct solve avoids squaring the condition number's effect on rounding error that an explicit
     inverse would.

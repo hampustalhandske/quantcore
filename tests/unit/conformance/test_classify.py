@@ -1,8 +1,6 @@
 """Tests for conformance.classify: the pure recorded-cases -> status classifiers.
 
-`classify` takes a sequence of `CaseResult` plus the facts its rule needs that are not part of
-any single case (whether a reference exists at all, whether an alternative definition
-reproduced quantcore's output) and returns a `ConformanceStatus`.
+`classify` takes a sequence of `CaseResult` and returns a `ConformanceStatus`.
 `classify_iterative_estimator` does the same for a fitter judged on its attained objective.
 """
 
@@ -46,64 +44,52 @@ def _case(
 def test_classify_verified_when_all_cases_within_tolerance_and_no_quantcore_exception() -> None:
     """All cases within tolerance with no quantcore exception classifies as verified."""
     cases = [_case() for _ in range(50)]
-    assert classify(cases, has_reference=True) == "verified"
+    assert classify(cases) == "verified"
 
 
 def test_classify_prevents_verified_when_quantcore_raises_even_if_all_within_tolerance() -> None:
     """A quantcore exception prevents verified even if every recorded case is within tolerance."""
     cases = [*(_case() for _ in range(20)), _case(quantcore_raised=True)]
-    assert classify(cases, has_reference=True) != "verified"
+    assert classify(cases) != "verified"
 
 
 def test_classify_one_bad_case_among_thousands_flips_verified() -> None:
     """A single out-of-tolerance case among thousands is enough to lose verified status."""
     good_cases = [_case() for _ in range(5000)]
-    assert classify(good_cases, has_reference=True) == "verified"
+    assert classify(good_cases) == "verified"
 
     bad_cases = [*good_cases[:-1], _case(within_tolerance=False, abs_err=1.0, rel_err=1.0)]
-    assert classify(bad_cases, has_reference=True) != "verified"
+    assert classify(bad_cases) != "verified"
 
 
-def test_classify_non_standard_when_alternative_definition_matches() -> None:
-    """Cases failing standard comparison but matching alternative_definition are non-standard."""
-    cases = [*(_case() for _ in range(10)), _case(within_tolerance=False)]
-    assert classify(cases, has_reference=True, alternative_matches=True) == "non-standard"
-
-
-def test_classify_raises_on_empty_cases_when_a_reference_exists() -> None:
-    """A target with a reference but no recorded case cannot be classified at all."""
+def test_classify_raises_on_empty_cases() -> None:
+    """A target with no recorded case cannot be classified at all."""
     with pytest.raises(ValueError, match="no recorded cases"):
-        classify([], has_reference=True)
+        classify([])
 
 
-def test_classify_defect_when_no_alternative_definition_matches() -> None:
-    """Cases failing standard comparison with no matching alternative_definition classify defect."""
+def test_classify_defect_when_a_case_is_outside_tolerance() -> None:
+    """Cases failing the standard comparison classify as defect."""
     cases = [*(_case() for _ in range(10)), _case(within_tolerance=False)]
-    assert classify(cases, has_reference=True, alternative_matches=False) == "defect"
+    assert classify(cases) == "defect"
 
 
 def test_classify_requires_every_quantity_within_tolerance() -> None:
     """A function recording several quantities is verified only if every quantity passes.
 
-    `engle_granger_test` records one case per input as two `CaseResult`s, `statistic` and
-    `p_value`. If the statistic always agrees with the oracle but the p_value never does, the
-    function as a whole must not classify as verified.
+    `jarque_bera` records one case per input as two `CaseResult`s, `statistic` and `p_value`. If
+    the statistic always agrees with the oracle but the p_value never does, the function as a
+    whole must not classify as verified.
     """
     statistic_cases = [_case(quantity="statistic") for _ in range(20)]
     passing_p_value_cases = [_case(quantity="p_value") for _ in range(20)]
-    assert classify(statistic_cases + passing_p_value_cases, has_reference=True) == "verified"
+    assert classify(statistic_cases + passing_p_value_cases) == "verified"
 
     failing_p_value_cases = [
         _case(quantity="p_value", within_tolerance=False, abs_err=1.0, rel_err=1.0)
         for _ in range(20)
     ]
-    assert classify(statistic_cases + failing_p_value_cases, has_reference=True) != "verified"
-
-
-def test_classify_unverifiable_without_reference() -> None:
-    """With no reference the status is unverifiable, whatever cases are (or are not) passed."""
-    assert classify([], has_reference=False) == "unverifiable"
-    assert classify([_case(within_tolerance=False)], has_reference=False) == "unverifiable"
+    assert classify(statistic_cases + failing_p_value_cases) != "verified"
 
 
 # --- iterative estimators without a unique optimum -----------------------------------------------

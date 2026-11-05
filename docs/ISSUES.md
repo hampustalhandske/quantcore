@@ -121,14 +121,17 @@ all tied values).
 
 ## Conformance
 
-### QC-11: Trim the conformance machinery — in progress
+### QC-11: Trim the conformance machinery — done, map regenerated at the release gates
 Delegated targets become convention tests (options passed, units, annualisation, sign);
 hand-formula oracles stay; harness, classification and report code shrink to what those need.
 `conformance_map.json` and `docs/CONFORMANCE.md` are regenerated in the same change.
 Done in e72de88: the ADF and Engle-Granger targets and their generators, repro configs and
 benchmark rows, and the KPSS and ARCH-LM benchmark rows; the three variance targets compare with
-arch from the first step. Left: any target that still compares a library with itself, and the
-harness, classifier, builder and findings code no remaining target uses.
+arch from the first step. No target compares a library with itself. The machinery no target
+uses is removed (about 850 lines: the edge-case recorder, the unit converters, the repro
+summaries for non-scalar quantities, the alternative-definition branch of the classifier). The
+findings and repro pipeline stays, because a live target can still be classified `defect` or
+`non-standard`. The next regeneration adds the nine QC-13 targets and drops nothing.
 
 ## Dependencies
 

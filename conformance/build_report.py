@@ -192,7 +192,7 @@ class TargetRecord:
             never compared).
         reason: One sentence explaining a status other than `verified`; empty for `verified`.
         finding: Repository-relative path of the generated write-up for a `defect` or
-            `non-standard` status (e.g. `"conformance/findings/001-adf_test.md"`); `None`
+            `non-standard` status (e.g. `"conformance/findings/001-sharpe_ratio.md"`); `None`
             otherwise.
     """
 
@@ -427,9 +427,9 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "spread_zscore": (tier2_time_series, "SPREAD_ZSCORE"),
 }
 
-# Declared, per target, by that target's own tier test module. `missing_coverage` checks every
-# recorded run against this: a family or bucket declared here with zero recorded `CaseResult`s
-# fails the build.
+# Declared, per target, by that target's own tier test module. `missing_coverage_by_target` checks
+# every recorded run against this: a family or bucket declared here with zero recorded
+# `CaseResult`s fails the build.
 DECLARED_COVERAGE: dict[str, DeclaredCoverage] = {
     name: declared_coverage_from(module, prefix)
     for name, (module, prefix) in COVERAGE_SOURCES.items()
@@ -563,20 +563,14 @@ class IterativeEstimator:
     sense: ObjectiveSense
 
 
-# The GARCH-family fitters assume Gaussian innovations: of the families
-# `conformance/test_tier2_risk_models.py` draws for them, `"normal"` and `"garch11"` are simulated
-# with `rng.normal(...)` innovations (`conformance.generators._simulate_returns`), while
-# `"student_t3"` is heavy-tailed and so misspecified under a Gaussian likelihood.
-_GAUSSIAN_INNOVATION_FAMILIES = frozenset({"normal", "garch11"})
-
 # The mean-variance optimisers are convex programs, not likelihood fits, so no covariance family
 # is misspecified for them: every one counts.
 _ALL_COVARIANCE_FAMILIES = frozenset(COVARIANCE_FAMILIES)
 
-# Each fitter records the log-likelihood it attains (larger is better). Each optimiser records the
-# value of the objective its oracle optimises, evaluated at each solver's own weights
-# (`conformance.targets.portfolio`): mean-variance utility for the unconstrained optimiser,
-# which it maximises.
+# `arima_fit` records the log-likelihood it attains (larger is better). The unconstrained
+# mean-variance optimiser records the value of the objective its oracle optimises, evaluated at
+# each solver's own weights (`conformance.targets.portfolio`): the mean-variance utility, which it
+# maximises.
 ITERATIVE_ESTIMATORS: dict[str, IterativeEstimator] = {
     "unconstrained_mean_variance_weights": IterativeEstimator(
         _ALL_COVARIANCE_FAMILIES, "objective", "maximize"
@@ -610,7 +604,7 @@ def objective_cases_for(
     (see `matched_pairs`) rather than re-running anything.
 
     Args:
-        name: Target name, e.g. `"fit_garch_11"`.
+        name: Target name, e.g. `"arima_fit"`.
         cases: Every recorded `CaseResult` from one conformance run.
         details: Every recorded `ReproDetail` from the same run.
         estimator: Which quantity holds the attained objective, whether it is maximised or
@@ -679,8 +673,8 @@ def per_function_counts(
 ) -> dict[str, tuple[dict[str, int], dict[str, int]]]:
     """Tally recorded case counts per family and per length bucket, grouped by target.
 
-    Pure and I/O-free: reduces a flat list of `CaseResult`s to the shape `missing_coverage` and the
-    report tables need, without touching disk.
+    Pure and I/O-free: reduces a flat list of `CaseResult`s to the shape
+    `missing_coverage_by_target` and the report tables need, without touching disk.
 
     Args:
         cases: Every recorded `CaseResult`, ordinarily every case from one conformance run.
@@ -765,8 +759,8 @@ def missing_coverage_by_target(
     """Group every declared (target, family) and (target, bucket) cell with zero cases by target.
 
     Pure and I/O-free: `build_report.main()` calls this on the real run's counts; unit tests call
-    `missing_coverage` on synthetic `declared`/`counts` to exercise the pass and fail paths
-    without running the (slow, hypothesis-driven) conformance suite itself.
+    it on synthetic `declared`/`counts` to exercise the pass and fail paths without running the
+    (slow, hypothesis-driven) conformance suite itself.
 
     Args:
         declared: Per-target `DeclaredCoverage`, ordinarily `DECLARED_COVERAGE`.
@@ -796,18 +790,6 @@ def missing_coverage_by_target(
         if lines:
             missing[function] = lines
     return missing
-
-
-def missing_coverage(
-    declared: Mapping[str, DeclaredCoverage],
-    counts: dict[str, tuple[dict[str, int], dict[str, int]]],
-) -> list[str]:
-    """List every declared (target, family) and (target, bucket) cell with zero recorded cases.
-
-    The flat form of `missing_coverage_by_target`: the same lines, in target order.
-    """
-    by_target = missing_coverage_by_target(declared, counts)
-    return [line for lines in by_target.values() for line in lines]
 
 
 def decision_diff(committed: ConformanceMap, regenerated: ConformanceMap) -> list[str]:
@@ -1234,7 +1216,7 @@ def _classify_target(
             f"{name!r} has an oracle but no recorded cases to classify; run its conformance "
             "test before building the report"
         )
-    return classify(decision_cases, has_reference=True)
+    return classify(decision_cases)
 
 
 def build_conformance_map(
@@ -1439,20 +1421,8 @@ class ReproCallConfig:
         oracle_import: Import line(s) for the oracle library the repro calls.
         oracle_call: Expression calling the oracle, given the same bound argument names.
         arg_names: Names the reconstructed input tuple's elements are bound to, in call order.
-        quantity_index: Per quantity, `(quantcore_index, oracle_index)` into each call's return
-            value; `None` for either side means that call already returns the quantity directly.
-            Ignored for a quantity that instead declares a `summary_expr`.
-        summary_expr: Per quantity, a Python expression computing a single scalar SUMMARY from
-            `quantcore_result`/`oracle_result` (e.g. `"float(np.mean(quantcore_result ==
-            oracle_result))"` for a decoded-state agreement rate), for a quantity whose raw
-            output is not itself a scalar. When a quantity is a key here,
-            `render_minimal_repro` prints only this one number (labelled `summary`) instead of
-            `expected`/`actual`/`abs diff`, and `verify_repro` checks it with `summary_ok` rather
-            than the target's ordinary rtol/atol tolerance. A quantity absent from this dict
-            uses the ordinary `quantity_index`-based scalar comparison.
-        summary_ok: Per quantity with a `summary_expr`, whether a printed summary value means the
-            case does not reproduce the finding (i.e. is "close enough" that the finding would
-            be stale). Required for every key of `summary_expr`.
+
+    Both calls must evaluate to the target's single `"value"` quantity as a scalar.
     """
 
     module_import: str
@@ -1460,9 +1430,6 @@ class ReproCallConfig:
     oracle_import: str
     oracle_call: str
     arg_names: tuple[str, ...]
-    quantity_index: dict[str, tuple[int | None, int | None]]
-    summary_expr: dict[str, str] = dataclasses.field(default_factory=dict)
-    summary_ok: dict[str, Callable[[float], bool]] = dataclasses.field(default_factory=dict)
 
 
 REPRO_CONFIGS: dict[str, ReproCallConfig] = {
@@ -1472,7 +1439,6 @@ REPRO_CONFIGS: dict[str, ReproCallConfig] = {
         oracle_import="import empyrical",
         oracle_call="-empyrical.max_drawdown(returns)",
         arg_names=("returns",),
-        quantity_index={"value": (None, None)},
     ),
     "calmar_ratio": ReproCallConfig(
         module_import="import quantcore.performance as qc",
@@ -1480,7 +1446,6 @@ REPRO_CONFIGS: dict[str, ReproCallConfig] = {
         oracle_import="import empyrical",
         oracle_call="empyrical.calmar_ratio(returns, annualization=periods_per_year)",
         arg_names=("returns", "periods_per_year"),
-        quantity_index={"value": (None, None)},
     ),
     "calmar_ratio_arithmetic": ReproCallConfig(
         module_import="import quantcore.performance as qc",
@@ -1490,7 +1455,6 @@ REPRO_CONFIGS: dict[str, ReproCallConfig] = {
             "float(_np.mean(returns)) * periods_per_year / abs(-empyrical.max_drawdown(returns))"
         ),
         arg_names=("returns", "periods_per_year"),
-        quantity_index={"value": (None, None)},
     ),
     "dynamic_hedge_ratio": ReproCallConfig(
         module_import="import quantcore.filtering.kalman as qc",
@@ -1509,7 +1473,6 @@ REPRO_CONFIGS: dict[str, ReproCallConfig] = {
         ),
         oracle_call="_hand_hedge(y, x, obs_var, proc_var)[-1]",
         arg_names=("y", "x", "obs_var", "proc_var"),
-        quantity_index={"value": (None, None)},
     ),
 }
 
@@ -1530,14 +1493,6 @@ def reconstruct_args(inputs_repr: str) -> tuple[Any, ...]:
     """
     namespace = {"array": np.array, "nan": float("nan"), "inf": float("inf")}
     return cast(tuple[Any, ...], eval(inputs_repr, {"__builtins__": {}}, namespace))
-
-
-def _total_numbers(args: tuple[Any, ...]) -> int:
-    """Count of individual numbers across every argument (array elements, or 1 per scalar)."""
-    total = 0
-    for arg in args:
-        total += int(arg.size) if isinstance(arg, np.ndarray) else 1
-    return total
 
 
 _TOP_LEVEL_SPLIT_OPEN = "(["
@@ -2027,17 +1982,12 @@ def render_minimal_repro(function: str, quantity: str, detail: ReproDetail) -> s
     regenerates its arrays from `detail.seed` with the same plain-numpy arithmetic the target's
     generator uses for `detail.family` (`REGEN_RECIPES`).
 
-    A quantity whose output is itself a scalar (the common case) always prints
-    `"expected (oracle): ..."`, `"actual (quantcore): ..."`, and `"abs diff: ..."`, parsed back by
-    `parse_repro_stdout`. A quantity in `config.summary_expr` instead prints a single
-    `"summary: ..."` line (parsed by `parse_repro_summary`) -- for a quantity whose raw output is
-    not itself a scalar (e.g. a decoded-state array), the SUMMARY expression reduces it to the
-    one scalar number that demonstrates the finding.
+    The repro prints `"expected (oracle): ..."`, `"actual (quantcore): ..."` and `"abs diff: ..."`,
+    parsed back by `parse_repro_stdout`.
 
     Args:
         function: Target name; must be a key of `REPRO_CONFIGS`.
-        quantity: Quantity name; must be a key of that config's `quantity_index` or
-            `summary_expr`.
+        quantity: Quantity name, used to label an error.
         detail: The `ReproDetail` to build a repro for, ordinarily the one
             `select_shortest_failing_detail` chose.
 
@@ -2049,7 +1999,6 @@ def render_minimal_repro(function: str, quantity: str, detail: ReproDetail) -> s
             `_regenerated_input_lines`).
     """
     config = REPRO_CONFIGS[function]
-    summary_expr = config.summary_expr.get(quantity)
     total = count_numbers_in_repr(detail.inputs_repr)
 
     lines = ["import numpy as np", config.module_import, config.oracle_import, ""]
@@ -2068,18 +2017,8 @@ def render_minimal_repro(function: str, quantity: str, detail: ReproDetail) -> s
     lines.append(f"quantcore_result = {config.quantcore_call}")
     lines.append(f"oracle_result = {config.oracle_call}")
 
-    if summary_expr is not None:
-        lines.append(f"summary = {summary_expr}")
-        lines.append('print("summary:", repr(summary))')
-        return "\n".join(lines)
-
-    quantcore_index, oracle_index = config.quantity_index[quantity]
-    actual_expr = (
-        "quantcore_result" if quantcore_index is None else f"quantcore_result[{quantcore_index}]"
-    )
-    expected_expr = "oracle_result" if oracle_index is None else f"oracle_result[{oracle_index}]"
-    lines.append(f"actual = float({actual_expr})")
-    lines.append(f"expected = float({expected_expr})")
+    lines.append("actual = float(quantcore_result)")
+    lines.append("expected = float(oracle_result)")
     lines.append('print("expected (oracle):", repr(expected))')
     lines.append('print("actual (quantcore):", repr(actual))')
     lines.append('print("abs diff:", repr(abs(actual - expected)))')
@@ -2139,28 +2078,6 @@ def run_repro_subprocess(code: str, timeout: float = REPRO_TIMEOUT_SECONDS) -> R
 _EXPECTED_RE = re.compile(r"^expected \(oracle\): (.+)$", re.MULTILINE)
 _ACTUAL_RE = re.compile(r"^actual \(quantcore\): (.+)$", re.MULTILINE)
 _ABS_DIFF_RE = re.compile(r"^abs diff: (.+)$", re.MULTILINE)
-_SUMMARY_RE = re.compile(r"^summary: (.+)$", re.MULTILINE)
-
-
-def parse_repro_summary(stdout: str) -> float:
-    """Parse a repro's printed `summary` value back into a float.
-
-    Counterpart to `parse_repro_stdout`, for a quantity built with `ReproCallConfig.summary_expr`
-    (a non-scalar-quantity repro that prints one reduced scalar instead of expected/actual/diff).
-
-    Args:
-        stdout: Standard output captured from a repro built by `render_minimal_repro`.
-
-    Returns:
-        The parsed summary value.
-
-    Raises:
-        ValueError: The `"summary: ..."` line is missing from ``stdout``.
-    """
-    match = _SUMMARY_RE.search(stdout)
-    if not match:
-        raise ValueError(f"repro output is missing a summary line: {stdout!r}")
-    return float(match.group(1))
 
 
 def parse_repro_stdout(stdout: str) -> tuple[float, float, float]:
@@ -2205,28 +2122,19 @@ def repro_still_mismatches(expected: float, actual: float, tolerance: Tolerance)
 class VerifiedRepro:
     """One quantity's executed, verified minimal repro, ready to embed in a finding.
 
-    Exactly one of two shapes: an ordinary scalar-quantity repro carries `expected`/`actual`/
-    `abs_diff` (`summary` is `None`); a `ReproCallConfig.summary_expr` repro instead carries
-    `summary` (`expected`/`actual`/`abs_diff` are all `None`) -- see docs on `ReproCallConfig` and
-    `render_minimal_repro`.
-
     Attributes:
         quantity: Which named quantity this repro demonstrates.
         code: The repro's full source text.
-        expected: The oracle value printed by executing ``code``, or `None` in summary mode.
-        actual: The quantcore value printed by executing ``code``, or `None` in summary mode.
-        abs_diff: `|actual - expected|`, as printed by executing ``code``, or `None` in summary
-            mode.
-        summary: The single scalar SUMMARY value printed by executing ``code``, or `None` for an
-            ordinary scalar-quantity repro.
+        expected: The oracle value printed by executing ``code``.
+        actual: The quantcore value printed by executing ``code``.
+        abs_diff: `|actual - expected|`, as printed by executing ``code``.
     """
 
     quantity: str
     code: str
-    expected: float | None
-    actual: float | None
-    abs_diff: float | None
-    summary: float | None = None
+    expected: float
+    actual: float
+    abs_diff: float
 
 
 def verify_repro(
@@ -2234,25 +2142,17 @@ def verify_repro(
 ) -> tuple[VerifiedRepro | None, str | None]:
     """Build, execute, and verify one quantity's minimal repro.
 
-    A quantity declared in `REPRO_CONFIGS[function].summary_expr` is verified against that
-    config's `summary_ok` (whether the printed SUMMARY means the case does not reproduce),
-    instead of the ordinary rtol/atol tolerance check `repro_still_mismatches` applies to a
-    scalar-quantity repro.
-
     Args:
         function: Target name.
         quantity: Quantity name.
         detail: The `ReproDetail` to build the repro from (ordinarily the shortest failing one).
         tolerance: The target's written tolerance, to confirm the executed mismatch is real.
-            Ignored for a `summary_expr` quantity.
 
     Returns:
         `(verified, error)`: exactly one is `None`. ``error`` names ``function``/``quantity`` and
         explains what went wrong (timeout, non-zero exit, unparsable output, or a mismatch that
         did not reproduce); ``verified`` carries the executed numbers to embed in the finding.
     """
-    config = REPRO_CONFIGS.get(function)
-    summary_expr = config.summary_expr.get(quantity) if config is not None else None
     code = render_minimal_repro(function, quantity, detail)
     result = run_repro_subprocess(code, timeout=REPRO_TIMEOUT_SECONDS)
     label = f"{function}.{quantity}"
@@ -2260,24 +2160,6 @@ def verify_repro(
         return None, f"{label}: repro timed out after {REPRO_TIMEOUT_SECONDS}s"
     if result.returncode != 0:
         return None, f"{label}: repro exited {result.returncode}: {result.stderr.strip()}"
-
-    if summary_expr is not None:
-        # `summary_expr` is only ever non-`None` when `config` (its own source) is not `None`.
-        assert config is not None
-        try:
-            summary = parse_repro_summary(result.stdout)
-        except ValueError as exc:
-            return None, f"{label}: {exc}"
-        summary_ok = config.summary_ok[quantity]
-        if summary_ok(summary):
-            return None, (
-                f"{label}: repro executed but summary={summary!r} no longer reproduces the "
-                "finding; it would be stale"
-            )
-        verified = VerifiedRepro(
-            quantity=quantity, code=code, expected=None, actual=None, abs_diff=None, summary=summary
-        )
-        return verified, None
 
     try:
         expected, actual, abs_diff = parse_repro_stdout(result.stdout)
@@ -2494,16 +2376,9 @@ def render_finding(
         ]
         repro = repro_by_quantity.get(quantity)
         if repro is not None:
-            executed_line = (
-                f"Executed this run: `summary` = `{repro.summary!r}`."
-                if repro.summary is not None
-                else (
-                    f"Executed this run: `expected (oracle)` = `{repro.expected!r}`, "
-                    f"`actual (quantcore)` = `{repro.actual!r}`, abs diff = `{repro.abs_diff!r}`."
-                )
-            )
             sections += [
-                executed_line,
+                f"Executed this run: `expected (oracle)` = `{repro.expected!r}`, "
+                f"`actual (quantcore)` = `{repro.actual!r}`, abs diff = `{repro.abs_diff!r}`.",
                 "",
                 "```python",
                 repro.code,
@@ -2564,20 +2439,11 @@ def _write_findings(
             )
             decided = decision_pairs(pairs)
             shortest_failing = select_shortest_failing_detail(decided)
-            repro_config = REPRO_CONFIGS.get(name)
-            quantity_is_reproable = repro_config is not None and (
-                quantity in repro_config.quantity_index or quantity in repro_config.summary_expr
-            )
-            if shortest_failing is None or not quantity_is_reproable:
-                # Either this quantity itself never failed its tolerance (e.g. adf_test's
-                # statistic, which matches statsmodels exactly while its p_value, a separate
-                # quantity, does not), or it has no repro recipe at all (e.g. an iterative
-                # estimator's `params`, never compared, so a case where quantcore *raised*
-                # entirely -- leaving no quantcore value for any quantity, including this one --
-                # can still show up as "failing" here even though there is nothing meaningful to
-                # build a scalar repro from). Either way, the target's status still reflects
-                # the true failing quantity; this one's evidence section is rendered without a
-                # repro block instead of erroring the whole finding.
+            if shortest_failing is None or name not in REPRO_CONFIGS:
+                # Either this quantity never failed its tolerance, or the target has no repro
+                # recipe (an iterative estimator, whose parameter vector is never compared).
+                # The target's status still reflects the failing quantity; this one's evidence
+                # section is rendered without a repro block instead of failing the finding.
                 continue
             tolerance = TOLERANCES[name]
             headline_case = next(c for c, d in decided if d is shortest_failing)
@@ -2869,7 +2735,7 @@ def _status_table(conformance_map: ConformanceMap) -> list[str]:
         "## Status per target",
         "",
         "One row per recorded quantity: a target recording several named quantities (e.g. "
-        "`engle_granger_test`'s `statistic` and `p_value`) has one row per quantity, so a defect "
+        "`jarque_bera`'s `statistic` and `p_value`) has one row per quantity, so a defect "
         "confined to a single quantity is visible rather than averaged away. The status is the "
         "target's; `rtol`/`atol` are the tolerance its cases were judged against "
         "(`|quantcore - oracle| <= atol + rtol * |oracle|`).",
@@ -2970,11 +2836,10 @@ def render_conformance_md(
         "compared with an independent oracle on generated inputs. `verified` means quantcore was "
         "within the written tolerance of the oracle on every case and never raised or, for an "
         "iterative estimator, that the objective it attains is not systematically worse than the "
-        "oracle's. `non-standard` means the result is sound but not the standard one: a "
-        "documented alternative definition or, for an iterative estimator, an objective that is "
-        "systematically but only slightly worse than the oracle's. `defect` means it is outside "
-        "tolerance with no such explanation. `unverifiable` means there is no oracle, or "
-        "agreement is recorded without being judged.",
+        "oracle's. `non-standard` means the result is sound but not the standard one: for an "
+        "iterative estimator, an objective that is systematically but only slightly worse than "
+        "the oracle's. `defect` means it is outside tolerance with no such explanation. "
+        "`unverifiable` means there is no oracle, or agreement is recorded without being judged.",
         "",
         f"quantcore version: `{conformance_map.quantcore_version}`",
         "",
@@ -3092,12 +2957,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         Process exit code: `0` on success; non-zero if a registered target is incomplete (see
-        `configuration_errors` and `missing_coverage`) and `--allow-incomplete` was not given, if
-        too few of a target's cases are well-conditioned, if a `defect`/`non-standard` target has
-        no `findings_src/<name>.md`, if `--check` finds the committed `conformance_map.json`
-        stale, if a finding's repro fails to execute or does not reproduce, or -- under the
-        `explore` profile -- if at least one mismatch was recorded for a target the committed map
-        calls `verified`.
+        `configuration_errors` and `missing_coverage_by_target`) and `--allow-incomplete` was not
+        given, if too few of a target's cases are well-conditioned, if a `defect`/`non-standard`
+        target has no `findings_src/<name>.md`, if `--check` finds the committed
+        `conformance_map.json` stale, if a finding's repro fails to execute or does not reproduce,
+        or -- under the `explore` profile -- if at least one mismatch was recorded for a target
+        the committed map calls `verified`.
 
     Under the `explore` profile this never writes any file (not the map, not the report, not a
     finding): it only prints every recorded mismatch for a `verified` target and exits

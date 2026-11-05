@@ -427,7 +427,7 @@ def returns_panel(
     )
 
 
-# --- time_series family: ARMA series and small VAR systems (conformance.targets.time_series)
+# --- time_series family: ARMA series (conformance.targets.time_series)
 
 type ArmaFamily = Literal["white_noise", "ar1", "ar2", "ma1", "ma2", "arma11", "near_unit_root"]
 ARMA_FAMILIES: tuple[ArmaFamily, ...] = (

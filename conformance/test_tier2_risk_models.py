@@ -51,10 +51,6 @@ GJR_GARCH_11_VARIANCE_FAMILIES: tuple[str, ...] = tuple(
 )
 GJR_GARCH_11_VARIANCE_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
-# Fitting needs enough observations to identify four free parameters reliably; drawn lengths are
-# clipped up front (see `_fit_garch_len_strategy`) so "short"/"tiny" generator draws never reach
-# the fitter at all -- only "medium" and "long" are declared.
-
 
 @settings(max_examples=400)
 @given(tagged=returns_series(min_len=EWMA_VARIANCE_MIN_LEN), lambda_=st.floats(0.80, 0.99))
@@ -69,9 +65,6 @@ def test_ewma_variance_matches_hand_recursion(tagged: TaggedReturns, lambda_: fl
     )
 
 
-# alpha+beta capped at 0.9 (see `conformance.targets.risk_models._BurnInArrayComparator`'s
-# docstring): keeps the two seedings' transient well inside the fixed 300-point burn-in that
-# comparator uses.
 @settings(max_examples=400)
 @given(
     tagged=returns_series(min_len=GARCH_11_VARIANCE_MIN_LEN, families=GARCH_11_VARIANCE_FAMILIES),

@@ -20,11 +20,10 @@ edit, or when one test module is run alone. With the collection switched off, th
 Everything recorded during the session is written to disk at the end of the run:
 `results/raw.json` (the `classify.CaseResult`s from every `harness.check()`/
 `harness.check_second_oracle()` call, which `build_report.py` classifies), `results/details.json`
-(the seeds and raw values `build_report.py` uses to write findings), `results/edge_cases.json`
-(every `edge_cases.observe()` observation), and `results/meta.json` (the active hypothesis
-profile, so a report built from these files knows which profile produced them from the results
-themselves, not from an environment variable that could have changed between the test run and
-the report build).
+(the seeds and raw values `build_report.py` uses to write findings) and `results/meta.json` (the
+active hypothesis profile, so a report built from these files knows which profile produced them
+from the results themselves, not from an environment variable that could have changed between the
+test run and the report build).
 
 The files go to `conformance/results/` unless `QUANTCORE_CONFORMANCE_RESULTS_DIR` names another
 directory, which lets several sessions (for example one per test module) run at the same time
@@ -40,14 +39,13 @@ from hypothesis import settings
 from hypothesis.internal.conjecture import providers
 from hypothesis.internal.constants_ast import Constants
 
-from conformance import edge_cases, harness
+from conformance import harness
 
 RESULTS_DIR = Path(
     os.environ.get("QUANTCORE_CONFORMANCE_RESULTS_DIR", Path(__file__).parent / "results")
 )
 RAW_RESULTS_PATH = RESULTS_DIR / "raw.json"
 DETAILS_PATH = RESULTS_DIR / "details.json"
-EDGE_CASES_PATH = RESULTS_DIR / "edge_cases.json"
 META_PATH = RESULTS_DIR / "meta.json"
 
 _KNOWN_PROFILES = ("ci", "full", "explore")
@@ -98,11 +96,10 @@ if _active_profile in _DERANDOMIZED_PROFILES:
 def pytest_sessionstart() -> None:
     """Clear any results left over from a previous run before this session records new ones."""
     harness.reset()
-    edge_cases.reset()
 
 
 def pytest_sessionfinish() -> None:
-    """Write every recorded case, repro detail, edge-case observation, and the active profile."""
+    """Write every recorded case, repro detail and the active profile."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     records = [dataclasses.asdict(case) for case in harness.results()]
@@ -110,11 +107,6 @@ def pytest_sessionfinish() -> None:
 
     detail_records = [dataclasses.asdict(detail) for detail in harness.details()]
     DETAILS_PATH.write_text(json.dumps(detail_records, indent=2, sort_keys=True), encoding="utf-8")
-
-    edge_case_records = [dataclasses.asdict(obs) for obs in edge_cases.observations()]
-    EDGE_CASES_PATH.write_text(
-        json.dumps(edge_case_records, indent=2, sort_keys=True), encoding="utf-8"
-    )
 
     META_PATH.write_text(
         json.dumps({"hypothesis_profile": _active_profile}, indent=2, sort_keys=True),

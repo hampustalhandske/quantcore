@@ -1,6 +1,6 @@
 """`classify()`: pure function turning recorded conformance cases into a conformance status.
 
-No file I/O, no process state, no randomness: given the same `CaseResult`s and flags, `classify()`
+No file I/O, no process state, no randomness: given the same `CaseResult`s, `classify()`
 always returns the same status. That makes it directly unit-testable without running the (slow,
 hypothesis-driven) conformance suite itself, and it is the single place the verdict rule
 ("verified" only when quantcore was within tolerance of its oracle on every recorded case) is
@@ -26,7 +26,7 @@ class CaseResult:
     `results/raw.json`; `build_report.py` reads them back to call `classify()`.
 
     One input can yield several `CaseResult`s: a function returning several named quantities
-    (e.g. `engle_granger_test`'s `statistic` and `p_value`) is recorded as one `CaseResult` per
+    (e.g. `jarque_bera`'s `statistic` and `p_value`) is recorded as one `CaseResult` per
     quantity, all sharing the same `function`, `family`, and `length_bucket`.
 
     Attributes:
@@ -74,58 +74,32 @@ class CaseResult:
     oracle: str = ""
 
 
-def classify(
-    cases: Sequence[CaseResult],
-    *,
-    has_reference: bool,
-    alternative_matches: bool | None = None,
-) -> ConformanceStatus:
+def classify(cases: Sequence[CaseResult]) -> ConformanceStatus:
     """Turn recorded differential-testing cases into a conformance status.
 
     Args:
-        cases: Every `CaseResult` `harness.check()` recorded for one target, already
-            filtered to `oracle == ""` (the primary quantcore-vs-reference comparison) by the
-            caller — a second-oracle cross-check case (e.g. `oracle="quantstats"`) must never
+        cases: Every `CaseResult` `harness.check()` recorded for one target that has an oracle,
+            already filtered to `oracle == ""` (the primary quantcore-vs-reference comparison) by
+            the caller -- a second-oracle cross-check case (e.g. `oracle="quantstats"`) must never
             reach this function, since it compares a different pair of values entirely. Must be
-            non-empty when ``has_reference`` is `True` (a real conformance run always produces at
-            least one case for a target with a reference callable); ignored (may be empty) when
-            ``has_reference`` is `False`, since `harness.check()` never records a case for a
-            target with no reference to compare against.
-        has_reference: Whether this target has an independent reference/oracle callable at all.
-        alternative_matches: Whether the function's conformance module supplies a documented,
-            cited `alternative_definition` that reproduces quantcore's output within tolerance on
-            every case where the standard comparison failed. Computed upstream by the harness (it
-            has the raw values to test the alternative definition against); `None` means no
-            alternative definition was supplied. Ignored unless the standard comparison fails.
+            non-empty.
 
     Returns:
-        The status: `unverifiable` when there is no reference to compare against; `verified` when
-        quantcore never raised and every case was within tolerance; otherwise `non-standard` if
-        ``alternative_matches`` is true, else `defect`. A function recording several quantities
-        (e.g. a statistic and a p-value, each its own `CaseResult` with a distinct `quantity`) is
-        `verified` only if every quantity in every case was within tolerance: this falls out of
-        the rule applying to `cases` as a whole, without needing to group by `quantity` itself.
+        `verified` when quantcore never raised and every case was within tolerance, otherwise
+        `defect`. A function recording several quantities (e.g. a statistic and a p-value, each
+        its own `CaseResult` with a distinct `quantity`) is `verified` only if every quantity in
+        every case was within tolerance: this falls out of the rule applying to `cases` as a
+        whole, without needing to group by `quantity` itself.
 
     Raises:
-        ValueError: ``has_reference`` is `True` but ``cases`` is empty.
+        ValueError: ``cases`` is empty.
     """
-    if not has_reference:
-        return "unverifiable"
-
     if not cases:
-        raise ValueError("classify() called with no recorded cases but has_reference=True")
+        raise ValueError("classify() called with no recorded cases")
 
     quantcore_ever_raised = any(bool(case.quantcore_raised) for case in cases)
-    all_within_tolerance = not quantcore_ever_raised and all(
-        case.within_tolerance for case in cases
-    )
-
-    if all_within_tolerance:
+    if not quantcore_ever_raised and all(case.within_tolerance for case in cases):
         return "verified"
-
-    if alternative_matches:
-        return "non-standard"
-
     return "defect"
 
 
@@ -163,18 +137,17 @@ class ObjectiveCase:
     is on that scale already; an objective that is minimised (a portfolio variance, a sum of
     squares) must be negated by whoever builds the case.
 
-    Built by `conformance.harness.check()`'s recorded `family` and the two attained log-likelihood
-    values it logs for the `log_likelihood` quantity of a fitter like `fit_garch_11`: two correct
-    local optimizers can legitimately land on different local optima, so parameters are never
-    compared directly; only the attained objective, under one shared likelihood, is.
+    Built by `conformance.harness.check()`'s recorded `family` and the two attained objective
+    values it logs for the objective quantity of an iterative estimator like `arima_fit`: two
+    correct optimizers can legitimately land on different optima, so parameters are never compared
+    directly; only the attained objective, under one shared objective function, is.
 
     Attributes:
         family: Generator family the input came from, e.g. `"student_t3"`.
         well_specified: Whether `family` matches the fitter's own assumed distribution (e.g.
-            Gaussian innovations for a Gaussian-likelihood GARCH fitter). A misspecified family
-            (e.g. Student-t(3) data under a Gaussian likelihood) is expected to produce
-            boundary/local-optimum disagreements that are not, on their own, evidence of a
-            quantcore defect.
+            Gaussian innovations for a Gaussian-likelihood fitter). A misspecified family is
+            expected to produce boundary/local-optimum disagreements that are not, on their own,
+            evidence of a quantcore defect.
         quantcore_objective: quantcore's attained objective at its own solution, larger meaning
             better, or `-inf` if quantcore raised (it did not even produce a solution to
             evaluate).
@@ -276,13 +249,13 @@ def classify_iterative_estimator(
     non_standard_median_gap_threshold: float = NON_STANDARD_MEDIAN_GAP_THRESHOLD,
     non_convergence_fraction_cap: float = NON_CONVERGENCE_FRACTION_CAP,
 ) -> IterativeEstimatorDecision:
-    """Classify an iterative estimator (a GARCH-family fitter, HMM EM, any non-convex MLE).
+    """Classify an iterative estimator (an ARMA maximum-likelihood fit, a convex optimiser, ...).
 
     Classifies an iterative estimator without a unique optimum: the comparison is on the
     attained objective (not raw parameters, which two correct optimizers may legitimately
     disagree on), decided by a one-sided binomial sign test plus a median-gap threshold on
-    well-specified cases only. Misspecified-family cases (e.g. Student-t(3) data under a Gaussian
-    likelihood) are never passed to the sign test or the median -- they are reported
+    well-specified cases only. Misspecified-family cases (families the estimator's own assumptions
+    exclude) are never passed to the sign test or the median -- they are reported
     (`tally_objective_outcomes`) but never decide the status.
 
     ``rtol``/``atol`` are the SAME `Tolerance` declared for this function in

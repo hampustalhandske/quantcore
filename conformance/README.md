@@ -32,8 +32,7 @@ writes. A test does fail when the *oracle* raises or returns a non-finite value,
 invalidates the comparison itself.
 
 The test run writes `raw.json` (one row per case and quantity), `details.json` (seeds and
-values, for findings), `edge_cases.json` (what quantcore does on inputs outside its contract)
-and `meta.json` (the profile) to `conformance/results/`. Set `QUANTCORE_CONFORMANCE_RESULTS_DIR`
+values, for findings) and `meta.json` (the profile) to `conformance/results/`. Set `QUANTCORE_CONFORMANCE_RESULTS_DIR`
 to write them, and have the builder read them, somewhere else; this lets several runs proceed at
 once. The builder needs the results of a whole run: after `uv run pytest
 conformance/test_tier1_risk.py` alone, every other target has no recorded case and the build
@@ -89,7 +88,7 @@ that family. If a test itself fails under `explore`, hypothesis prints a blob; r
 | status | meaning |
 |---|---|
 | `verified` | Within the written tolerance of the oracle on every recorded case, and quantcore never raised on a generated input. |
-| `non-standard` | Sound, but not the standard result: a documented alternative definition, or (iterative estimators) an attained objective that is systematically but only slightly worse than the oracle's. |
+| `non-standard` | Sound, but not the standard result: for an iterative estimator, an attained objective that is systematically but only slightly worse than the oracle's. |
 | `defect` | Outside tolerance, or raising, with no such explanation. |
 | `unverifiable` | Nothing judged it: the target has no oracle (`reference=None`), or its comparator only records agreement (`ReportOnlyScalarComparator`, used where several answers are equally right, such as an information-criterion-optimal order). |
 
@@ -97,15 +96,15 @@ that family. If a test itself fails under `explore`, hypothesis prints a blob; r
 `tests/unit/conformance/test_classify.py`.
 
 **Iterative estimators.** A fitter or optimiser without a unique numerical optimum
-(`ITERATIVE_ESTIMATORS` in `build_report.py`: the GARCH-family fits, `arima_fit` and the
-mean-variance optimisers) is not compared on its parameters. Both solutions are scored by one
+(`ITERATIVE_ESTIMATORS` in `build_report.py`: `arima_fit` and the unconstrained
+mean-variance optimiser) is not compared on its parameters. Both solutions are scored by one
 shared objective function, and a one-sided sign test over the well-specified cases decides the
 status (`classify_iterative_estimator`): `verified` when quantcore's attained objective is not
 worse significantly more often than it is better and its median gap is not below the tolerance;
 otherwise `non-standard` while the median shortfall stays small, and `defect` when it does not
 or when quantcore fails to converge on more than 5% of the cases. Each estimator declares
 whether its recorded objective is maximised (a log-likelihood, a mean-variance utility) or
-minimised (a portfolio variance); a win is always the better objective.
+minimised; a win is always the better objective.
 
 **Condition-aware tolerances.** A `ConditionAwareTolerance` widens with a per-case condition
 number. A case whose effective tolerance would exceed the cap in `tolerances.py` is recorded as
@@ -183,7 +182,7 @@ declare its coverage. The build fails, naming every problem at once, when
 - a declared length bucket lies entirely below the declared minimum length, or
 - a declared family or bucket has no recorded case in the run.
 
-`build_report.configuration_errors` and `build_report.missing_coverage` hold the complete rules.
+`build_report.configuration_errors` and `build_report.missing_coverage_by_target` hold the complete rules.
 
 ## Adding a quantity
 

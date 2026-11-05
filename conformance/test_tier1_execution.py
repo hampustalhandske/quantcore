@@ -16,9 +16,7 @@ from dataclasses import dataclass
 from hypothesis import given
 from hypothesis import strategies as st
 
-import quantcore.execution as qc_execution
 from conformance.compare import registry
-from conformance.edge_cases import observe
 from conformance.harness import check
 from conformance.targets.execution import (
     margin_financing_cost,
@@ -213,9 +211,7 @@ def test_margin_financing_cost_matches_closed_form(case: CarryCase) -> None:
 
 # --- Contract tests: NaN/inf/negative through the validating functions of `targets.execution` ---
 #
-# What raw quantcore does on these same inputs is recorded via `conformance.edge_cases.observe`
-# (feeds findings) but never asserted on -- a raw quantcore misbehaviour on an invalid input is
-# not this suite's job to fail the build over.
+# The targets' validating wrappers must reject invalid input with `ValueError`.
 
 
 def test_square_root_market_impact_rejects_nan_inf_and_bad_sign() -> None:
@@ -243,26 +239,6 @@ def test_square_root_market_impact_rejects_nan_inf_and_bad_sign() -> None:
             pass
         else:
             raise AssertionError(f"expected ValueError for {argument}={bad_value!r}")
-    observe(
-        "square_root_market_impact",
-        "quantcore",
-        "nan trade_size",
-        qc_execution.square_root_market_impact,
-        math.nan,
-        1_000_000.0,
-        0.02,
-        1.0,
-    )
-    observe(
-        "square_root_market_impact",
-        "quantcore",
-        "zero adv",
-        qc_execution.square_root_market_impact,
-        1000.0,
-        0.0,
-        0.02,
-        1.0,
-    )
 
 
 def test_short_borrow_cost_rejects_nan_inf_and_negative() -> None:
@@ -286,15 +262,6 @@ def test_short_borrow_cost_rejects_nan_inf_and_negative() -> None:
             pass
         else:
             raise AssertionError(f"expected ValueError for {argument}={bad_value!r}")
-    observe(
-        "short_borrow_cost",
-        "quantcore",
-        "negative notional",
-        qc_execution.short_borrow_cost,
-        -1.0,
-        0.02,
-        30,
-    )
 
 
 def test_margin_financing_cost_rejects_nan_inf_and_negative() -> None:
@@ -318,12 +285,3 @@ def test_margin_financing_cost_rejects_nan_inf_and_negative() -> None:
             pass
         else:
             raise AssertionError(f"expected ValueError for {argument}={bad_value!r}")
-    observe(
-        "margin_financing_cost",
-        "quantcore",
-        "negative notional",
-        qc_execution.margin_financing_cost,
-        -1.0,
-        0.05,
-        30,
-    )

@@ -32,7 +32,6 @@ pytest.importorskip("empyrical")
 pytest.importorskip("quantstats")
 pytest.importorskip("vollib")
 pytest.importorskip("hmmlearn")
-pytest.importorskip("cvxpy")
 
 import conformance.build_report as build_report_module
 from conformance import test_tier2_filtering
@@ -47,12 +46,10 @@ from conformance.build_report import (
     DeclaredCoverage,
     IterativeEstimator,
     QuantityErrors,
-    ReproCallConfig,
     ReproRunResult,
     TargetRecord,
     ToleranceRecord,
     _assert_no_extreme_magnitude,
-    _total_numbers,
     aggregate_errors,
     build_conformance_map,
     configuration_errors,
@@ -68,7 +65,6 @@ from conformance.build_report import (
     incomplete_targets,
     iterative_estimator_decision,
     matched_pairs,
-    missing_coverage,
     missing_coverage_by_target,
     missing_finding_sources,
     objective_cases_for,
@@ -78,7 +74,6 @@ from conformance.build_report import (
     oracle_versions,
     oriented_objective,
     parse_repro_stdout,
-    parse_repro_summary,
     per_function_counts,
     reconstruct_args,
     remove_stale_findings,
@@ -240,10 +235,10 @@ _DECLARED = {
 }
 
 
-def test_missing_coverage_empty_when_every_declared_cell_has_a_case() -> None:
+def test_missing_coverage_by_target_empty_when_every_declared_cell_has_a_case() -> None:
     """No missing-coverage lines when every declared family and bucket has at least one case."""
     counts = {"sharpe_ratio": ({"normal": 3, "ar1": 1}, {"short": 2, "medium": 2})}
-    assert missing_coverage(_DECLARED, counts) == []
+    assert missing_coverage_by_target(_DECLARED, counts) == {}
 
 
 @pytest.mark.parametrize(
@@ -255,10 +250,12 @@ def test_missing_coverage_empty_when_every_declared_cell_has_a_case() -> None:
     ],
     ids=["empty-family", "empty-bucket", "target-missing-entirely"],
 )
-def test_missing_coverage_reports_the_empty_cell(counts, expected_substring: str) -> None:
+def test_missing_coverage_by_target_reports_the_empty_cell(counts, expected_substring: str) -> None:
     """A declared family or bucket with zero recorded cases produces a line naming it."""
-    missing = missing_coverage(_DECLARED, counts)
-    assert any("sharpe_ratio" in line and expected_substring in line for line in missing)
+    missing = missing_coverage_by_target(_DECLARED, counts)
+    assert any(
+        "sharpe_ratio" in line and expected_substring in line for line in missing["sharpe_ratio"]
+    )
 
 
 def test_headline_case_tolerance_violation_none_when_genuinely_outside_tolerance() -> None:
@@ -746,10 +743,10 @@ def test_unused_finding_sources_lists_sources_of_targets_without_a_finding(
     ],
     ids=["single-array", "two-arrays", "scalar"],
 )
-def test_reconstruct_args_and_total_numbers(inputs_repr: str, expected_total: int) -> None:
-    """reconstruct_args rebuilds the input tuple; _total_numbers counts its scalars."""
+def test_reconstruct_args_rebuilds_the_input_tuple(inputs_repr: str, expected_total: int) -> None:
+    """reconstruct_args rebuilds the input tuple, holding as many scalars as the repr shows."""
     args = reconstruct_args(inputs_repr)
-    assert _total_numbers(args) == expected_total
+    assert sum(np.size(arg) for arg in args) == expected_total
 
 
 def _cr(
@@ -1023,91 +1020,6 @@ def test_verify_repro_timeout_path_returns_an_error(monkeypatch) -> None:
     assert verified is None
     assert error is not None
     assert "timed out" in error
-
-
-def test_render_minimal_repro_uses_a_summary_expr_for_an_array_valued_quantity(
-    monkeypatch,
-) -> None:
-    """A quantity declared in `summary_expr` prints one `summary` line, not expected/actual/diff.
-
-    Synthetic array-valued case: the quantity's raw output (a decoded-state array) is
-    not itself a scalar, so the repro instead prints a reduced scalar SUMMARY (here, the
-    agreement rate between two arrays).
-    """
-    config = ReproCallConfig(
-        module_import="import numpy as _np",
-        quantcore_call="_np.array([1, 1, 0, 1])",
-        oracle_import="",
-        oracle_call="_np.array([1, 1, 1, 1])",
-        arg_names=("states",),
-        quantity_index={},
-        summary_expr={"agreement": "float(_np.mean(quantcore_result == oracle_result))"},
-        summary_ok={"agreement": lambda summary: summary >= 1.0},
-    )
-    monkeypatch.setitem(build_report_module.REPRO_CONFIGS, "synthetic_decoder", config)
-    detail = _rd(
-        function="synthetic_decoder", quantity="agreement", inputs_repr="(array([1.0, 2.0]),)"
-    )
-    code = render_minimal_repro("synthetic_decoder", "agreement", detail)
-    assert 'print("summary:", repr(summary))' in code
-    assert "expected (oracle)" not in code
-
-    result = run_repro_subprocess(code)
-    assert result.returncode == 0
-    summary = parse_repro_summary(result.stdout)
-    assert summary == pytest.approx(0.75)
-
-
-def test_verify_repro_summary_path_returns_a_verified_repro_with_a_summary(monkeypatch) -> None:
-    """A summary-quantity repro that still fails `summary_ok` returns a `VerifiedRepro.summary`."""
-    config = ReproCallConfig(
-        module_import="",
-        quantcore_call="",
-        oracle_import="",
-        oracle_call="",
-        arg_names=("states",),
-        quantity_index={},
-        summary_expr={"agreement": "0.75"},
-        summary_ok={"agreement": lambda summary: summary >= 1.0},
-    )
-    monkeypatch.setitem(build_report_module.REPRO_CONFIGS, "synthetic_decoder", config)
-    monkeypatch.setattr(
-        build_report_module,
-        "render_minimal_repro",
-        lambda function, quantity, detail: "print('summary:', repr(0.75))",
-    )
-    tolerance = Tolerance(rtol=1e-10, atol=1e-10, justification="test")
-    verified, error = verify_repro("synthetic_decoder", "agreement", _rd(), tolerance)
-    assert error is None
-    assert verified is not None
-    assert verified.summary == pytest.approx(0.75)
-    assert verified.expected is None
-    assert verified.actual is None
-
-
-def test_verify_repro_summary_path_reports_stale_when_summary_ok(monkeypatch) -> None:
-    """A summary that satisfies `summary_ok` means the case does not reproduce the finding."""
-    config = ReproCallConfig(
-        module_import="",
-        quantcore_call="",
-        oracle_import="",
-        oracle_call="",
-        arg_names=("states",),
-        quantity_index={},
-        summary_expr={"agreement": "1.0"},
-        summary_ok={"agreement": lambda summary: summary >= 1.0},
-    )
-    monkeypatch.setitem(build_report_module.REPRO_CONFIGS, "synthetic_decoder", config)
-    monkeypatch.setattr(
-        build_report_module,
-        "render_minimal_repro",
-        lambda function, quantity, detail: "print('summary:', repr(1.0))",
-    )
-    tolerance = Tolerance(rtol=1e-10, atol=1e-10, justification="test")
-    verified, error = verify_repro("synthetic_decoder", "agreement", _rd(), tolerance)
-    assert verified is None
-    assert error is not None
-    assert "no longer reproduces" in error
 
 
 def test_verified_functions_from_map_selects_only_verified_status() -> None:
@@ -1801,7 +1713,7 @@ def test_builder_tables_name_only_registered_targets() -> None:
 
 
 def test_missing_coverage_by_target_groups_the_lines_of_missing_coverage() -> None:
-    """The grouped form holds the same lines as the flat one, keyed by target."""
+    """Only a target with an empty declared cell appears, with one line per empty cell."""
     declared = {
         "a": DeclaredCoverage(families=("normal", "ar1"), buckets=("short",)),
         "b": DeclaredCoverage(families=("normal",), buckets=("short",)),
@@ -1809,7 +1721,6 @@ def test_missing_coverage_by_target_groups_the_lines_of_missing_coverage() -> No
     counts = {"a": ({"normal": 1}, {}), "b": ({"normal": 1}, {"short": 1})}
     by_target = missing_coverage_by_target(declared, counts)
     assert list(by_target) == ["a"]
-    assert by_target["a"] == missing_coverage(declared, counts)
     assert len(by_target["a"]) == 2
 
 

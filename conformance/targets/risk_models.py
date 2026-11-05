@@ -166,12 +166,3 @@ _GJR_GARCH_11_VARIANCE = ConformanceTarget(
     quantcore=_gjr_garch_11_variance_quantcore,
     reference=_gjr_garch_11_variance_reference,
 )
-
-
-# --- fit_garch_11, egarch_fit, gjr_garch_fit --------------------------------------------------
-#
-# Each fitter is one `ConformanceTarget` returning `(log_likelihood, params)`: the likelihood
-# alone is judged (the optimum is not unique); `params` are reported, never compared.
-
-FitResult = tuple[float, npt.NDArray[np.float64]]
-"""`(log_likelihood, params)`, as every fitter's quantcore adapter and oracle return it."""

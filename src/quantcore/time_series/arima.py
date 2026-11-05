@@ -80,7 +80,6 @@ import numba
 import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
-from statsmodels.stats.diagnostic import acorr_ljungbox
 
 from quantcore.risk.volatility import ConvergenceError
 
@@ -138,6 +137,8 @@ def ljung_box_test(
 def _ljung_box_test(
     residuals: npt.NDArray[np.float64], n_lags: int, model_df: int = 0
 ) -> tuple[float, float]:
+    from statsmodels.stats.diagnostic import acorr_ljungbox
+
     table = acorr_ljungbox(
         residuals,
         lags=[n_lags],

@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import quantcore.time_series.var_model as var_model
 from quantcore.time_series.var_model import (
     granger_causality_test,
     impulse_response,
@@ -188,14 +187,14 @@ class TestStatsmodelsConventions:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         seen: dict[str, object] = {}
-        real = var_model.VAR
+        from statsmodels.tsa.vector_ar.var_model import VAR
 
-        class Spy(real):  # type: ignore[valid-type, misc]
+        class Spy(VAR):  # type: ignore[valid-type, misc]
             def fit(self, **kwargs: object):  # type: ignore[no-untyped-def]
                 seen.update(kwargs)
                 return super().fit(**kwargs)
 
-        monkeypatch.setattr(var_model, "VAR", Spy)
+        monkeypatch.setattr("statsmodels.tsa.vector_ar.var_model.VAR", Spy)
         var_fit(_simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 80, RNG_SEED), 2)
         assert seen == {"maxlags": 2, "method": "ols", "ic": None, "trend": "c", "verbose": False}
 
@@ -209,7 +208,7 @@ class TestStatsmodelsConventions:
             seen["data"] = data
             return {3: ({"ssr_ftest": (2.5, 0.05, 90.0, 3)}, None)}
 
-        monkeypatch.setattr(var_model, "grangercausalitytests", spy)
+        monkeypatch.setattr("statsmodels.tsa.stattools.grangercausalitytests", spy)
         y, x = np.arange(20.0), np.arange(20.0)[::-1] * 2.0
         assert granger_causality_test(y, x, 3) == (2.5, 0.05)
         assert seen["maxlag"] == [3] and seen["addconst"] is True

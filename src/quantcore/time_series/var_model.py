@@ -30,8 +30,6 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-from statsmodels.tsa.stattools import grangercausalitytests
-from statsmodels.tsa.vector_ar.var_model import VAR, forecast, ma_rep
 
 
 def _validate_var_fit_inputs(data: npt.NDArray[np.float64], n_lags: int) -> None:
@@ -91,6 +89,8 @@ def _var_fit(
     data: npt.NDArray[np.float64],
     n_lags: int,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    from statsmodels.tsa.vector_ar.var_model import VAR
+
     result = VAR(data).fit(maxlags=n_lags, method="ols", ic=None, trend="c", verbose=False)
     coef_matrix = np.hstack([np.concatenate(list(result.coefs), axis=1), result.intercept[:, None]])
     return coef_matrix, np.asarray(result.sigma_u, dtype=np.float64)
@@ -139,6 +139,8 @@ def select_var_lag_order(
     if k < 2:
         raise ValueError("a VAR needs at least 2 series")
     n_eff = n_obs - max_lags
+
+    from statsmodels.tsa.vector_ar.var_model import VAR
 
     best_n_lags: int | None = None
     best_score = np.inf
@@ -212,6 +214,8 @@ def _var_forecast(
     n_lags: int,
     h: int,
 ) -> npt.NDArray[np.float64]:
+    from statsmodels.tsa.vector_ar.var_model import forecast
+
     lag_matrices, intercept = _coefs_from_matrix(coef_matrix, n_lags)
     return np.asarray(forecast(data[-n_lags:], lag_matrices, intercept, h), dtype=np.float64)
 
@@ -263,6 +267,8 @@ def _impulse_response(
     n_lags: int,
     n_periods: int,
 ) -> npt.NDArray[np.float64]:
+    from statsmodels.tsa.vector_ar.var_model import ma_rep
+
     lag_matrices, _ = _coefs_from_matrix(coef_matrix, n_lags)
     p_chol = np.linalg.cholesky(sigma_u)
     # Phi_h P for the moving-average matrices Phi_0 = I, Phi_h = sum_j A_j Phi_{h-j}.
@@ -308,6 +314,8 @@ def _granger_causality_test(
     x: npt.NDArray[np.float64],
     n_lags: int,
 ) -> tuple[float, float]:
+    from statsmodels.tsa.stattools import grangercausalitytests
+
     # The second column is tested as a Granger cause of the first; the F-test
     # compares the residual sums of squares of the restricted and unrestricted
     # regressions, both with a constant.

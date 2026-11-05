@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import quantcore.statistics.cointegration as cointegration
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
@@ -121,7 +120,7 @@ class TestStatsmodelsConventions:
             seen.update(kwargs)
             return -3.0, 0.04
 
-        monkeypatch.setattr(cointegration, "adfuller", spy)
+        monkeypatch.setattr("statsmodels.tsa.stattools.adfuller", spy)
         assert adf_test(_random_walk(50), max_lags=3, trend="ct", autolag=autolag) == (-3.0, 0.04)
         assert seen == {
             "maxlag": 3,
@@ -141,7 +140,7 @@ class TestStatsmodelsConventions:
             seen.update(kwargs)
             return -3.5, 0.02, None
 
-        monkeypatch.setattr(cointegration, "coint", spy)
+        monkeypatch.setattr("statsmodels.tsa.stattools.coint", spy)
         x = _random_walk(50)
         beta, statistic, p_value = engle_granger_test(2.0 * x + 1.0, x)
         assert beta == pytest.approx(2.0)

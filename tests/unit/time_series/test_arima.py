@@ -1388,7 +1388,7 @@ def test_ljung_box_passes_every_statsmodels_option_explicitly(
         seen.update(kwargs)
         return pd.DataFrame({"lb_stat": [4.5], "lb_pvalue": [0.25]})
 
-    monkeypatch.setattr(arima_module, "acorr_ljungbox", spy)
+    monkeypatch.setattr("statsmodels.stats.diagnostic.acorr_ljungbox", spy)
     result = ljung_box_test(np.random.default_rng(0).standard_normal(50), 8, model_df=2)
     assert result == (4.5, 0.25)
     assert seen == {

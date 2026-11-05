@@ -51,8 +51,6 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import chi2
-from statsmodels.stats.diagnostic import het_arch
-from statsmodels.tsa.stattools import kpss
 
 # ---------------------------------------------------------------------------
 # Shared input checks
@@ -221,6 +219,8 @@ def arch_lm_test(
 
 
 def _arch_lm_test(residuals: npt.NDArray[np.float64], n_lags: int) -> tuple[float, float]:
+    from statsmodels.stats.diagnostic import het_arch
+
     constant_message = (
         "squared residuals are constant over the regression sample; "
         "the ARCH-LM statistic is undefined"
@@ -386,6 +386,8 @@ def _check_kpss_is_defined(scaled: npt.NDArray[np.float64], n_lags: int | None, 
 def _kpss_test(
     series: npt.NDArray[np.float64], n_lags: int | None, trend: str
 ) -> tuple[float, float, bool]:
+    from statsmodels.tsa.stattools import kpss
+
     # The statistic and the automatic lag count are ratios from which the
     # units cancel; a power-of-two rescaling keeps every digit and brings the
     # sums of squares into range.

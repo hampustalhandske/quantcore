@@ -8,7 +8,7 @@ from fractions import Fraction
 import numpy as np
 import pytest
 
-from quantcore.statistics import arch_lm_test, diagnostics, jarque_bera_test, kpss_test
+from quantcore.statistics import arch_lm_test, jarque_bera_test, kpss_test
 
 RNG_SEED = 12345
 
@@ -518,7 +518,7 @@ class TestStatsmodelsConventions:
             seen["n"] = resid.size
             return 3.0, 0.5, 0.0, 0.0
 
-        monkeypatch.setattr(diagnostics, "het_arch", spy)
+        monkeypatch.setattr("statsmodels.stats.diagnostic.het_arch", spy)
         assert arch_lm_test(_white_noise(37)) == (3.0, 0.5)
         assert seen == {"nlags": 7, "store": False, "ddof": 0, "result_object": False, "n": 37}
 
@@ -533,7 +533,7 @@ class TestStatsmodelsConventions:
             seen.update(kwargs)
             return 0.2, 0.1, 0, {"10%": 0.347, "5%": 0.463, "2.5%": 0.574, "1%": 0.739}
 
-        monkeypatch.setattr(diagnostics, "kpss", spy)
+        monkeypatch.setattr("statsmodels.tsa.stattools.kpss", spy)
         statistic, p_value, at_bound = kpss_test(_white_noise(50), n_lags, trend)
         assert seen == {
             "regression": trend,

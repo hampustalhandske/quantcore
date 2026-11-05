@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-from statsmodels.tsa.stattools import adfuller, coint
 
 # ---------------------------------------------------------------------------
 # ADF unit-root test
@@ -125,6 +124,8 @@ def adf_test(
 def _adf_test(
     series: npt.NDArray[np.float64], max_lags: int, trend: str, autolag: str | None
 ) -> tuple[float, float]:
+    from statsmodels.tsa.stattools import adfuller
+
     statistic, p_value, *_ = adfuller(
         series,
         maxlag=max_lags,
@@ -188,6 +189,8 @@ def engle_granger_test(
 def _engle_granger_test(
     y: npt.NDArray[np.float64], x: npt.NDArray[np.float64]
 ) -> tuple[float, float, float]:
+    from statsmodels.tsa.stattools import coint
+
     design = np.column_stack([np.ones_like(x), x])
     beta = float(np.linalg.lstsq(design, y, rcond=None)[0][1])
     # Step 2 is `coint`'s augmented Engle-Granger test: ADF on the residuals

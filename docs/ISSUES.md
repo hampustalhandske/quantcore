@@ -220,7 +220,7 @@ enforced, L-BFGS `maxiter=1000`, `pgtol=1e-10`, `factr=10`:
 With the statsmodels defaults (`ARIMA`, d = 1 in the state space) the non-convergence rate over
 800 fits per length was 16.1% at 60 points and 11.5% at 120 points, against 0% for quantcore.
 
-### QC-16: A typed exception for a CIR fit with no mean reversion — open
+### QC-16: A typed exception for a CIR fit with no mean reversion — done (`CIRNoMeanReversionError`)
 Priority: should; not on the v0.3.0 path unless it folds into the trim at no cost. Raised by
 agentic-trading (AT-119), 2026-11-05.
 

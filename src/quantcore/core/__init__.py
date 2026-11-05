@@ -6,6 +6,7 @@ from quantcore.core.price_paths import (
 )
 from quantcore.core.sde_solver import simulate_gbm_paths
 from quantcore.core.stochastic import (
+    CIRNoMeanReversionError,
     CIRParams,
     cir_fit,
     simulate_cir_paths,
@@ -13,6 +14,7 @@ from quantcore.core.stochastic import (
 )
 
 __all__ = [
+    "CIRNoMeanReversionError",
     "CIRParams",
     "cir_fit",
     "simulate_cir_paths",

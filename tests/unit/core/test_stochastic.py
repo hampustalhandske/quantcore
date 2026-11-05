@@ -5,7 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import quantcore.core as qc_core
+import quantcore.core.stochastic as stochastic_module
 from quantcore.core.stochastic import (
+    CIRNoMeanReversionError,
     CIRParams,
     cir_fit,
     simulate_cir_paths,
@@ -194,6 +197,45 @@ class TestCirFit:
     def test_non_positive_rate_value_raises(self) -> None:
         with pytest.raises(ValueError):
             cir_fit(np.array([0.03, 0.031, 0.0, 0.029, 0.032]), dt=1.0 / 252)
+
+    def test_rising_series_raises_no_mean_reversion_error(self) -> None:
+        rising = 0.01 * 1.01 ** np.arange(20)
+        with pytest.raises(CIRNoMeanReversionError, match="kappa <= 0"):
+            cir_fit(rising, dt=1.0)
+
+    def test_no_mean_reversion_error_is_a_runtime_error_exported_from_core(self) -> None:
+        assert issubclass(CIRNoMeanReversionError, RuntimeError)
+        assert qc_core.CIRNoMeanReversionError is CIRNoMeanReversionError
+
+    def test_non_positive_theta_raises_plain_runtime_error(self) -> None:
+        # r_{t+1} = r_t + (-0.01 - 0.1 * r_t): mean-reverting (kappa = 0.1) towards theta = -0.1.
+        rates = [1.0]
+        for _ in range(10):
+            rates.append(rates[-1] + (-0.01 - 0.1 * rates[-1]))
+        with pytest.raises(RuntimeError, match="theta <= 0") as excinfo:
+            cir_fit(np.array(rates), dt=1.0)
+        assert not isinstance(excinfo.value, CIRNoMeanReversionError)
+
+    def test_zero_residual_variance_raises_plain_runtime_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An exactly zero residual sum of squares is not reachable from floating-point data, so
+        # the module's `np.sum` is replaced, for this module only, by one that returns 0.0.
+        class _ZeroSumNumpy:
+            def __getattr__(self, name: str) -> object:
+                return getattr(np, name)
+
+            @staticmethod
+            def sum(*_args: object, **_kwargs: object) -> float:
+                return 0.0
+
+        monkeypatch.setattr(stochastic_module, "np", _ZeroSumNumpy())
+        rates = [2.0]
+        for _ in range(10):
+            rates.append(rates[-1] + 0.5 * (1.0 - rates[-1]))
+        with pytest.raises(RuntimeError, match="sigma\\^2 <= 0") as excinfo:
+            cir_fit(np.array(rates), dt=1.0)
+        assert not isinstance(excinfo.value, CIRNoMeanReversionError)
 
     @pytest.mark.parametrize(
         "kappa_true, theta_true, sigma_true, seed",

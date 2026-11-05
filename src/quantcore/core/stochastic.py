@@ -223,6 +223,15 @@ def _simulate_cir_paths(
     return _simulate_cir_paths_kernel(r0, kappa, theta, sigma, dt, z)
 
 
+class CIRNoMeanReversionError(RuntimeError):
+    """Raised by `cir_fit` when the estimated mean-reversion speed kappa is <= 0.
+
+    The input series shows no mean reversion, so no CIR model describes it. A subclass of
+    `RuntimeError`, so code that catches `RuntimeError` also catches it. The other inadmissible
+    fits (theta <= 0, sigma^2 <= 0) raise plain `RuntimeError`.
+    """
+
+
 @dataclass(frozen=True)
 class CIRParams:
     """Fitted CIR parameters, ready to pass straight into `simulate_cir_paths`.
@@ -295,10 +304,11 @@ def cir_fit(rate_series: npt.NDArray[np.float64], dt: float) -> CIRParams:
     Raises:
         ValueError: If `rate_series` is too short, contains a non-positive
             value, or `dt` is not strictly positive.
-        RuntimeError: If the fitted parameters fall outside the admissible
-            CIR parameter space (kappa <= 0, theta <= 0, or sigma <= 0) --
-            e.g. from an input series with no discernible mean reversion. No
-            silent fallback is returned in this case.
+        CIRNoMeanReversionError: If the estimated kappa is <= 0: the input
+            series shows no mean reversion. A `RuntimeError` subclass.
+        RuntimeError: If the estimated theta or sigma^2 is <= 0, outside the
+            admissible CIR parameter space. No silent fallback is returned in
+            either case.
 
     References:
         Chan, K.C., Karolyi, G.A., Longstaff, F.A., and Sanders, A.B. (1992),
@@ -329,7 +339,7 @@ def _cir_fit(rate_series: npt.NDArray[np.float64], dt: float) -> CIRParams:
 
     kappa = -float(b2)
     if kappa <= 0.0:
-        raise RuntimeError(
+        raise CIRNoMeanReversionError(
             "cir_fit: estimated kappa <= 0 -- input series shows no discernible "
             "mean reversion, so no admissible CIR fit exists for this data"
         )

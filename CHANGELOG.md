@@ -11,6 +11,26 @@ to see exactly what changed and why before upgrading.
 The changes on the `trim` branch were gated (full tests, mypy, conformance, conformance map) on
 the final tree only, not on each intermediate commit.
 
+### Added
+
+New public functions; no existing number moves.
+
+- `quantcore.statistics.hac_t_test`: a Newey-West (Bartlett) t-test of a mean, returning
+  `HacTResult`.
+- `quantcore.performance`: `sharpe_se_mertens`, `probabilistic_sharpe_ratio`,
+  `minimum_track_record_length`, `expected_max_sharpe` and `deflated_sharpe_ratio` (Bailey and
+  Lopez de Prado 2012, 2014; Mertens 2002).
+- `quantcore.statistics.optimal_block_length`, `stationary_bootstrap_ci` (percentile and BCa
+  intervals, returning `BootstrapInterval`) and `spa_test` (Hansen's SPA, returning
+  `SpaPValues`), computed with `arch.bootstrap` on a caller-supplied `numpy.random.Generator`.
+  In `arch` 8.0.0 the `studentize` flag does not change the SPA p-values.
+- `quantcore.statistics.cscv_pbo` (probability of backtest overfitting by combinatorially
+  symmetric cross-validation, returning `CscvPbo`) and `effective_n_eigen` (eigenvalue
+  participation ratio of the trials' correlation matrix).
+- `quantcore.core.CIRNoMeanReversionError`, a `RuntimeError` subclass that `cir_fit` raises when
+  the estimated kappa is <= 0. The message is unchanged. theta <= 0 and sigma^2 <= 0 still raise
+  plain `RuntimeError`.
+
 ### Removed
 
 - The `method` argument of `arima_fit` and its conditional-sum-of-squares fit. `arima_fit` is

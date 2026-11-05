@@ -201,10 +201,10 @@ def egarch_fit(returns: npt.NDArray[np.float64]) -> EGARCHParams:
 
     EGARCH(1,1) has four free parameters and no closed-form corner solution
     to fall back on, so short windows are noticeably harder to fit reliably
-    than GARCH(1,1)/GJR-GARCH(1,1). Empirically, both 60- and 120-observation
-    windows (a trading quarter/half-year) show a non-convergence rate around
-    5-8%; this drops close to 0% only once the window reaches several
-    hundred observations. There is no window length at which convergence is
+    than GARCH(1,1). On 100 seeded windows per length, `arch` failed to
+    converge (or reached an infeasible point) in 10% of 60-observation
+    windows, 4% at 120, 1% at 250 and 500, and 0% at 750 (`docs/ISSUES.md`,
+    QC-9). There is no window length at which convergence is
     guaranteed, only increasingly likely — callers working with short
     windows should be prepared to handle `ConvergenceError`.
 

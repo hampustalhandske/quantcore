@@ -63,11 +63,10 @@ def effective_n_eigen(returns: npt.NDArray[np.float64]) -> float:
 
     `N_eff = (sum_i lambda_i)^2 / sum_i lambda_i^2` over the eigenvalues of the `N x N` Pearson
     correlation matrix of the columns, with negative rounding-level eigenvalues set to 0, and
-    1.0 when every eigenvalue is 0. A column whose computed standard deviation is exactly 0 has
-    NaN correlations, which count as 0 (its diagonal entry included), so it adds nothing to
-    `N_eff`. A constant column whose mean is not exact in floating point (0.002 repeated, say)
-    keeps a spread near 1e-19 after centring; its correlations with the other columns are then
-    near 0 and its diagonal is 1, so it counts as one uncorrelated trial.
+    1.0 when every eigenvalue is 0. A constant column (zero range, `np.ptp == 0`) has undefined
+    correlations, which count as 0, its diagonal entry included, so it adds nothing to `N_eff`.
+    The range test makes this hold for every constant value, including one such as 0.002 whose
+    mean is not exact in floating point and whose computed standard deviation is therefore not 0.
 
     Args:
         returns: `T x N` finite returns, one column per trial, at least 2 rows and 2 columns.
@@ -80,8 +79,13 @@ def effective_n_eigen(returns: npt.NDArray[np.float64]) -> float:
     """
     _check_returns_matrix(returns, 2, "2")
     with np.errstate(divide="ignore", invalid="ignore"):
-        corr = np.corrcoef(_column_major(returns), rowvar=False)
-    corr = np.nan_to_num(corr, nan=0.0, posinf=1.0, neginf=-1.0)
+        raw_corr = np.corrcoef(_column_major(returns), rowvar=False)
+    corr: npt.NDArray[np.float64] = np.asarray(
+        np.nan_to_num(raw_corr, nan=0.0, posinf=1.0, neginf=-1.0), dtype=np.float64
+    )
+    constant = np.ptp(returns, axis=0) == 0.0
+    corr[constant, :] = 0.0
+    corr[:, constant] = 0.0
     eigenvalues = np.clip(np.linalg.eigvalsh(corr), 0.0, None)
     sum_lambda = float(eigenvalues.sum())
     sum_lambda_sq = float(np.sum(eigenvalues**2))
@@ -89,7 +93,9 @@ def effective_n_eigen(returns: npt.NDArray[np.float64]) -> float:
 
 
 def _per_period_sharpe(values: npt.NDArray[np.float64]) -> float:
-    """Per-period Sharpe ratio `mean / std(ddof=1)`; 0.0 when the standard deviation is 0."""
+    """Per-period Sharpe ratio `mean / std(ddof=1)`; 0.0 for a constant series (zero range)."""
+    if np.ptp(values) == 0.0:
+        return 0.0
     sigma = float(values.std(ddof=1))
     return float(values.mean()) / sigma if sigma != 0.0 else 0.0
 
@@ -137,10 +143,8 @@ def cscv_pbo(
         n_splits: Number of row blocks `S`; even and at least 2. `C(S, S/2)` combinations are
             evaluated (12,870 at `S = 16`).
         evaluate: Score of one trial's 1-D returns over one half; higher is better. Defaults to
-            the per-period Sharpe ratio `mean / std(ddof=1)`, 0.0 when the computed standard
-            deviation is exactly 0. A constant column whose mean is not exact in floating point
-            has a computed standard deviation near 1e-19 instead, and a Sharpe ratio near 1e16
-            in magnitude.
+            the per-period Sharpe ratio `mean / std(ddof=1)`, 0.0 for a constant half (zero
+            range) or a computed standard deviation of exactly 0.
         max_combinations: When given and smaller than `C(S, S/2)`, evaluate only this many
             combinations, drawn without replacement by `rng.choice` and kept in their original
             order. None evaluates every combination.

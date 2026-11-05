@@ -12,10 +12,10 @@ Effective-N oracle: the correlation matrix `C` is positive semidefinite, so clip
 eigenvalues at 0 only removes rounding-level negatives, and `sum lambda = trace(C)` and
 `sum lambda^2 = ||C||_F^2`; hence `N_eff = trace(C)^2 / ||C||_F^2` with no eigendecomposition.
 `C` is built from hand-standardised columns, with a constant column's row and column set to 0
-(its correlation is undefined). The closed forms are `N` for orthogonal trials and `1` for
-identical ones. Constant columns use the value 2**-9, which centres to exactly 0; a constant
-whose mean is inexact leaves a 1e-19 residue whose treatment depends on summation order (see
-`effective_n_eigen`). Over the 600 panels here (T in [3, 600], N in [2, 40], including T < N)
+(its correlation is undefined). A column is constant when its range is 0. The closed forms are
+`N` for orthogonal trials and `1` for identical ones. Constant columns use 2**-9, which centres to
+exactly 0, and 0.002, whose mean is inexact so its computed standard deviation is not 0; both
+must count as constant. Over the 600 panels here (T in [3, 600], N in [2, 40], including T < N)
 and 2000 further ones (N up to 60), the largest relative difference is 1.1e-15; the test allows
 1e-13, the backward error of a symmetric eigensolver, about N * eps.
 """
@@ -42,8 +42,9 @@ RNG_SEED = 20261105
 
 def _sharpe_columns(x: np.ndarray) -> np.ndarray:
     sigma = x.std(axis=0, ddof=1)
-    safe = np.where(sigma == 0.0, 1.0, sigma)
-    return np.where(sigma == 0.0, 0.0, x.mean(axis=0) / safe)
+    undefined = (np.ptp(x, axis=0) == 0.0) | (sigma == 0.0)
+    safe = np.where(undefined, 1.0, sigma)
+    return np.where(undefined, 0.0, x.mean(axis=0) / safe)
 
 
 def _pbo_reference(x: np.ndarray, n_splits: int) -> float:
@@ -74,9 +75,10 @@ def _panel(kind: str, t: int, n: int, rng: np.random.Generator) -> np.ndarray:
     if kind == "duplicates":
         base = rng.normal(0.0, 0.01, (t, max(2, n // 2)))
         return np.column_stack([base, base])[:, :n]
-    # 2**-9 is exact under centring, so the column's standard deviation is exactly 0.
+    # Two constant columns: 2**-9 centres to exactly 0; 0.002 has an inexact mean.
     x = rng.normal(0.0, 0.01, (t, n))
     x[:, n // 2] = 2.0**-9
+    x[:, -1] = 0.002
     return x
 
 
@@ -112,6 +114,7 @@ def test_cscv_pbo_hand_case_three_trials() -> None:
 
 def _effective_n_reference(x: np.ndarray) -> float:
     centred = x - x.mean(axis=0)
+    centred[:, np.ptp(x, axis=0) == 0.0] = 0.0
     norms = np.sqrt((centred**2).sum(axis=0))
     unit = np.divide(centred, norms, out=np.zeros_like(centred), where=norms > 0.0)
     corr = unit.T @ unit
@@ -127,9 +130,11 @@ def _trials(kind: str, t: int, n: int, rng: np.random.Generator) -> np.ndarray:
         return rng.normal(0.0, 0.01, (t, 1)) + 1e-4 * rng.normal(0.0, 0.01, (t, n))
     if kind == "equicorrelated":
         return rng.normal(size=(t, 1)) * 0.8 + rng.normal(size=(t, n)) * 0.6
-    # 2**-9 is exact under centring, so the column's correlations are undefined and count as 0.
+    # Two constant columns, whose correlations are undefined and count as 0: 2**-9 centres to
+    # exactly 0; 0.002 has an inexact mean.
     x = rng.normal(0.0, 0.01, (t, n))
     x[:, 0] = 2.0**-9
+    x[:, -1] = 0.002
     return x
 
 

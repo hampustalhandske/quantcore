@@ -194,10 +194,11 @@ def _cscv_pbo_quantcore(returns: npt.NDArray[np.float64], *, n_splits: int) -> f
 
 
 def _column_sharpe(x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Per-period Sharpe ratio of every column, 0.0 where the standard deviation is 0."""
+    """Per-period Sharpe ratio of every column, 0.0 for a constant column or a zero deviation."""
     sigma = x.std(axis=0, ddof=1)
-    safe = np.where(sigma == 0.0, 1.0, sigma)
-    sharpe: npt.NDArray[np.float64] = np.where(sigma == 0.0, 0.0, x.mean(axis=0) / safe)
+    undefined = (np.ptp(x, axis=0) == 0.0) | (sigma == 0.0)
+    safe = np.where(undefined, 1.0, sigma)
+    sharpe: npt.NDArray[np.float64] = np.where(undefined, 0.0, x.mean(axis=0) / safe)
     return sharpe
 
 
@@ -238,6 +239,7 @@ def _effective_n_eigen_quantcore(returns: npt.NDArray[np.float64]) -> float:
 
 def _effective_n_eigen_reference(returns: npt.NDArray[np.float64]) -> float:
     centred = returns - returns.mean(axis=0)
+    centred[:, np.ptp(returns, axis=0) == 0.0] = 0.0
     norms = np.sqrt((centred**2).sum(axis=0))
     unit = np.divide(centred, norms, out=np.zeros_like(centred), where=norms > 0.0)
     corr = unit.T @ unit

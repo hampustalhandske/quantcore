@@ -47,7 +47,6 @@ EDGELAB_PBO_CASES = [
         None,
         (0.5285714285714286, 70, 1, False),
     ),
-    (_constant_column(301, 41), {"n_splits": 4}, None, (0.0, 6, 1, False)),
     (
         _gauss(401, 97, 7, mean=0.0003),
         {"n_splits": 12, "max_combinations": 37},
@@ -185,6 +184,29 @@ EDGELAB_EFFECTIVE_N_CASES = [
 @pytest.mark.parametrize(("x", "expected"), EDGELAB_EFFECTIVE_N_CASES)
 def test_effective_n_eigen_matches_edgelab_values(x: np.ndarray, expected: float) -> None:
     assert effective_n_eigen(x) == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize("value", [2.0**-9, 0.001, 0.002])
+def test_cscv_pbo_scores_any_constant_column_zero(value: float) -> None:
+    # A constant column scores a Sharpe ratio of 0 whatever its value: 0.001 and 0.002 have an
+    # inexact mean, so their computed standard deviation is about 1e-19, not 0.
+    x = _constant_column(301, 41)
+    x[:, 1] = value
+    exact = x.copy()
+    exact[:, 1] = 2.0**-9
+    assert cscv_pbo(x, n_splits=4) == cscv_pbo(exact, n_splits=4)
+    assert cscv_pbo(x, n_splits=4).pbo == pytest.approx(1.0 / 3.0, rel=1e-15)
+
+
+@pytest.mark.parametrize("value", [0.5, 0.001, 0.002])
+def test_effective_n_eigen_any_constant_column_adds_nothing(value: float) -> None:
+    x = np.random.default_rng(830).normal(0.0, 0.01, (80, 6))
+    x[:, 2] = value
+    # The constant column adds nothing: the result equals that of the other five columns.
+    assert effective_n_eigen(x) == pytest.approx(
+        effective_n_eigen(np.delete(x, 2, axis=1)), rel=1e-13
+    )
+    assert effective_n_eigen(x) == pytest.approx(4.847776643565792, rel=1e-12)
 
 
 def test_effective_n_eigen_exactly_constant_column_adds_nothing() -> None:

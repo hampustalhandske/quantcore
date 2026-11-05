@@ -245,3 +245,14 @@ Acceptance: `cir_fit` raises a named subclass of `RuntimeError` for kappa <= 0, 
 <= 0 and sigma^2 <= 0 keep raising `RuntimeError`, or a separate subclass. Because it subclasses
 `RuntimeError`, existing callers that catch `RuntimeError` are unaffected. A test covers each of
 the three cases. agentic switches from the message match to the type at the AT-101 re-pin.
+
+### QC-17: A constant column in CSCV and effective N is one with zero range — done
+Raised by edgelab (EL-70), 2026-11-05. A constant column whose value is inexact in floating point
+(0.002 repeated) has a computed standard deviation near 1e-19, not 0. Under the zero-deviation
+test the default Sharpe ratio scored it about 4.5e15, so it won every in-sample half whenever its
+mean was positive, and `effective_n_eigen` counted it as one uncorrelated trial. `cscv_pbo`'s
+default `evaluate` and `effective_n_eigen` now treat any column with `np.ptp == 0` as constant:
+Sharpe ratio 0, correlations 0 with the diagonal included. Results for columns with a nonzero range are
+unchanged. This is a pin move against edgelab's copies on inputs with such a column; on the
+seeded 41 x 4 panel with one column at 0.001 and `n_splits=4`, the PBO moves from 0.0 to 1/3,
+the value an exactly representable constant gives. The conformance oracles use the same rule.

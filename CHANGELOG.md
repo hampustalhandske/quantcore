@@ -26,7 +26,10 @@ New public functions; no existing number moves.
   In `arch` 8.0.0 the `studentize` flag does not change the SPA p-values.
 - `quantcore.statistics.cscv_pbo` (probability of backtest overfitting by combinatorially
   symmetric cross-validation, returning `CscvPbo`) and `effective_n_eigen` (eigenvalue
-  participation ratio of the trials' correlation matrix).
+  participation ratio of the trials' correlation matrix). Both treat a column with zero range as
+  constant (Sharpe ratio 0, correlations 0), whatever its value. edgelab's implementations treat
+  a constant whose mean is inexact, such as 0.002, as a column with a standard deviation near
+  1e-19, so the two differ on such inputs (`docs/ISSUES.md` QC-17).
 - `quantcore.core.CIRNoMeanReversionError`, a `RuntimeError` subclass that `cir_fit` raises when
   the estimated kappa is <= 0. The message is unchanged. theta <= 0 and sigma^2 <= 0 still raise
   plain `RuntimeError`.

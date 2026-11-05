@@ -8,49 +8,48 @@ Status values: `open`, `in progress`, `done`.
 
 ## Deletions (no consumer calls them; no consumer result moves)
 
-### QC-1: Remove the COS Heston and Monte Carlo pricers — in progress
+### QC-1: Remove the COS Heston and Monte Carlo pricers — done (fe8f1f9)
 `heston_cos_call`, `heston_cos_put`, `monte_carlo_call_price`, `monte_carlo_put_price`,
 their tests, conformance targets, tolerances and benchmark rows. QuantLib leaves the runtime
 dependencies and the `oracle` extra; the dividend-yield oracle test uses py_vollib.
 
-### QC-2: Remove unused performance and execution helpers — in progress
+### QC-2: Remove unused performance and execution helpers — done (580e597)
 `brinson_fachler_attribution`, `rolling_sharpe`, `futures_roll_yield`, `time_under_water`,
 `max_drawdown_duration`, and the public `drawdown_series`, `cagr` and `annualized_return`.
 `calmar_ratio` and the Ulcer and Serenity ratios use the private versions of the last three.
 
-### QC-3: Remove unused portfolio, filtering and core helpers — in progress
+### QC-3: Remove unused portfolio, filtering and core helpers — done (372938f)
 `mean_variance_weights`, `l1_turnover_penalized_weights`, `kelly_fraction`, `sample_covariance`,
 `ewma_covariance`, `kalman_filter`, `kalman_smooth`, `euler_maruyama`,
 `core.stochastic.simulate_heston_paths`. `dynamic_hedge_ratio` and `simulate_heston_price_paths` stay. The active-set quadratic-program
 solver in `portfolio/optimization.py` is removed in QC-14.
 
-### QC-3b: Remove unused option helpers — in progress
+### QC-3b: Remove unused option helpers — done (ca32f58)
 `implied_volatility`, `option_expiry_payoff`, `option_position_pnl`.
 
-### QC-4: Remove Johansen — in progress
+### QC-4: Remove Johansen — done (215f209)
 `johansen_trace_test`, `johansen_max_eigenvalue_test`.
 
 ## Delegation (a library does the job; quantcore keeps one wrapper per function)
 
 Every delegated call passes every option explicitly.
 
-### QC-5: Ljung-Box, KPSS, ARCH-LM to statsmodels — code done, gates pending
+### QC-5: Ljung-Box, KPSS, ARCH-LM to statsmodels — done (f6b5d32)
 Moves: edgelab `stats/diagnostics`; agentic `arima_forecast_analyst` (Ljung-Box).
 `statsmodels` is now a runtime dependency (`>=0.15,<0.16`). Every option is passed
 explicitly; the conformance targets for the three are replaced by convention tests
 (`TestStatsmodelsConventions`, `test_ljung_box_passes_every_statsmodels_option_explicitly`).
-Unit tests that need running: the KPSS hand-computed values, the scale-invariance
-cases down to 1e-300, and the constant-series errors.
+The full test suite runs on the final tree (see "Release gates" below).
 
-### QC-6: ADF and Engle-Granger to statsmodels — code done, gates pending
+### QC-6: ADF and Engle-Granger to statsmodels — done (b8d4853, e72de88)
 Moves: ADF tail p-values (edgelab diagnostics; agentic pair admission, including
 `scripts/screen_cointegrated_pairs.py`).
 `adf_test` calls `adfuller` and `engle_granger_test` calls `coint` (beta from the step-1 OLS),
 all options explicit; `statsmodels>=0.15` is required because `result_object=False` is
 passed. The MacKinnon tables and the hand-written ADF regression are deleted, and with
 them the oracle tests that compared them with statsmodels. The `adf_test` and
-`engle_granger_test` conformance targets, repro configs and benchmark rows still compare
-statsmodels with itself; they go in QC-11 (conformance trim).
+`engle_granger_test` conformance targets, repro configs and benchmark rows, which compared
+statsmodels with itself, are removed (e72de88).
 
 ### QC-7: OLS with HAC (`ols`, `newey_west_cov`, `newey_west_optimal_lags`) — kept
 Moves nothing. Kept as closed forms (lstsq, a Bartlett sandwich, a one-line lag rule): they
@@ -58,7 +57,7 @@ take residuals and regressors directly, statsmodels' HAC needs a fitted results 
 arch's Newey-West bandwidth is data-adaptive, which would move edgelab's HAC t-statistics
 for no gain in correctness. The reason is in `statistics/regression.py`'s module docstring.
 
-### QC-8: VAR, Granger and impulse response to statsmodels — code done, gates pending
+### QC-8: VAR, Granger and impulse response to statsmodels — done (d2d57fa)
 Moves: agentic `macro_var_spillover_analyst`.
 `var_fit` is `VAR.fit(maxlags=p, method="ols", ic=None, trend="c")`, `var_forecast` and `impulse_response` use
 statsmodels' `forecast` and `ma_rep` (Cholesky applied here), `granger_causality_test` is
@@ -68,7 +67,7 @@ scores it with Lutkepohl's criteria from `sigma_u_mle`; selections equal the pre
 480 seeded cases, tiny samples included. `var_fit` and `select_var_lag_order` now raise for a
 single series (statsmodels' `VAR` needs two); no caller passes one.
 
-### QC-9: EGARCH and GJR to arch, `backend` removed from fit_garch_11 — code done, gates pending
+### QC-9: EGARCH and GJR to arch, `backend` removed from fit_garch_11 — done (68e09a3, ede360c)
 Parameterisation pinned; `ConvergenceError` stays the exception raised on non-convergence.
 Moves: agentic egarch and gjr analysts, and the GARCH overlay (together with the
 `fit_garch_11` default already in this tree).
@@ -122,15 +121,20 @@ all tied values).
 
 ## Conformance
 
-### QC-11: Trim the conformance machinery — open
+### QC-11: Trim the conformance machinery — in progress
 Delegated targets become convention tests (options passed, units, annualisation, sign);
 hand-formula oracles stay; harness, classification and report code shrink to what those need.
 `conformance_map.json` and `docs/CONFORMANCE.md` are regenerated in the same change.
+Done in e72de88: the ADF and Engle-Granger targets and their generators, repro configs and
+benchmark rows, and the KPSS and ARCH-LM benchmark rows; the three variance targets compare with
+arch from the first step. Left: any target that still compares a library with itself, and the
+harness, classifier, builder and findings code no remaining target uses.
 
 ## Dependencies
 
 ### QC-12: Compatible dependency ranges — open
-`statsmodels` (and `scikit-learn` once QC-13 lands) declared as ranges in `pyproject.toml`;
+`statsmodels` and `arch` declared as ranges in `pyproject.toml` (scikit-learn stays out of the
+runtime dependencies: Ledoit-Wolf is kept, master session 2026-11-05);
 `uv.lock` holds the exact versions for quantcore's CI. Ranges are checked against both
 consumers' locks.
 
@@ -143,19 +147,38 @@ pandas and no edgelab types; edgelab keeps N logic, annual-to-per-period rf conv
 1. `hac_t_test` (`statistics/hac.py`): done (ffc4e26).
 2. `sharpe_se_mertens`, `probabilistic_sharpe_ratio`, `minimum_track_record_length`,
    `expected_max_sharpe` (arithmetic unchanged, Bailey and Lopez de Prado 2014) and
-   `deflated_sharpe_ratio`: see the git log; if absent, it is not done.
-3. `stationary_bootstrap_ci` (percentile and BCa, arch `StationaryBootstrap`, caller-supplied
-   `Generator`) and `optimal_block_length`: not started. BCa stays because edgelab's
-   `validation/runs.py` calls it.
-4. `cscv_pbo` (drop `logits`, `combinations`, `prob_oos_loss`): not started.
-5. `effective_n_eigen`: not started.
+   `deflated_sharpe_ratio` (`performance/sharpe_inference.py`): done (12fe474).
+3. `statistics/bootstrap.py`: open.
+   - `optimal_block_length(x) -> float`: arch's `optimal_block_length`, `"stationary"` column.
+   - `stationary_bootstrap_ci(x, stat, *, rng, n_boot=2000, ci=0.95, method="percentile"|"bca",
+     block_length=None) -> BootstrapInterval(estimate, ci_low, ci_high, ci_level, block_length,
+     n_boot, n_dropped)`: arch `StationaryBootstrap` on a caller-supplied `Generator`; a resample
+     on which `stat` raises `ValueError` or is non-finite is dropped and counted. BCa (Efron 1987)
+     stays because edgelab's `validation/runs.py` calls it.
+   - `spa_test(benchmark_losses, model_losses, *, rng, block_size, reps, studentize) ->
+     SpaPValues(lower, consistent, upper)`: arch `SPA`, in losses.
+4. `cscv_pbo(returns, *, n_splits=16, evaluate, max_combinations=None, rng=None) ->
+   CscvPbo(pbo, n_splits, n_combinations, n_rows_dropped, subsampled)` in
+   `statistics/multiple_testing.py`: in progress. The logits, per-combination records,
+   `prob_oos_loss` and the degradation regression stay out: no consumer reads them.
+5. `effective_n_eigen(returns) -> float` in `statistics/multiple_testing.py`: in progress.
+API agreed with edgelab-06 on 2026-11-05. edgelab keeps the 20-observation floor, the
+10%-dropped rule, the Ljung-Box warning, the 3-trial floor, the returns-to-losses conversion and
+the SPA block-size resolution. Every move is bit-identical.
 Not moved, deleted in edgelab: `sharpe_se_lo`, `sharpe_power`, `min_detectable_sharpe`,
 `stationary_bootstrap_resamples`, `paired_stationary_bootstrap_replicates`,
-`effective_n_clustered`. `dsr_trial_count` and the Ledoit-Wolf question stay open.
+`effective_n_clustered` (with it the k-means and silhouette wrappers). Master session, 2026-11-05:
+`dsr_trial_count` stays in edgelab (N logic), and Ledoit-Wolf stays quantcore's own code.
 The conformance targets are added per item; `conformance_map.json` and `docs/CONFORMANCE.md` are
 regenerated once after the last item (one conformance run), so `build_report --check` fails on the
 commits between 358a6cc and that regeneration. Estimated end state: about 480 lines added to
 `src/` (7,881 to about 8,360), against about 750 leaving edgelab.
+
+## Release gates
+
+After QC-11 to QC-13: one conformance run with `conformance_map.json` and `docs/CONFORMANCE.md`
+regenerated, then the full gates (pytest, ruff, mypy, `build_report --check`) on the final tree.
+Both need the machine's heavy-job slot. The owner then pushes `trim`, merges it and tags v0.3.0.
 
 ## Evaluation
 

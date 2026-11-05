@@ -1,4 +1,4 @@
-"""Tier-1 statistics targets: OLS, Newey-West lags, Jarque-Bera, HAC t-test, PBO and effective N.
+"""Tier-1 statistics targets: OLS, Newey-West lags, Jarque-Bera, HAC t-test, PBO, effective N, CI.
 
 OLS is two targets, `ols_coefficients` and `ols_r_squared` (centred R-squared with a constant
 column, else uncentred). The Newey-West lag count is the rule of thumb
@@ -8,15 +8,19 @@ OLS with `cov_type="HAC"`, Bartlett kernel, `use_correction=True` and `use_t=Tru
 `cscv_pbo` is checked against an independent implementation of the CSCV procedure of Bailey,
 Borwein, Lopez de Prado and Zhu (2016) with `scipy.stats.rankdata` mid-ranks, and
 `effective_n_eigen` against the trace identity `trace(C)^2 / ||C||_F^2`.
+`stationary_bootstrap_ci` is checked against percentile and Efron (1987) BCa intervals computed by
+hand from the same `arch` stationary-bootstrap replicates of the mean.
 """
 
 import math
 from itertools import combinations
+from statistics import NormalDist
 from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import statsmodels.api as sm
+from arch.bootstrap import StationaryBootstrap
 from scipy.stats import jarque_bera as _scipy_jarque_bera
 from scipy.stats import rankdata as _rankdata
 from scipy.stats import t as _student_t
@@ -257,6 +261,106 @@ _EFFECTIVE_N_EIGEN = ConformanceTarget(
     compare=ScalarComparator(),
     quantcore=_effective_n_eigen_quantcore,
     reference=_effective_n_eigen_reference,
+)
+
+
+# --- Stationary-bootstrap confidence interval -----------------------------------------------------
+
+
+def _sample_mean(values: npt.NDArray[np.float64]) -> float:
+    """The statistic both sides bootstrap: the sample mean."""
+    return float(np.mean(values))
+
+
+def _stationary_bootstrap_ci_quantcore(
+    x: npt.NDArray[np.float64],
+    *,
+    rng_seed: int,
+    block_length: float,
+    method: Literal["percentile", "bca"],
+    ci: float,
+    n_boot: int,
+) -> npt.NDArray[np.float64]:
+    result = qc_statistics.stationary_bootstrap_ci(
+        x,
+        _sample_mean,
+        rng=np.random.default_rng(rng_seed),
+        n_boot=n_boot,
+        ci=ci,
+        method=method,
+        block_length=block_length,
+    )
+    return np.array([result.ci_low, result.ci_high])
+
+
+def _linear_quantile(sorted_values: npt.NDArray[np.float64], level: float) -> float:
+    """Quantile at `level` of an ascending sample, interpolating at position `(m - 1) * level`."""
+    position = (sorted_values.shape[0] - 1) * level
+    below = math.floor(position)
+    above = min(below + 1, sorted_values.shape[0] - 1)
+    weight = position - below
+    return float(sorted_values[below] + weight * (sorted_values[above] - sorted_values[below]))
+
+
+def _stationary_bootstrap_ci_reference(
+    x: npt.NDArray[np.float64],
+    *,
+    rng_seed: int,
+    block_length: float,
+    method: Literal["percentile", "bca"],
+    ci: float,
+    n_boot: int,
+) -> npt.NDArray[np.float64]:
+    """Percentile or BCa interval of the mean, computed by hand from arch's resamples.
+
+    The resamples are drawn by `arch.bootstrap.StationaryBootstrap` with integer block size
+    `max(1, round(block_length))` from `default_rng(rng_seed)`, as quantcore draws them. Everything
+    after the draws is independent of quantcore: the normal distribution is
+    `statistics.NormalDist`, the quantiles interpolate the sorted replicates by hand, and the
+    BCa constants follow Efron (1987): `z0 = Phi^-1(#{theta* < theta} / B)`
+    (the share clipped to `[1e-10, 1 - 1e-10]`), `a = sum(d^3) / (6 * (sum(d^2))^1.5)` with
+    `d = mean(theta_(.)) - theta_(i)` over the leave-one-out means (0 when all are equal), and
+    levels `Phi(z0 + (z0 + z) / (1 - a * (z0 + z)))`.
+    """
+    normal = NormalDist()
+    bootstrap = StationaryBootstrap(
+        max(1, round(block_length)), x, seed=np.random.default_rng(rng_seed)
+    )
+    replicates = np.sort(
+        np.array([_sample_mean(data[0]) for data, _kw in bootstrap.bootstrap(n_boot)])
+    )
+    tail = (1.0 - ci) / 2.0
+    if method == "percentile":
+        levels = [tail, 1.0 - tail]
+    else:
+        theta = _sample_mean(x)
+        share = np.count_nonzero(replicates < theta) / replicates.shape[0]
+        z0 = normal.inv_cdf(min(max(share, 1e-10), 1.0 - 1e-10))
+        rows = np.arange(x.shape[0])
+        leave_one_out = np.array([_sample_mean(x[rows != i]) for i in range(x.shape[0])])
+        d = leave_one_out.mean() - leave_one_out
+        sum_sq = float(np.dot(d, d))
+        a = float(np.dot(d * d, d)) / (6.0 * sum_sq**1.5) if sum_sq > 0.0 else 0.0
+        levels = [
+            min(max(normal.cdf(z0 + (z0 + z) / (1.0 - a * (z0 + z))), 0.0), 1.0)
+            for z in (normal.inv_cdf(tail), normal.inv_cdf(1.0 - tail))
+        ]
+    return np.array(sorted(_linear_quantile(replicates, level) for level in levels))
+
+
+_STATIONARY_BOOTSTRAP_CI = ConformanceTarget(
+    name="stationary_bootstrap_ci",
+    tier=1,
+    oracle="percentile and Efron (1987) BCa by hand on arch.bootstrap.StationaryBootstrap draws",
+    citation=(
+        "Efron, B. (1987), 'Better Bootstrap Confidence Intervals.' Journal of the American "
+        "Statistical Association, 82(397), 171-185; Politis, D.N. and Romano, J.P. (1994), 'The "
+        "Stationary Bootstrap.' Journal of the American Statistical Association, 89(428), "
+        "1303-1313."
+    ),
+    compare=ArrayComparator(),
+    quantcore=_stationary_bootstrap_ci_quantcore,
+    reference=_stationary_bootstrap_ci_reference,
 )
 
 

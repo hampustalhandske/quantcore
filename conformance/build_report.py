@@ -384,6 +384,7 @@ COVERAGE_SOURCES: dict[str, tuple[ModuleType, str]] = {
     "hac_t_test": (tier1_statistics_extra, "HAC_T_TEST"),
     "cscv_pbo": (tier1_statistics_extra, "CSCV_PBO"),
     "effective_n_eigen": (tier1_statistics_extra, "EFFECTIVE_N_EIGEN"),
+    "stationary_bootstrap_ci": (tier1_statistics_extra, "STATIONARY_BOOTSTRAP_CI"),
     "ewma_variance": (tier2_risk_models, "EWMA_VARIANCE"),
     "garch_11_variance": (tier2_risk_models, "GARCH_11_VARIANCE"),
     "egarch_11_variance": (tier2_risk_models, "EGARCH_11_VARIANCE"),

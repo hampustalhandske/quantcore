@@ -127,6 +127,35 @@ def _ulcer_kappa(returns: npt.NDArray[np.float64]) -> float:
     return 1.0 / ulcer_index
 
 
+def _bootstrap_ci_kappa(
+    x: npt.NDArray[np.float64],
+    *,
+    rng_seed: int,
+    block_length: float,
+    method: str,
+    ci: float,
+    n_boot: int,
+) -> float:
+    """Condition number of one `stationary_bootstrap_ci` case: `ptp(x) / min |endpoint|`.
+
+    Both sides interpolate the same sorted replicates, so a rounding difference `delta_p` in a
+    percentile level moves an endpoint by `(B - 1) * delta_p` times the gap between neighbouring
+    replicates, which is at most `ptp(x)` (every replicate mean lies in `[min x, max x]`). The
+    absolute error therefore scales with the range of the data, not with the endpoint, and its
+    relative error grows as the endpoint approaches 0. The endpoint is taken from the oracle.
+    `inf` when an endpoint is exactly 0.
+    """
+    from conformance.targets.statistics_extra import _stationary_bootstrap_ci_reference
+
+    endpoints = _stationary_bootstrap_ci_reference(
+        x, rng_seed=rng_seed, block_length=block_length, method=method, ci=ci, n_boot=n_boot
+    )
+    smallest = float(np.min(np.abs(endpoints)))
+    if smallest == 0.0:
+        return float("inf")
+    return float(np.ptp(x)) / smallest
+
+
 TOLERANCES: dict[str, Tolerance] = {
     "sharpe_ratio": ConditionAwareTolerance(
         rtol=1e-10,
@@ -551,6 +580,30 @@ TOLERANCES: dict[str, Tolerance] = {
             "panels of every covariance family (S in {2, 4, 6, 8, 10}, up to 10 trials). atol is "
             "eight orders below the smallest step a real difference produces."
         ),
+    ),
+    "stationary_bootstrap_ci": ConditionAwareTolerance(
+        rtol=1e-13,
+        atol=0.0,
+        justification=(
+            "quantcore and the oracle evaluate the same statistic (the mean) on the same arch "
+            "resamples, so the replicates are identical doubles; they differ only in the "
+            "percentile levels (scipy's ndtri/ndtr against statistics.NormalDist, numpy's "
+            "np.sum against np.dot in the acceleration, np.percentile's 100*p/100 round trip) and "
+            "in the interpolation arithmetic. A level error delta_p of a few eps moves an "
+            "endpoint by (B - 1) * delta_p times the gap between neighbouring replicates, at most "
+            "ptp(x), so |error| <= 4 * eps * B * ptp(x). Condition-aware: rtol_eff = max(rtol, "
+            "K*eps*kappa**p) with kappa = ptp(x) / min |endpoint| and p = 1; K = 2000 is 4 * B at "
+            "the largest B = 500 drawn. rtol = 1e-13 covers the interpolation's own rounding, a "
+            "few eps of the endpoint. Measured: largest error 3.7e-15 * ptp(x) (17 eps * ptp) "
+            "and 2.6e-13 relative over 2000 cases of every return family (n in [2, 1500], B in "
+            "{50, 199, 500}, both methods); percentile intervals agree to 2.5e-15 relative. A "
+            "real difference (a wrong z0 or acceleration, another quantile rule) moves an "
+            "endpoint by about one replicate gap, of order ptp(x) / B, ten orders above the "
+            "bound. An endpoint below 4.4e-7 * ptp(x) makes the case ill-conditioned."
+        ),
+        kappa=_bootstrap_ci_kappa,
+        K=2000.0,
+        p=1.0,
     ),
     "effective_n_eigen": Tolerance(
         rtol=1e-12,

@@ -1,9 +1,10 @@
 """Tier-1 differential tests for the statistics functions a downstream pipeline calls.
 
 `ols`, `newey_west_optimal_lags` and `hac_t_test` against `statsmodels`, `jarque_bera_test`
-against `scipy`, `cscv_pbo` against a hand CSCV with `scipy.stats.rankdata` mid-ranks and
-`effective_n_eigen` against the trace identity. The Ljung-Box, ARCH-LM and KPSS tests are
-computed by `statsmodels` itself, so their checks are the convention tests in
+against `scipy`, `cscv_pbo` against a hand CSCV with `scipy.stats.rankdata` mid-ranks,
+`effective_n_eigen` against the trace identity, and `stationary_bootstrap_ci` against percentile
+and BCa intervals computed by hand from the same `arch` resamples. The Ljung-Box, ARCH-LM and
+KPSS tests are computed by `statsmodels` itself, so their checks are the convention tests in
 `tests/unit/statistics` and `tests/unit/time_series`.
 """
 
@@ -34,6 +35,7 @@ _JARQUE_BERA = registry()["jarque_bera"]
 _HAC_T_TEST = registry()["hac_t_test"]
 _CSCV_PBO = registry()["cscv_pbo"]
 _EFFECTIVE_N_EIGEN = registry()["effective_n_eigen"]
+_STATIONARY_BOOTSTRAP_CI = registry()["stationary_bootstrap_ci"]
 
 OLS_MIN_LEN = 3
 OLS_FAMILIES: tuple[str, ...] = REGRESSION_FAMILIES
@@ -58,6 +60,10 @@ CSCV_PBO_BUCKETS: tuple[str, ...] = ("medium", "long")
 EFFECTIVE_N_EIGEN_MIN_LEN = 20
 EFFECTIVE_N_EIGEN_FAMILIES: tuple[str, ...] = COVARIANCE_FAMILIES
 EFFECTIVE_N_EIGEN_BUCKETS: tuple[str, ...] = ("medium", "long")
+
+STATIONARY_BOOTSTRAP_CI_MIN_LEN = 2
+STATIONARY_BOOTSTRAP_CI_FAMILIES: tuple[str, ...] = RETURN_FAMILIES
+STATIONARY_BOOTSTRAP_CI_BUCKETS: tuple[str, ...] = ("short", "medium", "long")
 
 
 @given(problem=regression_problem(min_len=OLS_MIN_LEN))
@@ -159,4 +165,35 @@ def test_effective_n_eigen_matches_trace_identity(tagged: TaggedPanel) -> None:
         family=tagged.family,
         length_bucket=length_bucket_for(tagged.n),
         seed=tagged.seed,
+    )
+
+
+@given(
+    tagged=returns_series(min_len=STATIONARY_BOOTSTRAP_CI_MIN_LEN, max_len=1500),
+    rng_seed=st.integers(min_value=0, max_value=2**31 - 1),
+    block_length=st.floats(min_value=0.5, max_value=30.0),
+    method=st.sampled_from(["percentile", "bca"]),
+    ci=st.sampled_from([0.8, 0.9, 0.95, 0.99]),
+    n_boot=st.sampled_from([50, 199, 500]),
+)
+def test_stationary_bootstrap_ci_matches_hand_intervals(
+    tagged: TaggedReturns,
+    rng_seed: int,
+    block_length: float,
+    method: str,
+    ci: float,
+    n_boot: int,
+) -> None:
+    """Quantcore's interval of the mean against hand percentile/BCa on the same arch resamples."""
+    check(
+        _STATIONARY_BOOTSTRAP_CI,
+        tagged.values,
+        family=tagged.family,
+        length_bucket=length_bucket_for(tagged.n),
+        seed=tagged.seed,
+        rng_seed=rng_seed,
+        block_length=block_length,
+        method=method,
+        ci=ci,
+        n_boot=n_boot,
     )

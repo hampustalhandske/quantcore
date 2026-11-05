@@ -294,6 +294,34 @@ cite the relevant entry in their docstrings.
   → `statistics/diagnostics.py` (constant 1.1447 and `n^(1/3)` rate of the
   automatic lag count in `kpss_test`)
 
+## Bootstrap inference
+
+- Politis, D.N. and Romano, J.P. (1994). "The Stationary Bootstrap."
+  *Journal of the American Statistical Association*, 89(428), 1303–1313.
+  → `statistics/bootstrap.py` (`stationary_bootstrap_ci`: resampling in
+  blocks of geometric length; the draws are `arch.bootstrap.StationaryBootstrap`'s)
+
+- Politis, D.N. and White, H. (2004). "Automatic Block-Length Selection for
+  the Dependent Bootstrap." *Econometric Reviews*, 23(1), 53–70; Patton, A.,
+  Politis, D.N. and White, H. (2009). "Correction to 'Automatic Block-Length
+  Selection for the Dependent Bootstrap' by D. Politis and H. White."
+  *Econometric Reviews*, 28(4), 372–375.
+  → `statistics/bootstrap.py` (`optimal_block_length`: the `"stationary"`
+  column of `arch.bootstrap.optimal_block_length`)
+
+- Efron, B. (1987). "Better Bootstrap Confidence Intervals." *Journal of the
+  American Statistical Association*, 82(397), 171–185.
+  → `statistics/bootstrap.py` (`stationary_bootstrap_ci(method="bca")`: bias
+  correction `z0`, jackknife acceleration `a` and the adjusted percentile
+  levels `Phi(z0 + (z0 + z) / (1 - a (z0 + z)))`)
+
+- Hansen, P.R. (2005). "A Test for Superior Predictive Ability." *Journal of
+  Business & Economic Statistics*, 23(4), 365–380; White, H. (2000). "A
+  Reality Check for Data Snooping." *Econometrica*, 68(5), 1097–1126.
+  → `statistics/bootstrap.py` (`spa_test`: the lower, consistent and upper
+  p-values of `arch.bootstrap.SPA`, which in arch 8.0.0 does not studentise
+  the statistic whatever `studentize` is)
+
 ## Multiple testing
 
 - Bailey, D.H., Borwein, J.M., Lopez de Prado, M. and Zhu, Q.J. (2016).

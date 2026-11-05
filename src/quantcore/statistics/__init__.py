@@ -1,3 +1,10 @@
+from quantcore.statistics.bootstrap import (
+    BootstrapInterval,
+    SpaPValues,
+    optimal_block_length,
+    spa_test,
+    stationary_bootstrap_ci,
+)
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
@@ -21,9 +28,11 @@ from quantcore.statistics.regression import (
 )
 
 __all__ = [
+    "BootstrapInterval",
     "CscvPbo",
     "FactorLoadingsResult",
     "HacTResult",
+    "SpaPValues",
     "adf_test",
     "arch_lm_test",
     "cscv_pbo",
@@ -37,6 +46,9 @@ __all__ = [
     "newey_west_cov",
     "newey_west_optimal_lags",
     "ols",
+    "optimal_block_length",
     "ou_half_life",
+    "spa_test",
     "spread_zscore",
+    "stationary_bootstrap_ci",
 ]

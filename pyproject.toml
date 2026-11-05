@@ -4,14 +4,17 @@ version = "0.3.0"
 description = "Optimized numerical backend for derivative pricing, SDE simulation, and risk metrics"
 readme = "README.md"
 requires-python = ">=3.12"
+# Lower bounds are the versions the test suite runs on. Upper bounds sit at the next release
+# that may change an API or a default quantcore relies on: arch's next major and statsmodels'
+# next minor (statsmodels is pre-1.0). numba itself caps numpy.
 dependencies = [
-    "numba>=0.67.0",
-    "numpy>=1.26",
-    "scipy>=1.13",
-    # arch fits GARCH, EGARCH and GJR-GARCH (imported when a fit runs);
-    # statsmodels computes the ADF, Engle-Granger, KPSS, ARCH-LM and
-    # Ljung-Box tests and the VAR functions.
-    "arch>=7.0",
+    "numba>=0.67",
+    "numpy>=2.5",
+    "scipy>=1.18",
+    # arch fits GARCH, EGARCH and GJR-GARCH and computes the stationary bootstrap, its block
+    # length and the SPA test (imported on first use); statsmodels computes the ADF,
+    # Engle-Granger, KPSS, ARCH-LM and Ljung-Box tests and the VAR functions.
+    "arch>=8.0,<9",
     "statsmodels>=0.15,<0.16",
 ]
 

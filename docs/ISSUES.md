@@ -132,11 +132,14 @@ harness, classifier, builder and findings code no remaining target uses.
 
 ## Dependencies
 
-### QC-12: Compatible dependency ranges — open
-`statsmodels` and `arch` declared as ranges in `pyproject.toml` (scikit-learn stays out of the
-runtime dependencies: Ledoit-Wolf is kept, 2026-11-05);
-`uv.lock` holds the exact versions for quantcore's CI. Ranges are checked against both
-consumers' locks.
+### QC-12: Compatible dependency ranges — done
+`pyproject.toml` declares `numba>=0.67`, `numpy>=2.5`, `scipy>=1.18`, `arch>=8.0,<9` and
+`statsmodels>=0.15,<0.16`: lower bounds at the versions the suite runs on, upper bounds at arch's
+next major and statsmodels' next minor. scikit-learn stays out of the runtime dependencies
+(Ledoit-Wolf is kept, 2026-11-05). Both consumers' locks fall inside the ranges: edgelab locks
+numpy 2.5.3, scipy 1.18.1, numba 0.67.0, arch 8.0.0 and statsmodels 0.15.0; agentic-trading locks
+numpy 2.5.2, scipy 1.18.1 and numba 0.67.0, and resolves arch and statsmodels at its re-pin.
+`uv.lock` is gitignored, so CI resolves the ranges afresh on each run.
 
 ## Receive from edgelab
 

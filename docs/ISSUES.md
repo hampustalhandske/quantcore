@@ -188,6 +188,9 @@ copies (estimated about 750).
 After QC-11 to QC-13: one conformance run with `conformance_map.json` and `docs/CONFORMANCE.md`
 regenerated, then the full gates (pytest, ruff, mypy, `build_report --check`) on the final tree.
 Both need the machine's heavy-job slot. The owner then pushes `trim`, merges it and tags v0.3.0.
+Run on 2026-11-05: conformance 79 tests passed, 74 targets (73 verified, `select_arima_order`
+unverifiable; the nine QC-13 targets added, no status changed); full suite 2470 passed; ruff,
+mypy and `build_report --check` clean.
 
 ## Evaluation
 

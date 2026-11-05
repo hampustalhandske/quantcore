@@ -6,7 +6,20 @@ results that changed carry a before/after example, as the project's
 ground rules require — other projects install this package and must be able
 to see exactly what changed and why before upgrading.
 
-## [0.3.0] — Unreleased
+## [0.3.1] — 2026-11-05
+
+### Fixed — numerical results changed
+
+- `cscv_pbo` (its default `evaluate`) and `effective_n_eigen` treat a column with zero range
+  (`np.ptp == 0`) as constant, whatever its value: Sharpe ratio 0, correlations 0. A constant
+  whose mean is inexact in floating point, such as 0.002 repeated, has a computed standard
+  deviation near 1e-19, so in 0.3.0 it scored a Sharpe ratio near 1e16 and won every in-sample
+  half, and counted as an uncorrelated trial. Results for columns with a nonzero range are
+  unchanged. Example: a 41 x 4 panel (`default_rng(301).normal(0, 0.01)`) with column 1 set to
+  0.001, `n_splits=4`: PBO 0.0 in 0.3.0, 1/3 in 0.3.1, the value an exactly representable
+  constant gives (`docs/ISSUES.md` QC-17).
+
+## [0.3.0] — 2026-11-05
 
 The changes on the `trim` branch were gated (full tests, mypy, conformance, conformance map) on
 the final tree only, not on each intermediate commit.
@@ -26,10 +39,7 @@ New public functions; no existing number moves.
   In `arch` 8.0.0 the `studentize` flag does not change the SPA p-values.
 - `quantcore.statistics.cscv_pbo` (probability of backtest overfitting by combinatorially
   symmetric cross-validation, returning `CscvPbo`) and `effective_n_eigen` (eigenvalue
-  participation ratio of the trials' correlation matrix). Both treat a column with zero range as
-  constant (Sharpe ratio 0, correlations 0), whatever its value. edgelab's implementations treat
-  a constant whose mean is inexact, such as 0.002, as a column with a standard deviation near
-  1e-19, so the two differ on such inputs (`docs/ISSUES.md` QC-17).
+  participation ratio of the trials' correlation matrix).
 - `quantcore.core.CIRNoMeanReversionError`, a `RuntimeError` subclass that `cir_fit` raises when
   the estimated kappa is <= 0. The message is unchanged. theta <= 0 and sigma^2 <= 0 still raise
   plain `RuntimeError`.

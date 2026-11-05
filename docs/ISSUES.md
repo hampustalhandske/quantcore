@@ -140,7 +140,7 @@ consumers' locks.
 
 ## Receive from edgelab
 
-### QC-13: General calculations moved in from edgelab — in progress
+### QC-13: General calculations moved in from edgelab — done (ffc4e26, 12fe474, cf56cc6, 7d22c44)
 Agreed list (edgelab audit and rulings): numpy in, frozen dataclass or tuple out, no
 pandas and no edgelab types; edgelab keeps N logic, annual-to-per-period rf conversion and the
 `StatOutcome` wrappers.
@@ -148,7 +148,7 @@ pandas and no edgelab types; edgelab keeps N logic, annual-to-per-period rf conv
 2. `sharpe_se_mertens`, `probabilistic_sharpe_ratio`, `minimum_track_record_length`,
    `expected_max_sharpe` (arithmetic unchanged, Bailey and Lopez de Prado 2014) and
    `deflated_sharpe_ratio` (`performance/sharpe_inference.py`): done (12fe474).
-3. `statistics/bootstrap.py`: open.
+3. `statistics/bootstrap.py`: done (7d22c44).
    - `optimal_block_length(x) -> float`: arch's `optimal_block_length`, `"stationary"` column.
    - `stationary_bootstrap_ci(x, stat, *, rng, n_boot=2000, ci=0.95, method="percentile"|"bca",
      block_length=None) -> BootstrapInterval(estimate, ci_low, ci_high, ci_level, block_length,
@@ -156,12 +156,13 @@ pandas and no edgelab types; edgelab keeps N logic, annual-to-per-period rf conv
      on which `stat` raises `ValueError` or is non-finite is dropped and counted. BCa (Efron 1987)
      stays because edgelab's `validation/runs.py` calls it.
    - `spa_test(benchmark_losses, model_losses, *, rng, block_size, reps, studentize) ->
-     SpaPValues(lower, consistent, upper)`: arch `SPA`, in losses.
+     SpaPValues(lower, consistent, upper)`: arch `SPA`, in losses. In arch 8.0.0 `studentize`
+     changes no p-value: the statistic is the largest mean loss differential, unstudentised.
 4. `cscv_pbo(returns, *, n_splits=16, evaluate, max_combinations=None, rng=None) ->
    CscvPbo(pbo, n_splits, n_combinations, n_rows_dropped, subsampled)` in
-   `statistics/multiple_testing.py`: in progress. The logits, per-combination records,
+   `statistics/multiple_testing.py`: done (cf56cc6). The logits, per-combination records,
    `prob_oos_loss` and the degradation regression stay out: no consumer reads them.
-5. `effective_n_eigen(returns) -> float` in `statistics/multiple_testing.py`: in progress.
+5. `effective_n_eigen(returns) -> float` in `statistics/multiple_testing.py`: done (cf56cc6).
 API agreed with edgelab on 2026-11-05. edgelab keeps the 20-observation floor, the
 10%-dropped rule, the Ljung-Box warning, the 3-trial floor, the returns-to-losses conversion and
 the SPA block-size resolution. Every move is bit-identical.
@@ -171,8 +172,10 @@ Not moved, deleted in edgelab: `sharpe_se_lo`, `sharpe_power`, `min_detectable_s
 `dsr_trial_count` stays in edgelab (N logic), and Ledoit-Wolf stays quantcore's own code.
 The conformance targets are added per item; `conformance_map.json` and `docs/CONFORMANCE.md` are
 regenerated once after the last item (one conformance run), so `build_report --check` fails on the
-commits between 358a6cc and that regeneration. Estimated end state: about 480 lines added to
-`src/` (7,881 to about 8,360), against about 750 leaving edgelab.
+commits between 358a6cc and that regeneration. Measured: 920 lines added to `src/`
+(7,881 at 358a6cc to 8,801), SPA included, which the earlier estimate of about 480 left out.
+The trim plan's bound is the lines edgelab deletes, which edgelab measures when it removes its
+copies (estimated about 750).
 
 ## Release gates
 
@@ -216,3 +219,20 @@ enforced, L-BFGS `maxiter=1000`, `pgtol=1e-10`, `factr=10`:
   relative in 24 of 48.
 With the statsmodels defaults (`ARIMA`, d = 1 in the state space) the non-convergence rate over
 800 fits per length was 16.1% at 60 points and 11.5% at 120 points, against 0% for quantcore.
+
+### QC-16: A typed exception for a CIR fit with no mean reversion — open
+Priority: should; not on the v0.3.0 path unless it folds into the trim at no cost. Raised by
+agentic-trading (AT-119), 2026-11-05.
+
+`cir_fit` (`core/stochastic.py`, `_cir_fit`) raises plain `RuntimeError` in three cases: kappa
+<= 0 (the series shows no mean reversion), theta <= 0 and sigma^2 <= 0 (inadmissible fits).
+agentic-trading's CIR analyst treats the first as the model declining to bet, because the data
+has no mean reversion, and the other two as a failed fit. With one exception type it has to
+match the message text "kappa <= 0". A test runs the real `cir_fit` on a rising series to pin
+that wording.
+
+Acceptance: `cir_fit` raises a named subclass of `RuntimeError` for kappa <= 0, for example
+`CIRNoMeanReversionError` (the name is quantcore's choice), exported next to `cir_fit`. theta
+<= 0 and sigma^2 <= 0 keep raising `RuntimeError`, or a separate subclass. Because it subclasses
+`RuntimeError`, existing callers that catch `RuntimeError` are unaffected. A test covers each of
+the three cases. agentic switches from the message match to the type at the AT-101 re-pin.

@@ -253,6 +253,19 @@ four constructor arguments and the instance `__dict__`, so notes survive too.
 `CIRNoMeanReversionError` takes only a message and already round-trips; quantcore has no other
 exception classes.
 
+### QC-22: `cscv_pbo` returns 1.0 when no trial is ever selected — done (v0.3.2)
+Reported by edgelab on its re-pin to v0.3.1: `cscv_pbo(np.zeros((80, 4)), n_splits=8)` gives PBO
+1.0. When every in-sample score ties, the selected trial's out-of-sample mid-rank is `(N + 1) / 2`,
+so omega is 1/2, the logit is exactly 0 and the combination counts as overfit. With no trial
+ever selected PBO is undefined, so `cscv_pbo` now raises `ValueError` when every in-sample score
+ties on every combination evaluated. Under the default Sharpe that is an all-constant panel
+(QC-17's rule makes every constant column score 0) or a panel of identical trials. A custom
+`evaluate` that separates the columns, such as the mean on distinct constants, still returns a
+PBO, and a panel where any combination has a best trial is unchanged. The conformance
+generator draws continuous panels, which never tie, so the conformance map does not move.
+Agreed with edgelab (its one caller, `_pbo_outcome`, reports the case as not evaluated) and
+accepted by the master under the owner's rule for producer-consumer fixes, 2026-11-06.
+
 ### QC-21: `ou_half_life` loses its slope when the level is far from 0 — open
 lstsq fits the slope on the uncentred `[1, level]`, whose condition number grows with
 `|mean(level)| / std(level)`. Measured against the centred slope on AR(1) spreads with unit

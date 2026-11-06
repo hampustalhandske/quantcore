@@ -91,11 +91,20 @@ def test_cscv_pbo_persistent_winner_is_not_overfit() -> None:
     assert result.n_combinations == 2
 
 
-def test_cscv_pbo_tie_is_a_median_rank_and_counts_as_overfit() -> None:
-    # Identical trials tie out-of-sample: rank 1.5 of 2, omega = 1/2, logit = 0 <= 0.
+def test_cscv_pbo_identical_trials_raise() -> None:
+    # Identical trials tie in-sample on every combination, so no trial is ever selected.
     column = np.array([0.01, -0.02, 0.03, 0.00, 0.02, -0.01])
-    x = np.column_stack([column, column])
-    assert cscv_pbo(x, n_splits=2).pbo == 1.0
+    with pytest.raises(ValueError, match="PBO is undefined"):
+        cscv_pbo(np.column_stack([column, column]), n_splits=2)
+
+
+def test_cscv_pbo_out_of_sample_tie_counts_half_a_rank() -> None:
+    # Trials 0 and 1 are identical and beat trial 2 in-sample: trial 0 is selected (first on a
+    # tie) and ties trial 1 out-of-sample, where trial 2 is below both. The rank is
+    # 1 + 1 + 0.5 = 2.5 of 3, omega = 2.5 / 4 > 1/2, so neither combination is overfit.
+    column = np.array([0.01, -0.02, 0.03, 0.00, 0.02, 0.01])
+    x = np.column_stack([column, column, column - 0.05])
+    assert cscv_pbo(x, n_splits=2).pbo == 0.0
 
 
 def test_cscv_pbo_evaluates_every_combination_in_order() -> None:
@@ -196,6 +205,32 @@ def test_cscv_pbo_scores_any_constant_column_zero(value: float) -> None:
     exact[:, 1] = 2.0**-9
     assert cscv_pbo(x, n_splits=4) == cscv_pbo(exact, n_splits=4)
     assert cscv_pbo(x, n_splits=4).pbo == pytest.approx(1.0 / 3.0, rel=1e-15)
+
+
+@pytest.mark.parametrize("value", [0.0, 2.0**-9, 0.002])
+def test_cscv_pbo_all_constant_columns_raise(value: float) -> None:
+    # Every in-sample Sharpe ratio is 0 on every combination, so no trial is ever selected.
+    with pytest.raises(ValueError, match="PBO is undefined"):
+        cscv_pbo(np.full((80, 4), value), n_splits=8)
+
+
+def test_cscv_pbo_all_constant_columns_with_distinct_levels_raise_under_sharpe() -> None:
+    x = np.tile(np.array([0.001, 0.002, -0.001, 0.0]), (80, 1))
+    with pytest.raises(ValueError, match="PBO is undefined"):
+        cscv_pbo(x, n_splits=8)
+
+
+def test_cscv_pbo_all_constant_columns_with_a_separating_evaluate_return_a_pbo() -> None:
+    # Under the mean, distinct constants are distinct scores: the highest is selected on every
+    # combination and ranks top out-of-sample, so no combination is overfit.
+    x = np.tile(np.array([0.001, 0.002, -0.001, 0.0]), (80, 1))
+    assert cscv_pbo(x, n_splits=8, evaluate=lambda v: float(v.mean())).pbo == 0.0
+
+
+def test_cscv_pbo_all_tied_subsample_raises() -> None:
+    rng = np.random.default_rng(5)
+    with pytest.raises(ValueError, match="PBO is undefined"):
+        cscv_pbo(np.zeros((160, 3)), n_splits=16, max_combinations=50, rng=rng)
 
 
 @pytest.mark.parametrize("value", [0.5, 0.001, 0.002])

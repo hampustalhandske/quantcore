@@ -136,7 +136,9 @@ def cscv_pbo(
     its complement the out-of-sample half; both halves keep the blocks in time order. The trial
     with the highest in-sample `evaluate` (the first on a tie) is ranked out-of-sample as
     `1 + #(others below) + 0.5 * #(others equal)`; `omega = rank / (N + 1)`, clipped to
-    `[1e-12, 1 - 1e-12]`, and the logit is `ln(omega / (1 - omega))`.
+    `[1e-12, 1 - 1e-12]`, and the logit is `ln(omega / (1 - omega))`. When every in-sample score
+    ties on every combination evaluated, no trial is ever selected and PBO is undefined, so the
+    function raises. Under the default `evaluate` that is a panel whose every column is constant.
 
     Args:
         returns: `T x N` finite per-period returns, one column per trial, `N >= 2`, `T >= S`.
@@ -156,8 +158,8 @@ def cscv_pbo(
 
     Raises:
         ValueError: `n_splits` is not even and at least 2; `returns` is not 2-D, has fewer than
-            2 columns or fewer than `n_splits` rows, or is not finite; or subsampling is needed
-            and `rng` is None.
+            2 columns or fewer than `n_splits` rows, or is not finite; subsampling is needed
+            and `rng` is None; or every in-sample score ties on every combination evaluated.
     """
     if n_splits < 2 or n_splits % 2 != 0:
         raise ValueError("n_splits must be even and at least 2")
@@ -181,6 +183,7 @@ def cscv_pbo(
 
     all_blocks = frozenset(range(n_splits))
     logits = np.empty(len(train_sets), dtype=np.float64)
+    any_selection = False
     for k, train_block_idx in enumerate(train_sets):
         train_set = frozenset(train_block_idx)
         test_set = all_blocks - train_set
@@ -194,6 +197,7 @@ def cscv_pbo(
             [evaluate(test_rows[:, j]) for j in range(n_trials)], dtype=np.float64
         )
 
+        any_selection = any_selection or bool(np.any(is_metrics != is_metrics[0]))
         best_trial = int(np.argmax(is_metrics))
         best_oos = oos_metrics[best_trial]
         others = np.delete(oos_metrics, best_trial)
@@ -202,6 +206,11 @@ def cscv_pbo(
         omega = min(max(omega, _OMEGA_CLIP), 1.0 - _OMEGA_CLIP)
         logits[k] = math.log(omega / (1.0 - omega))
 
+    if not any_selection:
+        raise ValueError(
+            "PBO is undefined: every in-sample score ties on every combination, so no trial is "
+            "ever selected (with the default evaluate: every column constant, or all identical)"
+        )
     return CscvPbo(
         pbo=float(np.mean(logits <= 0.0)),
         n_splits=n_splits,

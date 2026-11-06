@@ -8,7 +8,7 @@ to see exactly what changed and why before upgrading.
 
 ## [0.3.2] — 2026-11-06
 
-### Fixed
+### Fixed — behaviour changed
 
 - `ou_half_life` raises `ValueError` when the AR(1) slope is not negative by more than its
   rounding error. A straight line has slope exactly 0, and the computed slope is rounding noise
@@ -20,6 +20,14 @@ to see exactly what changed and why before upgrading.
 - `quantcore.risk.ConvergenceError` round-trips through `pickle` with `params`,
   `log_likelihood`, `optimizer_message` and any notes. Unpickling it raised `TypeError` in
   0.3.1 (`docs/ISSUES.md` QC-20).
+- `cscv_pbo` raises `ValueError` when every in-sample score ties on every combination
+  evaluated, where no trial is ever selected and PBO is undefined. In 0.3.1 every such
+  combination had an out-of-sample logit of exactly 0 and counted as overfit, so the result
+  was 1.0. Example: `cscv_pbo(np.zeros((80, 4)), n_splits=8)` and two identical trials both
+  returned PBO 1.0 in 0.3.1 and raise now. Under the default `evaluate` this is a panel
+  whose every column is constant, or whose columns are all identical. A panel where any
+  combination has a best in-sample trial returns the same PBO as before (`docs/ISSUES.md`
+  QC-22).
 
 ### Added
 

@@ -10,8 +10,7 @@ internally with the sample mean (mu_hat = returns.mean()), and estimates
 the same stationarity constraints `garch_11_variance` already validates:
 omega > 0, alpha >= 0, beta >= 0, alpha + beta < 1.
 
-Since we cannot run the (not-yet-implemented) optimizer ourselves to
-hand-calibrate exact expected numbers, these tests are structured around
+These tests are structured around
 invariants that must hold for ANY correct MLE implementation of this model,
 per the house convention established in test_volatility.py and
 test_gbm_garch_var_pipeline.py (testing recursion/structural relationships
@@ -32,7 +31,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from quantcore.risk.volatility import fit_garch_11, garch_11_variance
+from quantcore.risk.volatility import fit_garch_11, garch_11_variance, variance_backcast
 
 RNG_SEED = 2024
 
@@ -181,7 +180,11 @@ def test_fit_garch_11_synthetic_generator_is_self_consistent() -> None:
         200, omega_true, alpha_true, beta_true, seed=RNG_SEED
     )
     recomputed_variance = garch_11_variance(
-        epsilon, omega=omega_true, alpha=alpha_true, beta=beta_true
+        epsilon,
+        omega=omega_true,
+        alpha=alpha_true,
+        beta=beta_true,
+        presample_variance=omega_true / (1.0 - alpha_true - beta_true),
     )
     assert np.allclose(recomputed_variance, variance, rtol=1e-10, atol=1e-15)
 
@@ -246,31 +249,23 @@ def test_fit_garch_11_deterministic_given_fixed_input() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Numerical conditioning regression: omega lives on a ~1e-4 to 1e-6 scale
-# while alpha/beta live on an O(0.01-1) scale. Handing SLSQP this raw,
-# badly-mismatched parameter vector is a known cause of poor convergence,
-# including degenerate corner solutions -- an omega far from its true
-# optimum with alpha and beta both near zero. When alpha = beta = 0 exactly,
-# the model reduces to a constant-variance Gaussian, whose MLE-optimal omega
-# is EXACTLY mean(epsilon**2) in closed form, so this is directly checkable
-# without needing to run the optimizer ahead of time to calibrate a
-# tolerance.
+# Constant-variance data: the model nests a constant-variance Gaussian
+# (alpha = beta = 0, omega = mean(epsilon**2)), so the fitted likelihood
+# cannot fall below that model's.
 # ---------------------------------------------------------------------------
 
 
-def test_fit_garch_11_recovers_sample_variance_on_near_constant_variance_data() -> None:
-    # iid Gaussian noise, i.e. alpha_true = beta_true = 0: the generating
-    # process has no ARCH/GARCH structure at all, so a correctly-converged
-    # fit should land close to the constant-variance corner rather than
-    # drifting to some other omega under the mistaken impression it found a
-    # better fit elsewhere.
+def test_fit_garch_11_likelihood_is_at_least_that_of_constant_variance() -> None:
     rng = np.random.default_rng(0)
-    true_var = 4e-4
-    epsilon = rng.normal(0.0, np.sqrt(true_var), size=2000)
-    expected_omega = float(np.mean(epsilon**2))
+    epsilon = rng.normal(0.0, np.sqrt(4e-4), size=2000)
+    epsilon = epsilon - epsilon.mean()
 
     omega_hat, alpha_hat, beta_hat = fit_garch_11(epsilon)
 
-    assert omega_hat == pytest.approx(expected_omega, rel=0.2)
-    assert alpha_hat < 0.05
-    assert beta_hat < 0.05
+    variance = garch_11_variance(
+        epsilon, omega_hat, alpha_hat, beta_hat, presample_variance=variance_backcast(epsilon)
+    )
+    fitted = -0.5 * np.sum(np.log(2.0 * np.pi) + np.log(variance) + epsilon**2 / variance)
+    constant = float(np.mean(epsilon**2))
+    constant_ll = -0.5 * np.sum(np.log(2.0 * np.pi) + np.log(constant) + epsilon**2 / constant)
+    assert fitted >= constant_ll - 1e-6

@@ -1,0 +1,948 @@
+"""Wall-clock benchmarks for quantcore.
+
+Two groups of measurements, both printed as Markdown tables after a header
+that records the machine, the Python and package versions, the timing method
+and the baseline every number is measured against:
+
+1. End-to-end Monte Carlo throughput of quantcore's Numba-backed simulators.
+2. quantcore's public functions against the external library each one is
+   oracle-tested against (`arch`, `statsmodels`, `scipy`, `scikit-learn`,
+   `empyrical`, `cvxpy` with the CLARABEL solver, `quantstats` on `pandas` Series,
+   `filterpy`, and `skfolio` when it is installed), on identical inputs.
+
+Every timing is the median of at least `MIN_REPEATS` runs of an already
+warmed-up call, so Numba JIT compilation, imports and first-call caches are
+excluded on both sides. Calls faster than `MIN_RUN_SECONDS` are looped inside
+each run and reported per call.
+
+The "agree" column re-runs both sides once on the timed input and compares
+the results at the tolerance of the corresponding oracle test; the tolerance
+is printed in the row. A row whose two sides do different work says so in its
+"like for like" column, and its ratio is not a speed comparison.
+
+Needs the `oracle` extra:
+
+    uv sync --extra dev --extra oracle
+    uv run python benchmarks/bench_quantcore.py
+"""
+
+from __future__ import annotations
+
+import importlib
+import importlib.metadata
+import json
+import os
+import platform
+import statistics
+import subprocess
+import sys
+import time
+import warnings
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+import cvxpy as cp
+import empyrical
+import numpy as np
+import numpy.typing as npt
+import pandas as pd
+import quantstats.stats as qs_stats
+import statsmodels.api as sm
+from filterpy.kalman import KalmanFilter
+from scipy.stats import jarque_bera
+from sklearn.covariance import LedoitWolf
+from statsmodels.tsa.arima.model import ARIMA
+
+import quantcore
+from quantcore.core.price_paths import (
+    simulate_garch_t_price_paths,
+    simulate_gbm_price_paths,
+    simulate_heston_price_paths,
+    simulate_jump_diffusion_price_paths,
+)
+from quantcore.core.sde_solver import (
+    simulate_gbm_paths,
+)
+from quantcore.filtering import dynamic_hedge_ratio
+from quantcore.performance import (
+    common_sense_ratio,
+    cpc_index,
+    gain_to_pain_ratio,
+    outlier_loss_ratio,
+    outlier_win_ratio,
+    risk_of_ruin,
+    serenity_index,
+    ulcer_index,
+    ulcer_performance_index,
+)
+from quantcore.portfolio import (
+    ledoit_wolf_shrinkage,
+)
+from quantcore.risk import (
+    conditional_value_at_risk,
+    value_at_risk,
+)
+from quantcore.statistics import (
+    jarque_bera_test,
+    newey_west_cov,
+    ols,
+)
+from quantcore.time_series import arima_fit, arima_forecast
+
+FloatArray = npt.NDArray[np.float64]
+
+MIN_REPEATS = 5
+DEFAULT_REPEATS = 7
+MIN_RUN_SECONDS = 2e-3
+SEED = 20240921
+
+REPORTED_PACKAGES = (
+    "quantcore",
+    "numpy",
+    "scipy",
+    "numba",
+    "pandas",
+    "statsmodels",
+    "arch",
+    "scikit-learn",
+    "empyrical-reloaded",
+    "cvxpy",
+    "clarabel",
+    "quantstats",
+    "filterpy",
+    "skfolio",
+)
+
+
+@dataclass(frozen=True)
+class Row:
+    """One quantcore-versus-library comparison.
+
+    `library_seconds` is None when no library timing exists for the row.
+    `agree` and `like_for_like` are printed verbatim.
+    """
+
+    function: str
+    size: str
+    quantcore_seconds: float
+    library: str
+    library_seconds: float | None
+    agree: str
+    like_for_like: str
+
+
+def median_seconds(fn: Callable[[], object], repeats: int = DEFAULT_REPEATS) -> float:
+    """Median per-call wall-clock time of `fn`, in seconds, over `repeats` runs.
+
+    `fn` is called once before timing (warm-up). If that call takes less than
+    `MIN_RUN_SECONDS`, each run loops `fn` enough times to last about that
+    long and the run's time is divided by the loop count.
+    """
+    if repeats < MIN_REPEATS:
+        raise ValueError(f"repeats must be at least {MIN_REPEATS}")
+    fn()
+    start = time.perf_counter()
+    fn()
+    single = time.perf_counter() - start
+    number = max(1, int(MIN_RUN_SECONDS / max(single, 1e-9)))
+
+    runs = []
+    for _ in range(repeats):
+        start = time.perf_counter()
+        for _ in range(number):
+            fn()
+        runs.append((time.perf_counter() - start) / number)
+    return statistics.median(runs)
+
+
+def format_seconds(seconds: float | None) -> str:
+    """Render a duration with a unit that keeps three significant figures."""
+    if seconds is None:
+        return "-"
+    if seconds < 1e-3:
+        return f"{seconds * 1e6:.3g} µs"
+    if seconds < 1.0:
+        return f"{seconds * 1e3:.3g} ms"
+    return f"{seconds:.3g} s"
+
+
+def print_table(title: str, rows: list[Row]) -> None:
+    """Print comparison rows as a Markdown table.
+
+    The ratio column is library time divided by quantcore time: above 1 means
+    quantcore is faster, below 1 means the library is faster.
+    """
+    print(f"\n### {title}\n")
+    print(
+        "| function | size | quantcore | library | library time | "
+        "ratio (library / quantcore) | agree | like for like |"
+    )
+    print("|---|---|---|---|---|---|---|---|")
+    for row in rows:
+        if row.library_seconds is None:
+            ratio = "-"
+        else:
+            ratio = f"{row.library_seconds / row.quantcore_seconds:.3g}x"
+        print(
+            f"| {row.function} | {row.size} | {format_seconds(row.quantcore_seconds)} | "
+            f"{row.library} | {format_seconds(row.library_seconds)} | {ratio} | "
+            f"{row.agree} | {row.like_for_like} |"
+        )
+
+
+def yes_no(condition: bool, tolerance: str) -> str:
+    """Render an agreement verdict together with the tolerance it was judged at."""
+    return f"{'yes' if condition else 'NO'} ({tolerance})"
+
+
+# ---------------------------------------------------------------------------
+# Header
+# ---------------------------------------------------------------------------
+
+
+def _cpu_name() -> str:
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            return subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        if system == "Linux":
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return platform.processor() or "unknown"
+
+
+def _load_average() -> str:
+    """One-minute load average, which shows whether other work competed for the CPU."""
+    try:
+        one_minute = os.getloadavg()[0]
+    except (AttributeError, OSError):
+        return "unknown"
+    return (
+        f"{one_minute:.2f} one-minute load average on {os.cpu_count()} cores "
+        "(timings are inflated when this is not well below the core count)"
+    )
+
+
+def _package_version(name: str) -> str:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return "not installed"
+
+
+def _source_revision() -> str:
+    """Git commit of the quantcore source being imported, or why it is unknown.
+
+    Reads the enclosing git checkout when quantcore is imported from one, and
+    otherwise the commit recorded by the installer for a git-URL install.
+    """
+    source_dir = Path(quantcore.__file__).resolve().parent
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=source_dir, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    try:
+        git("ls-files", "--error-unmatch", "__init__.py")
+        sha = git("rev-parse", "--short=12", "HEAD")
+        dirty = git("status", "--porcelain", "--", ".")
+        return f"{sha}{' with uncommitted changes under src/quantcore' if dirty else ''}"
+    except (OSError, subprocess.CalledProcessError):
+        pass
+
+    try:
+        direct_url = importlib.metadata.distribution("quantcore").read_text("direct_url.json")
+    except importlib.metadata.PackageNotFoundError:
+        direct_url = None
+    if direct_url:
+        commit = json.loads(direct_url).get("vcs_info", {}).get("commit_id")
+        if commit:
+            return f"{commit[:12]} (installed from git)"
+    return "unknown (not a git checkout and no install commit recorded)"
+
+
+def _blas_threads() -> str:
+    try:
+        threadpoolctl = importlib.import_module("threadpoolctl")
+    except ImportError:
+        return "unknown (threadpoolctl not installed)"
+    pools = threadpoolctl.threadpool_info()
+    return ", ".join(
+        f"{pool.get('internal_api', '?')} {pool.get('version', '?')} x{pool.get('num_threads')}"
+        for pool in pools
+    )
+
+
+def print_header() -> None:
+    """Print the machine, versions, timing method and baselines for this run."""
+    print("# quantcore benchmark\n")
+    print("## Environment\n")
+    print(f"- Machine: {_cpu_name()}, {os.cpu_count()} logical cores, {platform.machine()}")
+    print(f"- OS: {platform.platform()}")
+    print(f"- System load at start: {_load_average()}")
+    print(f"- Python: {sys.version.split()[0]} ({platform.python_implementation()})")
+    for name in REPORTED_PACKAGES:
+        print(f"- {name}: {_package_version(name)}")
+    print(f"- quantcore source revision: {_source_revision()}")
+    print(f"- BLAS/OpenMP thread pools: {_blas_threads()}")
+    print("\n## Method\n")
+    print(
+        f"- Timing: time.perf_counter, median of {DEFAULT_REPEATS} runs "
+        f"(never fewer than {MIN_REPEATS}); calls under {MIN_RUN_SECONDS * 1e3:g} ms are "
+        "looped inside each run and reported per call."
+    )
+    print(
+        "- JIT compilation time: EXCLUDED. Every timed callable, quantcore and library alike, "
+        "is called once on the timed input before the first timed run."
+    )
+    print("- Inputs: both sides of a row receive the same arrays, generated from a fixed seed.")
+    print(
+        "- Ratio: library time / quantcore time. Above 1 quantcore is faster, "
+        "below 1 the library is faster."
+    )
+    print("\n## Baselines\n")
+    print("- Throughput rows: no baseline; absolute paths per second including random draws.")
+    print(
+        "- GARCH(1,1) fit: `arch_model(mean='Zero', vol='GARCH', p=1, q=1, dist='normal', "
+        "rescale=False).fit(disp='off')` on the demeaned series, model construction included."
+    )
+    print(
+        "- ARIMA fit: `statsmodels` `ARIMA(order, trend='n').fit()` (exact Gaussian likelihood "
+        "by Kalman filter); quantcore minimises the conditional sum of squares."
+    )
+    print("- ARIMA forecast: `ARIMAResults.forecast(h)` on an already fitted result.")
+    print("- OLS: `sm.OLS(y, x).fit()` reading params, resid and rsquared.")
+    print(
+        "- Newey-West: `sm.OLS(y, x).fit(cov_type='HAC', cov_kwds={'maxlags': L}).cov_params()` "
+        "against quantcore `ols` followed by `newey_west_cov`."
+    )
+    print("- Engle-Granger: `statsmodels` `coint(y, x, trend='c', maxlag=1, autolag=None)`.")
+    print(
+        "- VaR / CVaR: `empyrical.value_at_risk` / `conditional_value_at_risk` (historical). "
+        "scikit-learn has no VaR or CVaR function. `skfolio.measures` is timed when installed."
+    )
+    print("- Covariance shrinkage: `sklearn.covariance.LedoitWolf().fit(returns).covariance_`.")
+    print(
+        "- Portfolio optimisers: the same convex program in `cvxpy` solved by CLARABEL, timed "
+        "twice: building the problem and solving it on every call, and `problem.solve` alone on "
+        "a problem built outside the timed call."
+    )
+    print("- ADF test: `statsmodels` `adfuller(series, maxlag=L, regression='c', autolag=None)`.")
+    print(
+        "- Diagnostics: `statsmodels` `kpss(regression='c', nlags='auto')`, "
+        "`het_arch(nlags=None)` and `scipy.stats.jarque_bera`."
+    )
+    print(
+        "- Performance ratios: the `quantstats.stats` function of the same name on a "
+        "`pandas.Series` built outside the timed call, with `rf=0` where it takes one."
+    )
+    print(
+        "- Dynamic hedge ratio: a `filterpy.kalman.KalmanFilter` loop that sets the observation "
+        "matrix to x[t] and calls `predict` and `update` once per observation."
+    )
+
+
+def bench_throughput() -> None:
+    """Report end-to-end simulation throughput, random number generation included."""
+    print("\n### Monte Carlo throughput (random draws included, no baseline)\n")
+    print("| function | size | time | paths / s | path-steps / s | check |")
+    print("|---|---|---|---|---|---|")
+    spot, rate, vol, maturity = 100.0, 0.03, 0.2, 1.0
+    num_paths, num_steps = 100_000, 252
+    seconds = median_seconds(
+        lambda: simulate_gbm_paths(spot, rate, vol, maturity, num_steps, num_paths, seed=SEED)
+    )
+    print(
+        f"| simulate_gbm_paths | {num_paths:,} paths x {num_steps} steps | "
+        f"{format_seconds(seconds)} | {num_paths / seconds:,.0f} | "
+        f"{num_paths * num_steps / seconds:,.0f} | - |"
+    )
+    _throughput_price_path_rows()
+
+
+def _throughput_price_path_rows() -> None:
+    """Print one throughput row per `simulate_*_price_paths` function.
+
+    Each function is timed on 10,000 paths x 252 steps with one
+    `default_rng(SEED)` created before timing and shared by every call of that
+    function, so each call draws new variates. The check column compares the
+    mean terminal price of a separate `default_rng(SEED)` run with its
+    closed-form expectation, in standard errors of that mean, where one
+    exists: `s0 * exp(mu * T)` for GBM and the jump diffusion. The Heston and
+    GARCH-t processes have no closed-form mean here and show "-".
+    """
+    num_paths, num_steps = 10_000, 252
+    dt = 1.0 / num_steps
+    horizon = num_steps * dt
+    s0, mu = 100.0, 0.05
+    simulators: list[tuple[str, Callable[..., FloatArray], float | None]] = [
+        ("simulate_gbm_price_paths", simulate_gbm_price_paths, s0 * np.exp(mu * horizon)),
+        ("simulate_heston_price_paths", simulate_heston_price_paths, None),
+        ("simulate_garch_t_price_paths", simulate_garch_t_price_paths, None),
+        (
+            "simulate_jump_diffusion_price_paths",
+            simulate_jump_diffusion_price_paths,
+            s0 * np.exp(mu * horizon),
+        ),
+    ]
+    for name, simulate, expected in simulators:
+        rng = np.random.default_rng(SEED)
+        seconds = median_seconds(
+            lambda simulate=simulate, rng=rng: simulate(rng, num_paths, num_steps, dt)
+        )
+        if expected is None:
+            check = "- (rng shared by timed calls)"
+        else:
+            terminal = simulate(np.random.default_rng(SEED), num_paths, num_steps, dt)[:, -1]
+            z = (terminal.mean() - expected) / (terminal.std(ddof=1) / np.sqrt(num_paths))
+            check = (
+                f"{z:+.2f} standard errors from the closed-form mean (rng shared by timed calls)"
+            )
+        print(
+            f"| {name} | {num_paths:,} paths x {num_steps} steps | "
+            f"{format_seconds(seconds)} | {num_paths / seconds:,.0f} | "
+            f"{num_paths * num_steps / seconds:,.0f} | {check} |"
+        )
+
+
+# ---------------------------------------------------------------------------
+# quantcore against external libraries
+# ---------------------------------------------------------------------------
+
+
+def _simulate_arma(n: int, phi: float, theta: float, integrate: bool, seed: int) -> FloatArray:
+    rng = np.random.default_rng(seed)
+    eps = rng.normal(scale=0.2, size=n)
+    series = np.empty(n)
+    series[0] = eps[0]
+    for t in range(1, n):
+        series[t] = phi * series[t - 1] + eps[t] + theta * eps[t - 1]
+    return np.cumsum(series) + 100.0 if integrate else series
+
+
+def bench_arima() -> list[Row]:
+    """`arima_fit` and `arima_forecast` against `statsmodels` `ARIMA`.
+
+    The fit rows compare two exact Gaussian maximum-likelihood fits, each
+    stopped by its own optimizer; agreement uses the oracle test's parameter
+    bounds for that case (coefficients within 1e-3, innovation variance
+    within 0.1%).
+
+    The forecast rows feed the statsmodels-fitted coefficients to
+    `arima_forecast` and compare with `ARIMAResults.forecast` at
+    rtol 1e-9 / atol 1e-10. Both are the conditional mean of the future
+    values given the whole series.
+    """
+    horizon = 10
+    cases = (
+        ("ARMA(1,1)", (1, 0, 1), 1_000, 0.5, 0.3, False),
+        ("ARMA(1,1)", (1, 0, 1), 10_000, 0.5, 0.3, False),
+        ("ARIMA(1,1,0)", (1, 1, 0), 1_000, 0.4, 0.0, True),
+        ("AR(1)", (1, 0, 0), 1_000, 0.6, 0.0, False),
+    )
+    rows = []
+    for label, order, n, phi, theta, integrate in cases:
+        p, d, q = order
+        series = _simulate_arma(n, phi, theta, integrate, SEED)
+
+        def fit_quantcore(
+            series: FloatArray = series, p: int = p, d: int = d, q: int = q
+        ) -> tuple[FloatArray, FloatArray, float]:
+            return arima_fit(series, p=p, d=d, q=q)
+
+        def fit_statsmodels(
+            series: FloatArray = series, order: tuple[int, int, int] = order
+        ) -> object:
+            return ARIMA(series, order=order, trend="n").fit()
+
+        t_quantcore = median_seconds(fit_quantcore)
+        t_statsmodels = median_seconds(fit_statsmodels, repeats=MIN_REPEATS)
+        ar, ma, sigma2 = fit_quantcore()
+        result = ARIMA(series, order=order, trend="n").fit()
+        sm_params = np.asarray(result.params, dtype=np.float64)
+        sm_ar, sm_ma, sm_sigma2 = sm_params[:p], sm_params[p : p + q], float(sm_params[-1])
+        close = (
+            np.allclose(ar, sm_ar, rtol=0.0, atol=1e-3)
+            and np.allclose(ma, sm_ma, rtol=0.0, atol=1e-3)
+            and bool(np.isclose(sigma2, sm_sigma2, rtol=1e-3, atol=0.0))
+        )
+        rows.append(
+            Row(
+                "arima_fit",
+                f"{label}, {n:,} obs",
+                t_quantcore,
+                "statsmodels",
+                t_statsmodels,
+                yes_no(close, "coefs abs 1e-3, sigma2 rel 1e-3"),
+                "yes for the estimate: both maximize the exact Gaussian likelihood by a "
+                "Kalman filter; statsmodels also prepares standard errors",
+            )
+        )
+
+        def forecast_quantcore(
+            series: FloatArray = series,
+            sm_ar: FloatArray = sm_ar,
+            sm_ma: FloatArray = sm_ma,
+            d: int = d,
+        ) -> FloatArray:
+            return arima_forecast(series, ar_coefs=sm_ar, ma_coefs=sm_ma, d=d, h=horizon)
+
+        def forecast_statsmodels(result: object = result) -> FloatArray:
+            return np.asarray(result.forecast(horizon), dtype=np.float64)  # type: ignore[attr-defined]
+
+        t_quantcore = median_seconds(forecast_quantcore)
+        t_statsmodels = median_seconds(forecast_statsmodels)
+        agree = np.allclose(forecast_quantcore(), forecast_statsmodels(), rtol=1e-9, atol=1e-10)
+        if q > 0:
+            like_for_like = (
+                "yes for the forecast values; statsmodels reuses its stored filter state, "
+                "quantcore runs its Kalman filter over the raw series"
+            )
+        else:
+            like_for_like = (
+                "yes for the forecast values; statsmodels reuses its stored filter state, "
+                "quantcore starts from the raw series"
+            )
+        rows.append(
+            Row(
+                "arima_forecast",
+                f"{label}, {n:,} obs, h={horizon}",
+                t_quantcore,
+                "statsmodels",
+                t_statsmodels,
+                yes_no(agree, "same coefs, rtol 1e-9"),
+                like_for_like,
+            )
+        )
+    return rows
+
+
+def _regression_data(n_obs: int, n_regressors: int, seed: int) -> tuple[FloatArray, FloatArray]:
+    """Design matrix with an intercept column and a response with AR(1) errors."""
+    rng = np.random.default_rng(seed)
+    design = np.column_stack([np.ones(n_obs), rng.normal(size=(n_obs, n_regressors - 1))])
+    shocks = rng.normal(scale=0.5, size=n_obs)
+    errors = np.empty(n_obs)
+    errors[0] = shocks[0]
+    for t in range(1, n_obs):
+        errors[t] = 0.5 * errors[t - 1] + shocks[t]
+    y = design @ np.linspace(0.5, 1.5, n_regressors) + errors
+    return y, design
+
+
+def bench_regression() -> list[Row]:
+    """`ols` and `ols` + `newey_west_cov` against `statsmodels` OLS and HAC."""
+    n_lags = 5
+    rows = []
+    for n_obs, n_regressors in ((1_000, 4), (100_000, 10)):
+        y, design = _regression_data(n_obs, n_regressors, SEED)
+        size = f"{n_obs:,} obs x {n_regressors} regressors"
+
+        def ols_quantcore(
+            y: FloatArray = y, design: FloatArray = design
+        ) -> tuple[FloatArray, FloatArray, float]:
+            return ols(y, design)
+
+        def ols_statsmodels(
+            y: FloatArray = y, design: FloatArray = design
+        ) -> tuple[FloatArray, FloatArray, float]:
+            result = sm.OLS(y, design).fit()
+            return result.params, result.resid, result.rsquared
+
+        t_quantcore = median_seconds(ols_quantcore)
+        t_statsmodels = median_seconds(ols_statsmodels)
+        coefs, resid, r_squared = ols_quantcore()
+        sm_coefs, sm_resid, sm_r_squared = ols_statsmodels()
+        agree = (
+            np.allclose(coefs, sm_coefs, rtol=1e-8, atol=0.0)
+            and np.allclose(resid, sm_resid, rtol=1e-6, atol=1e-10)
+            and bool(np.isclose(r_squared, sm_r_squared, rtol=1e-8))
+        )
+        rows.append(
+            Row(
+                "ols",
+                size,
+                t_quantcore,
+                "statsmodels",
+                t_statsmodels,
+                yes_no(agree, "coefs and R2 rtol 1e-8"),
+                "yes: coefficients, residuals and R2 from both",
+            )
+        )
+
+        def hac_quantcore(y: FloatArray = y, design: FloatArray = design) -> FloatArray:
+            _, residuals, _ = ols(y, design)
+            return newey_west_cov(design, residuals, n_lags=n_lags)
+
+        def hac_statsmodels(y: FloatArray = y, design: FloatArray = design) -> FloatArray:
+            result = sm.OLS(y, design).fit(cov_type="HAC", cov_kwds={"maxlags": n_lags})
+            return np.asarray(result.cov_params(), dtype=np.float64)
+
+        t_quantcore = median_seconds(hac_quantcore)
+        t_statsmodels = median_seconds(hac_statsmodels)
+        agree = np.allclose(hac_quantcore(), hac_statsmodels(), rtol=1e-6, atol=0.0)
+        rows.append(
+            Row(
+                "ols + newey_west_cov",
+                f"{size}, {n_lags} lags",
+                t_quantcore,
+                "statsmodels",
+                t_statsmodels,
+                yes_no(agree, "rtol 1e-6"),
+                "yes: OLS fit plus Bartlett-kernel HAC covariance from both",
+            )
+        )
+    return rows
+
+
+def bench_var_cvar() -> list[Row]:
+    """Historical `value_at_risk` / `conditional_value_at_risk` against `empyrical`.
+
+    quantcore's historical CVaR is `empyrical`'s partition-and-mean, bit for bit.
+
+    `skfolio.measures` is added when installed. Its VaR is an order statistic
+    where quantcore and empyrical interpolate the empirical quantile linearly,
+    so that row is flagged as not comparable. Its CVaR is the
+    Rockafellar-Uryasev tail average, which equals quantcore's tail mean when
+    (1 - confidence) x observations is an integer, as it is for both sizes
+    timed here.
+    """
+    confidence = 0.95
+    try:
+        skfolio_measures = importlib.import_module("skfolio.measures")
+    except ImportError:
+        skfolio_measures = None
+
+    rows = []
+    for n_obs in (2_520, 1_000_000):
+        returns = np.random.default_rng(SEED).standard_t(df=4, size=n_obs) * 0.01 + 0.001
+        size = f"{n_obs:,} obs, 95%"
+
+        def var_quantcore(returns: FloatArray = returns) -> float:
+            return value_at_risk(returns, confidence, method="historical")
+
+        def cvar_quantcore(returns: FloatArray = returns) -> float:
+            return conditional_value_at_risk(returns, confidence, method="historical")
+
+        def var_empyrical(returns: FloatArray = returns) -> float:
+            return -float(empyrical.value_at_risk(returns, cutoff=1.0 - confidence))
+
+        def cvar_empyrical(returns: FloatArray = returns) -> float:
+            return -float(empyrical.conditional_value_at_risk(returns, cutoff=1.0 - confidence))
+
+        comparisons: list[tuple[str, Callable[[], float], str, Callable[[], float], str]] = [
+            (
+                "value_at_risk (historical)",
+                var_quantcore,
+                "empyrical",
+                var_empyrical,
+                "yes: linearly interpolated empirical quantile",
+            ),
+            (
+                "conditional_value_at_risk (historical)",
+                cvar_quantcore,
+                "empyrical",
+                cvar_empyrical,
+                "yes: mean of the int((n - 1) x (1 - confidence)) + 1 smallest returns",
+            ),
+        ]
+        if skfolio_measures is not None:
+
+            def var_skfolio(returns: FloatArray = returns) -> float:
+                return float(skfolio_measures.value_at_risk(returns, beta=confidence))
+
+            def cvar_skfolio(returns: FloatArray = returns) -> float:
+                return float(skfolio_measures.cvar(returns, beta=confidence))
+
+            comparisons += [
+                (
+                    "value_at_risk (historical)",
+                    var_quantcore,
+                    "skfolio",
+                    var_skfolio,
+                    "NOT COMPARABLE: skfolio returns an order statistic, no interpolation",
+                ),
+                (
+                    "conditional_value_at_risk (historical)",
+                    cvar_quantcore,
+                    "skfolio",
+                    cvar_skfolio,
+                    "yes on this input: skfolio's Rockafellar-Uryasev tail average equals the "
+                    "tail mean when (1 - confidence) x obs is an integer, and differs otherwise",
+                ),
+            ]
+
+        for function, quantcore_fn, library, library_fn, like_for_like in comparisons:
+            t_quantcore = median_seconds(quantcore_fn)
+            t_library = median_seconds(library_fn)
+            agree = bool(np.isclose(quantcore_fn(), library_fn(), rtol=1e-9, atol=0.0))
+            rows.append(
+                Row(
+                    function,
+                    size,
+                    t_quantcore,
+                    library,
+                    t_library,
+                    yes_no(agree, "rtol 1e-9"),
+                    like_for_like,
+                )
+            )
+
+    if skfolio_measures is None:
+        print("\nskfolio is not installed: no skfolio VaR / CVaR rows in this run.")
+    return rows
+
+
+def bench_shrinkage() -> list[Row]:
+    """`ledoit_wolf_shrinkage` against `sklearn.covariance.LedoitWolf`."""
+    rows = []
+    for n_obs, n_assets in ((252, 10), (2_520, 100), (2_520, 500)):
+        rng = np.random.default_rng(SEED)
+        loadings = rng.normal(size=(n_assets, n_assets)) / np.sqrt(n_assets)
+        returns = rng.normal(size=(n_obs, n_assets)) @ loadings.T * 0.01
+
+        def shrink_quantcore(returns: FloatArray = returns) -> FloatArray:
+            return ledoit_wolf_shrinkage(returns)
+
+        def shrink_sklearn(returns: FloatArray = returns) -> FloatArray:
+            return np.asarray(LedoitWolf().fit(returns).covariance_, dtype=np.float64)
+
+        t_quantcore = median_seconds(shrink_quantcore)
+        t_sklearn = median_seconds(shrink_sklearn)
+        agree = np.allclose(shrink_quantcore(), shrink_sklearn(), rtol=1e-8, atol=1e-12)
+        rows.append(
+            Row(
+                "ledoit_wolf_shrinkage",
+                f"{n_obs:,} obs x {n_assets} assets",
+                t_quantcore,
+                "scikit-learn",
+                t_sklearn,
+                yes_no(agree, "rtol 1e-8"),
+                "yes: Ledoit-Wolf (2004) shrinkage toward scaled identity; "
+                "scikit-learn also validates input and stores the mean",
+            )
+        )
+    return rows
+
+
+def _factor_model_covariance(n_assets: int, seed: int) -> FloatArray:
+    """Well-conditioned daily-return covariance from a random three-factor model.
+
+    A market factor (loadings near 1) and two further factors, each with
+    daily variance of order 1e-5, plus idiosyncratic variances between
+    0.5e-4 and 1.5e-4, so asset variances are about 1e-4 to 2e-4.
+    """
+    rng = np.random.default_rng(seed)
+    loadings = np.column_stack(
+        [rng.normal(1.0, 0.3, n_assets), rng.normal(0.0, 0.5, (n_assets, 2))]
+    )
+    factor_variance = np.array([0.4e-4, 0.15e-4, 0.1e-4])
+    idiosyncratic = rng.uniform(0.5e-4, 1.5e-4, n_assets)
+    cov = (loadings * factor_variance) @ loadings.T + np.diag(idiosyncratic)
+    return np.asarray(0.5 * (cov + cov.T), dtype=np.float64)
+
+
+def _solved_weights(problem: cp.Problem, weights: cp.Variable, name: str) -> FloatArray:
+    """Solve `problem` with CLARABEL and return the weights, raising unless optimal."""
+    problem.solve(solver=cp.CLARABEL)
+    if problem.status not in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
+        raise RuntimeError(f"{name}: cvxpy solver did not reach optimality: {problem.status}")
+    return np.asarray(weights.value, dtype=np.float64)
+
+
+def bench_diagnostics() -> list[Row]:
+    """`jarque_bera_test` against `scipy.stats.jarque_bera`.
+
+    - `jarque_bera_test(series)` against `scipy.stats.jarque_bera` on
+      Student-t(4) returns; both use population moments. Statistic and
+      p-value at rtol 1e-9 / atol 1e-12.
+    """
+    rows = []
+    for n_obs in (2_520, 100_000):
+        rng = np.random.default_rng(SEED)
+        heavy_tailed = rng.standard_t(df=4, size=n_obs) * 0.01
+
+        def jb_quantcore(series: FloatArray = heavy_tailed) -> tuple[float, float]:
+            return jarque_bera_test(series)
+
+        def jb_scipy(series: FloatArray = heavy_tailed) -> tuple[float, float]:
+            result = jarque_bera(series)
+            return float(result.statistic), float(result.pvalue)
+
+        comparisons: list[
+            tuple[
+                str,
+                Callable[[], tuple[float, float]],
+                str,
+                Callable[[], tuple[float, float]],
+                float,
+                float,
+                str,
+                str,
+            ]
+        ] = [
+            (
+                "jarque_bera_test",
+                jb_quantcore,
+                "scipy",
+                jb_scipy,
+                1e-9,
+                1e-12,
+                "statistic and p-value rtol 1e-9",
+                "yes: n/6 (S^2 + K^2/4) and its chi-squared(2) p-value",
+            ),
+        ]
+        for name, quantcore_fn, library, library_fn, rtol, atol, tolerance, like in comparisons:
+            t_quantcore = median_seconds(quantcore_fn)
+            t_library = median_seconds(library_fn)
+            agree = bool(np.allclose(quantcore_fn(), library_fn(), rtol=rtol, atol=atol))
+            rows.append(
+                Row(
+                    name,
+                    f"{n_obs:,} obs",
+                    t_quantcore,
+                    library,
+                    t_library,
+                    yes_no(agree, tolerance),
+                    like,
+                )
+            )
+    return rows
+
+
+def bench_performance_ratios() -> list[Row]:
+    """Nine `quantcore.performance` ratios against the `quantstats.stats` function of the same name.
+
+    The input is 2,520 normal daily returns (mean 4e-4, standard deviation 0.01).
+    quantstats takes a `pandas.Series` with a DatetimeIndex, built once
+    outside the timed call; quantcore takes the NumPy array. quantstats is
+    called with `rf=0` where it takes a risk-free rate, and none of the nine
+    quantities is annualised on either side. Agreement is rtol 1e-10 / atol
+    1e-12, the closed-form tolerance of the oracle tests.
+    """
+    returns = np.random.default_rng(SEED).normal(4e-4, 0.01, size=2_520)
+    series = pd.Series(returns, index=pd.date_range("2000-01-01", periods=returns.size, freq="D"))
+    comparisons: list[tuple[str, Callable[[FloatArray], float], Callable[[pd.Series], float]]] = [
+        ("ulcer_index", ulcer_index, qs_stats.ulcer_index),
+        (
+            "ulcer_performance_index",
+            ulcer_performance_index,
+            lambda s: qs_stats.ulcer_performance_index(s, 0),
+        ),
+        ("serenity_index", serenity_index, lambda s: qs_stats.serenity_index(s, 0)),
+        ("gain_to_pain_ratio", gain_to_pain_ratio, lambda s: qs_stats.gain_to_pain_ratio(s, 0)),
+        ("common_sense_ratio", common_sense_ratio, qs_stats.common_sense_ratio),
+        ("cpc_index", cpc_index, qs_stats.cpc_index),
+        ("outlier_win_ratio", outlier_win_ratio, qs_stats.outlier_win_ratio),
+        ("outlier_loss_ratio", outlier_loss_ratio, qs_stats.outlier_loss_ratio),
+        ("risk_of_ruin", risk_of_ruin, qs_stats.risk_of_ruin),
+    ]
+    rows = []
+    for name, quantcore_fn, quantstats_fn in comparisons:
+
+        def run_quantcore(fn: Callable[[FloatArray], float] = quantcore_fn) -> float:
+            return float(fn(returns))
+
+        def run_quantstats(fn: Callable[[pd.Series], float] = quantstats_fn) -> float:
+            return float(fn(series))
+
+        t_quantcore = median_seconds(run_quantcore)
+        t_quantstats = median_seconds(run_quantstats)
+        agree = bool(np.isclose(run_quantcore(), run_quantstats(), rtol=1e-10, atol=1e-12))
+        rows.append(
+            Row(
+                name,
+                "2,520 obs",
+                t_quantcore,
+                "quantstats",
+                t_quantstats,
+                yes_no(agree, "rtol 1e-10, atol 1e-12"),
+                "yes: same definition on the same returns; quantstats reads a pandas.Series "
+                "(built outside the timed call), quantcore a NumPy array",
+            )
+        )
+    return rows
+
+
+def bench_dynamic_hedge_ratio() -> list[Row]:
+    """`dynamic_hedge_ratio` against a `filterpy` `KalmanFilter` loop with per-step H.
+
+    As in the oracle test: a scalar state started from the prior N(0, 1),
+    F = 1, Q = 1e-4, R = 0.01, and H set to x[t] before each `predict` /
+    `update` pair. The series are a drifting-beta pair, y = beta_t x + noise.
+    Agreement is the whole beta path at atol 1e-10.
+    """
+    obs_var, proc_var = 0.01, 1e-4
+    rows = []
+    for n_obs in (2_520, 25_200):
+        rng = np.random.default_rng(SEED)
+        x = rng.normal(size=n_obs)
+        true_beta = 1.0 + 0.01 * np.cumsum(rng.normal(scale=0.1, size=n_obs))
+        y = true_beta * x + rng.normal(scale=0.1, size=n_obs)
+
+        def beta_quantcore(y: FloatArray = y, x: FloatArray = x) -> FloatArray:
+            return dynamic_hedge_ratio(y, x, obs_var=obs_var, proc_var=proc_var)
+
+        def beta_filterpy(y: FloatArray = y, x: FloatArray = x) -> FloatArray:
+            kf = KalmanFilter(dim_x=1, dim_z=1)
+            kf.x = np.array([0.0])
+            kf.P = np.array([[1.0]])
+            kf.F = np.array([[1.0]])
+            kf.Q = np.array([[proc_var]])
+            kf.R = np.array([[obs_var]])
+            beta = np.empty(y.shape[0])
+            for t in range(y.shape[0]):
+                kf.H = np.array([[x[t]]])
+                kf.predict()
+                kf.update(np.array([y[t]]))
+                beta[t] = kf.x[0]
+            return beta
+
+        t_quantcore = median_seconds(beta_quantcore)
+        t_filterpy = median_seconds(beta_filterpy)
+        agree = bool(np.allclose(beta_quantcore(), beta_filterpy(), rtol=0.0, atol=1e-10))
+        rows.append(
+            Row(
+                "dynamic_hedge_ratio",
+                f"{n_obs:,} obs",
+                t_quantcore,
+                "filterpy",
+                t_filterpy,
+                yes_no(agree, "beta path atol 1e-10"),
+                "yes: same prior and noise variances; filterpy builds the filter and "
+                "allocates its matrices at every step",
+            )
+        )
+    return rows
+
+
+def main() -> None:
+    """Run every benchmark and print the report to stdout."""
+    warnings.simplefilter("ignore")
+    print_header()
+    print("\n## Results")
+    bench_throughput()
+    print_table("ARIMA fit and forecast: quantcore vs statsmodels", bench_arima())
+    print_table("OLS and Newey-West: quantcore vs statsmodels", bench_regression())
+    print_table("Historical VaR / CVaR: quantcore vs empyrical and skfolio", bench_var_cvar())
+    print_table("Ledoit-Wolf shrinkage: quantcore vs scikit-learn", bench_shrinkage())
+    print_table(
+        "Diagnostics (KPSS, ARCH-LM, Jarque-Bera): quantcore vs statsmodels and scipy",
+        bench_diagnostics(),
+    )
+    print_table("Performance ratios: quantcore vs quantstats", bench_performance_ratios())
+    print_table("Dynamic hedge ratio: quantcore vs filterpy", bench_dynamic_hedge_ratio())
+
+
+if __name__ == "__main__":
+    main()

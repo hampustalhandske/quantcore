@@ -22,8 +22,8 @@ import numpy as np
 from quantcore.core.sde_solver import (
     _generate_gbm_increments,
     _simulate_gbm_paths_numba_kernel,
-    _simulate_gbm_paths_numpy,
 )
+from tests.reference_kernels import _simulate_gbm_paths_numpy
 
 
 def test_numba_and_numpy_gbm_kernels_agree_on_shared_increments() -> None:

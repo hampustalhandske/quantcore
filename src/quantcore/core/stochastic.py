@@ -1,12 +1,8 @@
-"""Mean-reverting and stochastic-volatility SDE path simulators.
+"""Mean-reverting SDE path simulators and the CIR fit.
 
     OU:     dX_t = theta*(mu - X_t)*dt + sigma*dW_t
                  exact step: X_{t+dt} = X_t*exp(-theta*dt) + mu*(1-exp(-theta*dt))
                              + sigma*sqrt((1-exp(-2*theta*dt))/(2*theta))*Z
-
-    Heston: dS_t = mu*S_t*dt + sqrt(V_t)*S_t*dW_t^S
-            dV_t = kappa*(theta - V_t)*dt + xi*sqrt(V_t)*dW_t^V,  corr(dW^S, dW^V) = rho
-            Milstein correction for V: + 0.5*xi^2*(dW_t^V)^2 - 0.5*xi^2*dt
 
     CIR:    dr_t = kappa*(theta - r_t)*dt + sigma*sqrt(r_t)*dW_t
             Milstein: r_{t+dt} = r_t + kappa*(theta-r_t)*dt + sigma*sqrt(r_t)*Z*sqrt(dt)
@@ -15,8 +11,7 @@
 References:
     Uhlenbeck, G.E. and Ornstein, L.S. (1930), "On the Theory of the Brownian
     Motion"; Vasicek, O. (1977), "An Equilibrium Characterization of the Term
-    Structure" (OU / Vasicek exact transition). Heston, S.L. (1993), "A
-    Closed-Form Solution for Options with Stochastic Volatility" (Heston SDE).
+    Structure" (OU / Vasicek exact transition).
     Cox, J.C., Ingersoll, J.E., and Ross, S.A. (1985), "A Theory of the Term
     Structure of Interest Rates" (CIR square-root diffusion). See
     docs/REFERENCES.md.
@@ -58,7 +53,7 @@ def simulate_ou_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int = 0,
+    seed: int | None = None,
 ) -> npt.NDArray[np.float64]:
     """Simulate Ornstein-Uhlenbeck paths using the exact conditional-Gaussian transition.
 
@@ -70,7 +65,9 @@ def simulate_ou_paths(
         t: Total time horizon (must be non-negative).
         n_paths: Number of independent sample paths.
         n_steps: Number of discretization steps.
-        seed: Seed for reproducibility.
+        seed: Seed for reproducibility. None (default) draws fresh
+            entropy each call (non-reproducible unless you pass a seed),
+            matching `simulate_gbm_paths`'s convention.
 
     Returns:
         Array of shape (n_paths, n_steps + 1) of simulated OU paths, including
@@ -113,147 +110,12 @@ def _simulate_ou_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int,
+    seed: int | None,
 ) -> npt.NDArray[np.float64]:
     dt = t / n_steps
     rng = np.random.default_rng(seed)
     z = rng.standard_normal(size=(n_paths, n_steps))
     return _simulate_ou_paths_kernel(theta, mu, sigma, x0, dt, z)
-
-
-def _validate_simulate_heston_paths(
-    s0: float,
-    v0: float,
-    kappa: float,
-    theta: float,
-    xi: float,
-    rho: float,
-    t: float,
-    n_paths: int,
-    n_steps: int,
-) -> None:
-    if s0 <= 0.0:
-        raise ValueError("s0 must be strictly positive")
-    if v0 < 0.0:
-        raise ValueError("v0 must be non-negative")
-    if kappa <= 0.0:
-        raise ValueError("kappa must be strictly positive")
-    if theta <= 0.0:
-        raise ValueError("theta must be strictly positive")
-    if xi < 0.0:
-        raise ValueError("xi must be non-negative")
-    if not (-1.0 <= rho <= 1.0):
-        raise ValueError("rho must be in [-1, 1]")
-    if t < 0.0:
-        raise ValueError("t must be non-negative")
-    if n_paths <= 0:
-        raise ValueError("n_paths must be a positive integer")
-    if n_steps <= 0:
-        raise ValueError("n_steps must be a positive integer")
-
-
-def simulate_heston_paths(
-    s0: float,
-    v0: float,
-    mu: float,
-    kappa: float,
-    theta: float,
-    xi: float,
-    rho: float,
-    t: float,
-    n_paths: int,
-    n_steps: int,
-    seed: int = 0,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Simulate Heston stochastic-volatility paths via log-Euler (S) / Milstein (V).
-
-    Args:
-        s0: Initial spot price (must be strictly positive).
-        v0: Initial variance (must be non-negative).
-        mu: Drift of the log-price process.
-        kappa: Mean-reversion speed of variance (must be strictly positive).
-        theta: Long-run variance (must be strictly positive).
-        xi: Vol-of-vol (must be non-negative).
-        rho: Correlation between dW^S and dW^V, in [-1, 1].
-        t: Total time horizon (must be non-negative).
-        n_paths: Number of independent sample paths.
-        n_steps: Number of discretization steps.
-        seed: Seed for reproducibility.
-
-    Returns:
-        Tuple (S_paths, V_paths), each of shape (n_paths, n_steps + 1),
-        including S_0/V_0 at column 0. Variance is reflected at 0.
-
-    References:
-        Heston (1993). See docs/REFERENCES.md.
-    """
-    _validate_simulate_heston_paths(s0, v0, kappa, theta, xi, rho, t, n_paths, n_steps)
-    return _simulate_heston_paths(s0, v0, mu, kappa, theta, xi, rho, t, n_paths, n_steps, seed)
-
-
-@numba.njit(cache=True)
-def _simulate_heston_paths_kernel(
-    s0: float,
-    v0: float,
-    mu: float,
-    kappa: float,
-    theta: float,
-    xi: float,
-    rho: float,
-    dt: float,
-    z1: npt.NDArray[np.float64],
-    z2: npt.NDArray[np.float64],
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    n_paths, n_steps = z1.shape
-    s_paths = np.empty((n_paths, n_steps + 1))
-    v_paths = np.empty((n_paths, n_steps + 1))
-    sqrt_dt = np.sqrt(dt)
-    sqrt_one_minus_rho2 = np.sqrt(1.0 - rho * rho)
-
-    for i in range(n_paths):
-        log_s = np.log(s0)
-        v = v0
-        s_paths[i, 0] = s0
-        v_paths[i, 0] = v0
-        for k in range(n_steps):
-            dw_v = z1[i, k] * sqrt_dt
-            dw_s = (rho * z1[i, k] + sqrt_one_minus_rho2 * z2[i, k]) * sqrt_dt
-
-            sqrt_v = np.sqrt(v) if v > 0.0 else 0.0
-            log_s = log_s + (mu - 0.5 * v) * dt + sqrt_v * dw_s
-
-            v_next = (
-                v
-                + kappa * (theta - v) * dt
-                + xi * sqrt_v * dw_v
-                + 0.5 * xi * xi * (dw_v * dw_v - dt)
-            )
-            v = max(v_next, 0.0)
-
-            s_paths[i, k + 1] = np.exp(log_s)
-            v_paths[i, k + 1] = v
-
-    return s_paths, v_paths
-
-
-def _simulate_heston_paths(
-    s0: float,
-    v0: float,
-    mu: float,
-    kappa: float,
-    theta: float,
-    xi: float,
-    rho: float,
-    t: float,
-    n_paths: int,
-    n_steps: int,
-    seed: int,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    dt = t / n_steps
-    rng = np.random.default_rng(seed)
-    z1 = rng.standard_normal(size=(n_paths, n_steps))
-    z2 = rng.standard_normal(size=(n_paths, n_steps))
-    return _simulate_heston_paths_kernel(s0, v0, mu, kappa, theta, xi, rho, dt, z1, z2)
 
 
 def _validate_simulate_cir_paths(
@@ -289,7 +151,7 @@ def simulate_cir_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int = 0,
+    seed: int | None = None,
 ) -> npt.NDArray[np.float64]:
     """Simulate CIR square-root diffusion paths via Milstein discretization.
 
@@ -301,7 +163,9 @@ def simulate_cir_paths(
         t: Total time horizon (must be non-negative).
         n_paths: Number of independent sample paths.
         n_steps: Number of discretization steps.
-        seed: Seed for reproducibility.
+        seed: Seed for reproducibility. None (default) draws fresh
+            entropy each call (non-reproducible unless you pass a seed),
+            matching `simulate_gbm_paths`'s convention.
 
     Returns:
         Array of shape (n_paths, n_steps + 1) of simulated CIR paths,
@@ -351,12 +215,21 @@ def _simulate_cir_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int,
+    seed: int | None,
 ) -> npt.NDArray[np.float64]:
     dt = t / n_steps
     rng = np.random.default_rng(seed)
     z = rng.standard_normal(size=(n_paths, n_steps))
     return _simulate_cir_paths_kernel(r0, kappa, theta, sigma, dt, z)
+
+
+class CIRNoMeanReversionError(RuntimeError):
+    """Raised by `cir_fit` when the estimated mean-reversion speed kappa is <= 0.
+
+    The input series shows no mean reversion, so no CIR model describes it. A subclass of
+    `RuntimeError`, so code that catches `RuntimeError` also catches it. The other inadmissible
+    fits (theta <= 0, sigma^2 <= 0) raise plain `RuntimeError`.
+    """
 
 
 @dataclass(frozen=True)
@@ -431,10 +304,11 @@ def cir_fit(rate_series: npt.NDArray[np.float64], dt: float) -> CIRParams:
     Raises:
         ValueError: If `rate_series` is too short, contains a non-positive
             value, or `dt` is not strictly positive.
-        RuntimeError: If the fitted parameters fall outside the admissible
-            CIR parameter space (kappa <= 0, theta <= 0, or sigma <= 0) --
-            e.g. from an input series with no discernible mean reversion. No
-            silent fallback is returned in this case.
+        CIRNoMeanReversionError: If the estimated kappa is <= 0: the input
+            series shows no mean reversion. A `RuntimeError` subclass.
+        RuntimeError: If the estimated theta or sigma^2 is <= 0, outside the
+            admissible CIR parameter space. No silent fallback is returned in
+            either case.
 
     References:
         Chan, K.C., Karolyi, G.A., Longstaff, F.A., and Sanders, A.B. (1992),
@@ -465,7 +339,7 @@ def _cir_fit(rate_series: npt.NDArray[np.float64], dt: float) -> CIRParams:
 
     kappa = -float(b2)
     if kappa <= 0.0:
-        raise RuntimeError(
+        raise CIRNoMeanReversionError(
             "cir_fit: estimated kappa <= 0 -- input series shows no discernible "
             "mean reversion, so no admissible CIR fit exists for this data"
         )

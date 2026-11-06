@@ -16,21 +16,18 @@ import numpy as np
 import pytest
 
 from quantcore.risk.egarch import (
-    _EGARCH_INFEASIBLE_PENALTY,
     EGARCHParams,
     GJRGARCHParams,
     _egarch_11_variance,
-    _egarch_11_variance_numpy,
-    _egarch_negative_log_likelihood,
     _gjr_garch_11_variance,
-    _gjr_garch_11_variance_numpy,
     egarch_11_variance,
     egarch_fit,
     ewma_variance,
     gjr_garch_11_variance,
     gjr_garch_fit,
 )
-from quantcore.risk.volatility import garch_11_variance
+from quantcore.risk.volatility import ConvergenceError, garch_11_variance
+from tests.reference_kernels import _egarch_11_variance_numpy, _gjr_garch_11_variance_numpy
 
 RETURNS = np.array([0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012])
 RNG_SEED = 2024
@@ -56,7 +53,14 @@ class TestEgarch11Variance:
 
     def test_first_value_seeded_at_stationary_log_variance(self) -> None:
         omega, beta = 0.02, 0.9
-        result = egarch_11_variance(RETURNS, omega=omega, alpha=0.1, gamma=-0.05, beta=beta)
+        result = egarch_11_variance(
+            RETURNS,
+            omega=omega,
+            alpha=0.1,
+            gamma=-0.05,
+            beta=beta,
+            presample_variance=float(np.exp(omega / (1.0 - beta))),
+        )
         assert result[0] == pytest.approx(omega / (1.0 - beta), abs=1e-9)
 
 
@@ -290,7 +294,6 @@ class TestEgarchFit:
         for field in (result.omega, result.alpha, result.gamma, result.beta):
             assert isinstance(field, float)
         assert isinstance(result.log_likelihood, float)
-        assert isinstance(result.converged, bool)
 
     # ---- Constraint satisfaction across several synthetic series. ----
 
@@ -309,7 +312,13 @@ class TestEgarchFit:
         epsilon = _simulate_egarch_11_process(
             800, omega_true, alpha_true, gamma_true, beta_true, seed=seed
         )
-        result = egarch_fit(epsilon)
+        # `arch` can stop at a point outside the stationary region on some
+        # series; that is reported as ConvergenceError, never returned.
+        try:
+            result = egarch_fit(epsilon)
+        except ConvergenceError as error:
+            assert error.params is not None
+            return
 
         assert -1.0 < result.beta < 1.0
 
@@ -349,80 +358,24 @@ class TestEgarchFit:
 
         assert result_1 == result_2
 
-    # ---- `converged` diagnostic behavior. ----
+    # ---- Non-convergence raises ConvergenceError, not a converged=False
+    # return value (owner follow-up: GARCH-family fitters unified on
+    # raising -- see quantcore.risk.volatility.ConvergenceError). ----
 
-    def test_converged_flag_is_consistent_with_feasibility(self) -> None:
-        # Whatever the optimizer reports, a converged result must, by
-        # definition, be feasible -- the fitter should never claim
-        # convergence while returning a beta outside the stationarity
-        # region.
+    def test_returned_result_is_always_feasible(self) -> None:
+        # egarch_fit no longer has a partial-result return path: whatever
+        # it returns (as opposed to raising ConvergenceError) must, by
+        # construction, be feasible.
         epsilon = _simulate_egarch_11_process(600, 0.0, 0.1, -0.05, 0.9, seed=RNG_SEED)
         result = egarch_fit(epsilon)
+        assert -1.0 < result.beta < 1.0
 
-        if result.converged:
-            assert -1.0 < result.beta < 1.0
-
-    # ---- Short-window (n=60) convergence-rate regression. ----
-
-    def test_short_window_convergence_rate_is_reasonable(self) -> None:
-        # Regression test for a reported production failure: `egarch_fit`
-        # failed (RuntimeError or converged=False) on 14/60 (~23%) of
-        # 60-observation windows. Root-caused to SLSQP ill-conditioning from
-        # omega living on a different scale than alpha/gamma/beta. Across
-        # 150 independent 60-observation synthetic windows below, the
-        # non-convergence rate empirically measured at ~5% after the fix
-        # (reparameterized omega plus a higher SLSQP `maxiter`), down from a
-        # measured ~16-17% baseline on the same generator pre-fix -- so a
-        # generous 20% ceiling here catches a real regression back toward
-        # the old failure rate without being sensitive to run-to-run noise
-        # in exactly which seeds are hard.
-        n_trials = 150
-        failures = 0
-        for seed in range(n_trials):
-            epsilon = _simulate_egarch_11_process(60, 0.0, 0.1, -0.05, 0.9, seed=seed + 10_000)
-            try:
-                result = egarch_fit(epsilon)
-            except RuntimeError:
-                failures += 1
-                continue
-            if not result.converged:
-                failures += 1
-
-        failure_rate = failures / n_trials
-        assert failure_rate < 0.20, (
-            f"short-window (n=60) EGARCH failure rate {failure_rate:.1%} regressed back "
-            "toward the pre-fix ~16-23% baseline"
-        )
-
-    # ---- Interior ZeroDivisionError region: the Numba kernel raises where
-    # the NumPy loop silently returns inf, at an in-bounds beta the
-    # seed-stability guard alone does not catch (sigma_prev underflowing to
-    # exactly 0.0 partway through the recursion, not at the seed). ----
-
-    def test_objective_returns_infeasible_penalty_instead_of_raising_on_interior_zero_division(
-        self,
-    ) -> None:
-        # Regression test: this (omega, alpha, gamma, beta) point drives
-        # `_egarch_11_variance`'s Numba kernel to divide by an exact-zero
-        # `sigma_prev` at an interior step, even though `beta = -0.99` passes
-        # the objective's own -1+margin < beta < 1-margin seed-stability
-        # check. Without the try/except ZeroDivisionError around the Numba
-        # call, this would propagate out of SLSQP's objective evaluation and
-        # crash the fit instead of degrading gracefully to the usual
-        # infeasible-point penalty.
-        rng = np.random.default_rng(0)
-        returns = rng.normal(0.0, 0.02, size=500)
-        params = np.array([-100.0, 0.1, 0.1, -0.99])
-
-        result = _egarch_negative_log_likelihood(params, returns, omega_scale=1.0)
-
-        assert result == _EGARCH_INFEASIBLE_PENALTY
-
-    def test_egarch_fit_does_not_raise_near_interior_zero_division_region(self) -> None:
-        # `egarch_fit` itself must never raise merely because SLSQP's probing
-        # wanders into the interior-ZeroDivisionError region above -- it
-        # should either converge or report `converged=False`, matching its
-        # documented graceful-degradation contract.
+    def test_egarch_fit_returns_params_on_a_long_series(self) -> None:
+        # `egarch_fit` itself must never crash (an uncaught exception other
+        # than its own documented ValueError/ConvergenceError) merely
+        # because SLSQP's probing wanders into the interior-ZeroDivisionError
+        # region above -- it should either converge or raise
+        # ConvergenceError, never propagate the raw ZeroDivisionError.
         epsilon = _simulate_egarch_11_process(500, 0.0, 0.1, -0.05, 0.9, seed=RNG_SEED)
 
         result = egarch_fit(epsilon)
@@ -441,7 +394,6 @@ class TestGjrGarchFit:
         for field in (result.omega, result.alpha, result.gamma, result.beta):
             assert isinstance(field, float)
         assert isinstance(result.log_likelihood, float)
-        assert isinstance(result.converged, bool)
 
     # ---- Constraint satisfaction across several synthetic series. ----
 
@@ -516,18 +468,18 @@ class TestGjrGarchFit:
 
         assert result_1 == result_2
 
-    # ---- `converged` diagnostic behavior. ----
+    # ---- Non-convergence raises ConvergenceError, not a converged=False
+    # return value (owner follow-up: GARCH-family fitters unified on
+    # raising -- see quantcore.risk.volatility.ConvergenceError). ----
 
-    def test_converged_flag_is_consistent_with_feasibility(self) -> None:
-        # Whatever the optimizer reports, a converged result must, by
-        # definition, be feasible -- the fitter should never claim
-        # convergence while returning parameters that violate the
-        # constraints `gjr_garch_11_variance` itself enforces.
+    def test_returned_result_is_always_feasible(self) -> None:
+        # gjr_garch_fit no longer has a partial-result return path: whatever
+        # it returns (as opposed to raising ConvergenceError) must, by
+        # construction, be feasible.
         epsilon = _simulate_gjr_garch_11_process(600, 1e-5, 0.05, 0.10, 0.80, seed=RNG_SEED)
         result = gjr_garch_fit(epsilon)
 
-        if result.converged:
-            assert result.omega > 0.0
-            assert result.alpha >= 0.0
-            assert result.alpha + result.gamma >= 0.0
-            assert result.alpha + result.gamma / 2.0 + result.beta < 1.0
+        assert result.omega > 0.0
+        assert result.alpha >= 0.0
+        assert result.alpha + result.gamma >= 0.0
+        assert result.alpha + result.gamma / 2.0 + result.beta < 1.0

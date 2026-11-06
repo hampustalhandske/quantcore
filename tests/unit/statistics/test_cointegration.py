@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from itertools import pairwise
-
 import numpy as np
 import pytest
 
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
-    johansen_trace_test,
     ou_half_life,
     spread_zscore,
 )
@@ -40,6 +37,34 @@ class TestAdfTest:
         with pytest.raises(ValueError):
             adf_test(np.array([1.0, 2.0, 3.0]), max_lags=5)
 
+    def test_invalid_trend_raises(self) -> None:
+        with pytest.raises(ValueError):
+            adf_test(_random_walk(100), trend="bogus")
+
+    def test_invalid_autolag_raises(self) -> None:
+        with pytest.raises(ValueError):
+            adf_test(_random_walk(100), max_lags=5, autolag="bogus")
+
+    @pytest.mark.parametrize("trend", ["n", "c", "ct"])
+    def test_default_autolag_none_uses_max_lags_exactly(self, trend: str) -> None:
+        # autolag=None (default) must be the exact same computation as
+        # before trend/autolag existed: max_lags lags, no search.
+        series = _stationary_ar1(300, phi=0.5)
+        stat_default, p_default = adf_test(series, max_lags=2, trend=trend)
+        stat_explicit, p_explicit = adf_test(series, max_lags=2, trend=trend, autolag=None)
+        assert stat_default == pytest.approx(stat_explicit)
+        assert p_default == pytest.approx(p_explicit)
+
+    @pytest.mark.parametrize("trend", ["n", "c", "ct"])
+    @pytest.mark.parametrize("autolag", ["aic", "bic", "t-stat"])
+    def test_autolag_selects_lag_in_range_and_returns_finite_stat(
+        self, trend: str, autolag: str
+    ) -> None:
+        series = _stationary_ar1(300, phi=0.5)
+        stat, p_value = adf_test(series, max_lags=8, trend=trend, autolag=autolag)
+        assert np.isfinite(stat)
+        assert 0.0 <= p_value <= 1.0
+
     def test_random_walk_does_not_strongly_reject(self) -> None:
         series = _random_walk(500)
         _, p_value = adf_test(series, max_lags=1)
@@ -56,46 +81,21 @@ class TestAdfTest:
         assert isinstance(stat, float)
         assert isinstance(p_value, float)
 
-    @pytest.mark.parametrize(
-        ("t_stat", "expected_p", "tol"),
-        [
-            (-2.86, 0.05, 0.02),
-            (-3.43, 0.01, 0.02),
-            (-2.57, 0.10, 0.02),
-        ],
-    )
-    def test_mackinnon_pvalue_matches_known_critical_values(
-        self, t_stat: float, expected_p: float, tol: float
-    ) -> None:
-        # Import lazily to keep this internal helper's usage localized to the
-        # test that specifically validates its critical-value calibration.
-        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
+    def test_adf_pvalue_of_strongly_stationary_series_is_below_one_in_ten_thousand(self) -> None:
+        series = _stationary_ar1(500, phi=0.2)
+        _, p_value = adf_test(series, max_lags=1)
+        assert 0.0 <= p_value < 1e-4
 
-        assert _mackinnon_c_pvalue(t_stat) == pytest.approx(expected_p, abs=tol)
+    def test_adf_pvalue_of_explosive_series_is_exactly_one(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        series = 1.05 ** np.arange(60) + rng.normal(0.0, 0.01, size=60)
+        statistic, p_value = adf_test(series, max_lags=1)
+        assert statistic > 2.74
+        assert p_value == 1.0
 
-    def test_mackinnon_pvalue_monotonically_decreases_as_stat_falls(self) -> None:
-        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
-
-        t_stats = np.linspace(-10.0, 5.0, 200)
-        p_values = [_mackinnon_c_pvalue(t) for t in t_stats]
-        assert all(a <= b for a, b in pairwise(p_values))
-
-    def test_mackinnon_pvalue_clamped_within_unit_interval_at_extremes(self) -> None:
-        from quantcore.statistics.cointegration import _mackinnon_c_pvalue
-
-        very_negative = _mackinnon_c_pvalue(-100.0)
-        very_positive = _mackinnon_c_pvalue(100.0)
-        assert 0.0 <= very_negative <= 1.0
-        assert 0.0 <= very_positive <= 1.0
-        assert not np.isnan(very_negative)
-        assert not np.isnan(very_positive)
-        assert very_negative == pytest.approx(0.0001)
-        assert very_positive == pytest.approx(0.9999)
-
-    def test_random_walk_reports_large_pvalue_not_old_overconfident_value(self) -> None:
-        # Regression test for the production bug: the prior Student-t
-        # approximation reported p ~= 0.03 for genuine unit-root series,
-        # falsely signaling stationarity to downstream leg-selection filters.
+    def test_random_walk_reports_large_pvalue(self) -> None:
+        # Genuine unit-root series must not look stationary to downstream
+        # leg-selection filters.
         for seed in range(5):
             series = _random_walk(500, seed=seed)
             _, p_value = adf_test(series, max_lags=1)
@@ -105,6 +105,57 @@ class TestAdfTest:
         series = _stationary_ar1(500, phi=0.2)
         _, p_value = adf_test(series, max_lags=1)
         assert p_value < 0.05
+
+
+class TestStatsmodelsConventions:
+    """The statsmodels calls receive every option explicitly."""
+
+    @pytest.mark.parametrize("autolag", [None, "aic"])
+    def test_adf_passes_regression_lags_and_autolag(
+        self, monkeypatch: pytest.MonkeyPatch, autolag: str | None
+    ) -> None:
+        seen: dict[str, object] = {}
+
+        def spy(series: np.ndarray, **kwargs: object) -> tuple[float, float]:
+            seen.update(kwargs)
+            return -3.0, 0.04
+
+        monkeypatch.setattr("statsmodels.tsa.stattools.adfuller", spy)
+        assert adf_test(_random_walk(50), max_lags=3, trend="ct", autolag=autolag) == (-3.0, 0.04)
+        assert seen == {
+            "maxlag": 3,
+            "regression": "ct",
+            "autolag": autolag,
+            "store": False,
+            "regresults": False,
+            "result_object": False,
+        }
+
+    def test_engle_granger_passes_the_aeg_conventions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, object] = {}
+
+        def spy(y: np.ndarray, x: np.ndarray, **kwargs: object) -> tuple[float, float, object]:
+            seen.update(kwargs)
+            return -3.5, 0.02, None
+
+        monkeypatch.setattr("statsmodels.tsa.stattools.coint", spy)
+        x = _random_walk(50)
+        beta, statistic, p_value = engle_granger_test(2.0 * x + 1.0, x)
+        assert beta == pytest.approx(2.0)
+        assert (statistic, p_value) == (-3.5, 0.02)
+        assert seen == {
+            "trend": "c",
+            "method": "aeg",
+            "maxlag": 1,
+            "autolag": None,
+            "return_results": None,
+        }
+
+    def test_constant_series_raises(self) -> None:
+        with pytest.raises(ValueError):
+            adf_test(np.ones(50))
 
 
 class TestEngleGrangerTest:
@@ -128,48 +179,49 @@ class TestEngleGrangerTest:
         _, _, p_value = engle_granger_test(y, x)
         assert p_value > 0.01
 
-    def test_pvalue_consistent_with_adf_test_on_same_residuals(self) -> None:
-        x = _random_walk(500, seed=RNG_SEED)
-        spread = _stationary_ar1(500, phi=0.5, seed=RNG_SEED + 1)
+    def test_statistic_matches_no_constant_adf_on_same_residuals_but_pvalue_does_not(
+        self,
+    ) -> None:
+        # The step-2 regression has no constant (the step-1 residuals are
+        # mean-zero by construction), so the statistic equals `adf_test`'s
+        # with `trend="n"` on the same residuals -- and differs from the
+        # constant-including `trend="c"` fit. The p-value must still use
+        # the N=2 Engle-Granger surface, not the N=1 (plain Dickey-Fuller)
+        # surface `adf_test` applies, because the residuals came from an
+        # estimated 2-variable cointegrating regression.
+        # phi close to 1 keeps the statistic in a range where the N=1 vs
+        # N=2 difference is actually visible.
+        x = _random_walk(300, seed=RNG_SEED)
+        spread = _stationary_ar1(300, phi=0.99, seed=RNG_SEED + 1)
         y = 2.0 * x + spread
         _, eg_adf_stat, eg_p_value = engle_granger_test(y, x)
 
         x_reg = np.column_stack([np.ones_like(x), x])
         ols_beta, _, _, _ = np.linalg.lstsq(x_reg, y, rcond=None)
         residuals = y - x_reg @ ols_beta
-        adf_stat, p_value = adf_test(residuals, max_lags=1)
+        stat_no_constant, p_n1 = adf_test(residuals, max_lags=1, trend="n")
+        stat_with_constant, _ = adf_test(residuals, max_lags=1, trend="c")
 
-        assert eg_adf_stat == pytest.approx(adf_stat)
-        assert eg_p_value == pytest.approx(p_value)
+        assert eg_adf_stat == pytest.approx(stat_no_constant, rel=1e-12)
+        assert eg_adf_stat != pytest.approx(stat_with_constant, rel=1e-6)
+        assert eg_p_value > p_n1
 
-
-class TestJohansenTraceTest:
-    def test_invalid_inputs(self) -> None:
-        with pytest.raises(ValueError):
-            johansen_trace_test(np.zeros((10, 1)))
-        with pytest.raises(ValueError):
-            johansen_trace_test(np.zeros((3, 2)), n_lags=5)
-
-    def test_output_shapes(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(200, 2))
-        trace_stats, crit_values, eigenvectors = johansen_trace_test(data, n_lags=1)
-        assert trace_stats.shape == (2,)
-        assert crit_values.shape == (2,)
-        assert eigenvectors.shape == (2, 2)
-
-    def test_trace_statistics_non_negative(self) -> None:
-        rng = np.random.default_rng(RNG_SEED)
-        data = rng.normal(size=(200, 3))
-        trace_stats, _, _ = johansen_trace_test(data, n_lags=1)
-        assert np.all(trace_stats >= 0.0)
+    def test_pvalue_is_not_floored_for_strongly_cointegrated_pairs(self) -> None:
+        # A near-white-noise spread gives a statistic far past MacKinnon's
+        # tabulated minimum, where the p-value is exactly 0.0.
+        x = _random_walk(2000, seed=RNG_SEED)
+        spread = _stationary_ar1(2000, phi=0.0, seed=RNG_SEED + 1)
+        y = 2.0 * x + spread
+        _, _, p_value = engle_granger_test(y, x)
+        assert p_value == 0.0
 
 
 class TestOuHalfLife:
     def test_invalid_inputs(self) -> None:
         with pytest.raises(ValueError):
             ou_half_life(np.array([]))
-        diverging = np.cumsum(np.ones(50))
+        # Each step adds 5% of the level: the AR(1) slope on the level is +0.05.
+        diverging = 1.05 ** np.arange(50.0)
         with pytest.raises(ValueError):
             ou_half_life(diverging)
 

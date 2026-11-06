@@ -1,28 +1,13 @@
-from quantcore.portfolio.black_litterman import black_litterman, implied_equilibrium_returns
-from quantcore.portfolio.covariance import (
-    ewma_covariance,
-    ledoit_wolf_shrinkage,
-    sample_covariance,
-)
+from quantcore.portfolio.black_litterman import black_litterman
+from quantcore.portfolio.covariance import ledoit_wolf_shrinkage
 from quantcore.portfolio.optimization import (
-    kelly_fraction,
-    l1_turnover_penalized_weights,
-    mean_variance_weights,
-    min_variance_weights,
     risk_parity_weights,
     unconstrained_mean_variance_weights,
 )
 
 __all__ = [
     "black_litterman",
-    "ewma_covariance",
-    "implied_equilibrium_returns",
-    "kelly_fraction",
-    "l1_turnover_penalized_weights",
     "ledoit_wolf_shrinkage",
-    "mean_variance_weights",
-    "min_variance_weights",
     "risk_parity_weights",
-    "sample_covariance",
     "unconstrained_mean_variance_weights",
 ]

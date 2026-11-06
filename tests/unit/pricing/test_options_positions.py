@@ -1,8 +1,6 @@
-"""Tests for convex hedge sizing and option lifecycle math.
+"""Tests for protective-put sizing and the option roll schedule.
 
-Tolerances: dollar-value assertions use `pytest.approx(..., rel=1e-6)` unless
-noted; qualitative decay checks use strict monotonicity since Black-Scholes
-theta has a definite sign for OTM/ATM options with no dividends.
+Tolerances: dollar-value assertions use `pytest.approx(..., rel=1e-6)` unless noted.
 """
 
 from __future__ import annotations
@@ -12,11 +10,9 @@ from datetime import date
 import numpy as np
 import pytest
 
-from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
+from quantcore.pricing.black_scholes import black_scholes_put
 from quantcore.pricing.options_positions import (
     ProtectivePutSizing,
-    option_expiry_payoff,
-    option_position_pnl,
     option_roll_schedule,
     protective_put_sizing,
 )
@@ -126,215 +122,6 @@ class TestProtectivePutSizing:
         base.update(kwargs)
         with pytest.raises(ValueError):
             protective_put_sizing(**base)  # type: ignore[arg-type]
-
-
-class TestOptionExpiryPayoff:
-    def test_deep_itm_put_equals_intrinsic_minus_premium(self) -> None:
-        pnl = option_expiry_payoff(
-            spot_at_expiry=50.0,
-            strike=100.0,
-            premium_paid=2.0,
-            contracts=3,
-            multiplier=100.0,
-            option_type="put",
-        )
-        intrinsic = 100.0 - 50.0
-        expected = 3 * 100.0 * (intrinsic - 2.0)
-        assert pnl == pytest.approx(expected)
-
-    def test_deep_itm_call_equals_intrinsic_minus_premium(self) -> None:
-        pnl = option_expiry_payoff(
-            spot_at_expiry=150.0,
-            strike=100.0,
-            premium_paid=5.0,
-            contracts=2,
-            multiplier=100.0,
-            option_type="call",
-        )
-        intrinsic = 150.0 - 100.0
-        expected = 2 * 100.0 * (intrinsic - 5.0)
-        assert pnl == pytest.approx(expected)
-
-    def test_otm_option_loses_full_premium(self) -> None:
-        pnl = option_expiry_payoff(
-            spot_at_expiry=100.0,
-            strike=150.0,
-            premium_paid=3.0,
-            contracts=1,
-            multiplier=100.0,
-            option_type="call",
-        )
-        assert pnl == pytest.approx(-300.0)
-
-    def test_zero_contracts_yields_zero_pnl(self) -> None:
-        pnl = option_expiry_payoff(
-            spot_at_expiry=100.0,
-            strike=100.0,
-            premium_paid=3.0,
-            contracts=0,
-            multiplier=100.0,
-            option_type="call",
-        )
-        assert pnl == 0.0
-
-    @pytest.mark.parametrize(
-        "kwargs",
-        [
-            dict(spot_at_expiry=-1.0),
-            dict(strike=0.0),
-            dict(contracts=-1),
-            dict(multiplier=0.0),
-            dict(option_type="straddle"),
-        ],
-    )
-    def test_invalid_inputs_raise(self, kwargs: dict[str, float]) -> None:
-        base = dict(
-            spot_at_expiry=100.0,
-            strike=100.0,
-            premium_paid=3.0,
-            contracts=1,
-            multiplier=100.0,
-            option_type="call",
-        )
-        base.update(kwargs)
-        with pytest.raises(ValueError):
-            option_expiry_payoff(**base)  # type: ignore[arg-type]
-
-
-class TestOptionPositionPnl:
-    def test_matches_manual_bs_repricing(self) -> None:
-        n = 5
-        spot_path = np.full(n, 100.0)
-        iv_path = np.full(n, 0.2)
-        pnl = option_position_pnl(
-            entry_price=black_scholes_call(100.0, 100.0, 0.03, 0.2, 0.5),
-            contracts=2,
-            multiplier=100.0,
-            spot_path=spot_path,
-            strike=100.0,
-            expiry=0.5,
-            iv_path=iv_path,
-            r=0.03,
-            option_type="call",
-        )
-        times = np.linspace(0.5, 0.0, n)
-        expected = np.array([black_scholes_call(100.0, 100.0, 0.03, 0.2, float(t)) for t in times])
-        entry_price = black_scholes_call(100.0, 100.0, 0.03, 0.2, 0.5)
-        expected_pnl = 2 * 100.0 * (expected - entry_price)
-        np.testing.assert_allclose(pnl, expected_pnl, rtol=1e-10)
-
-    def test_theta_decay_flat_path_atm_call(self) -> None:
-        n = 10
-        spot_path = np.full(n, 100.0)
-        iv_path = np.full(n, 0.2)
-        entry_price = black_scholes_call(100.0, 100.0, 0.03, 0.2, 1.0)
-        pnl = option_position_pnl(
-            entry_price=entry_price,
-            contracts=1,
-            multiplier=100.0,
-            spot_path=spot_path,
-            strike=100.0,
-            expiry=1.0,
-            iv_path=iv_path,
-            r=0.03,
-            option_type="call",
-        )
-        assert np.all(np.diff(pnl) < 0.0)
-        terminal_intrinsic_pnl = option_expiry_payoff(
-            spot_at_expiry=100.0,
-            strike=100.0,
-            premium_paid=entry_price,
-            contracts=1,
-            multiplier=100.0,
-            option_type="call",
-        )
-        assert pnl[-1] == pytest.approx(terminal_intrinsic_pnl, rel=1e-6)
-
-    def test_expiry_day_collapses_to_intrinsic(self) -> None:
-        spot_path = np.array([100.0, 90.0])
-        iv_path = np.array([0.2, 0.2])
-        pnl = option_position_pnl(
-            entry_price=0.0,
-            contracts=1,
-            multiplier=100.0,
-            spot_path=spot_path,
-            strike=100.0,
-            expiry=0.01,
-            iv_path=iv_path,
-            r=0.03,
-            option_type="put",
-        )
-        assert pnl[-1] == pytest.approx(100.0 * 10.0)
-
-    def test_single_day_zero_expiry(self) -> None:
-        spot_path = np.array([100.0])
-        iv_path = np.array([0.2])
-        pnl = option_position_pnl(
-            entry_price=0.0,
-            contracts=1,
-            multiplier=100.0,
-            spot_path=spot_path,
-            strike=90.0,
-            expiry=0.0,
-            iv_path=iv_path,
-            r=0.03,
-            option_type="call",
-        )
-        assert pnl[0] == pytest.approx(100.0 * 10.0)
-
-    @pytest.mark.parametrize(
-        "kwargs",
-        [
-            dict(contracts=-1),
-            dict(multiplier=0.0),
-            dict(strike=0.0),
-            dict(expiry=-1.0),
-            dict(option_type="straddle"),
-        ],
-    )
-    def test_invalid_scalar_inputs_raise(self, kwargs: dict[str, float]) -> None:
-        base = dict(
-            entry_price=1.0,
-            contracts=1,
-            multiplier=100.0,
-            spot_path=np.array([100.0, 100.0]),
-            strike=100.0,
-            expiry=0.5,
-            iv_path=np.array([0.2, 0.2]),
-            r=0.03,
-            option_type="call",
-        )
-        base.update(kwargs)
-        with pytest.raises(ValueError):
-            option_position_pnl(**base)  # type: ignore[arg-type]
-
-    def test_mismatched_path_shapes_raise(self) -> None:
-        with pytest.raises(ValueError):
-            option_position_pnl(
-                entry_price=1.0,
-                contracts=1,
-                multiplier=100.0,
-                spot_path=np.array([100.0, 100.0, 100.0]),
-                strike=100.0,
-                expiry=0.5,
-                iv_path=np.array([0.2, 0.2]),
-                r=0.03,
-                option_type="call",
-            )
-
-    def test_empty_spot_path_raises(self) -> None:
-        with pytest.raises(ValueError):
-            option_position_pnl(
-                entry_price=1.0,
-                contracts=1,
-                multiplier=100.0,
-                spot_path=np.array([]),
-                strike=100.0,
-                expiry=0.5,
-                iv_path=np.array([]),
-                r=0.03,
-                option_type="call",
-            )
 
 
 class TestOptionRollSchedule:

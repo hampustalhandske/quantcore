@@ -1,7 +1,7 @@
 # quantcore
 
-Pip-installable numerical backend for derivative pricing, SDE simulation, and risk
-metrics. Other projects (fraud detection, backtesting, agentic trading) depend on
+Pip-installable numerical backend for derivative pricing, SDE simulation, risk,
+statistics, portfolio construction and backtest-overfitting statistics. Other projects (fraud detection, backtesting, agentic trading) depend on
 this package for all numerically heavy calculations — correctness and performance
 here matter more than in a typical app, since downstream projects trust these
 numbers without re-deriving them.
@@ -10,26 +10,54 @@ numbers without re-deriving them.
 
 - Python 3.12, managed with `uv` (not pip/poetry directly)
 - NumPy + SciPy for reference implementations
+- Runtime dependencies: NumPy, SciPy, Numba, `arch` (the GARCH-family fits, the
+  stationary bootstrap and SPA) and `statsmodels` (ADF, Engle-Granger, KPSS,
+  ARCH-LM, Ljung-Box and the VAR functions). Each library is imported inside the
+  function that uses it, on first use.
 - ruff (lint + format), mypy (strict), pytest
 
 ## Commands
 
 - `uv sync --extra dev` — install all dependencies
+- `uv sync --extra dev --extra oracle` — also install the pinned reference
+  libraries that `tests/oracle/`, `conformance/` and `benchmarks/` import
 - `uv run pytest` — run tests with coverage
+- `uv run pytest conformance -q` — run the conformance suite (records every
+  comparison under `conformance/results/`; a passing run does not mean the
+  cases are within tolerance)
+- `uv run python -m conformance.build_report --check` — fail if the statuses
+  that run gives differ from the committed `conformance/conformance_map.json`;
+  without `--check` it rewrites the map and `docs/CONFORMANCE.md`
 - `uv run ruff check .` — lint
 - `uv run ruff format .` — format
 - `uv run mypy src/` — type check
 
 ## Structure
 
-- `src/quantcore/pricing/` — option pricing: closed-form (Black-Scholes) and
-  Monte Carlo. Every Monte Carlo method must have a closed-form or reference
-  test to validate against where one exists.
+- `src/quantcore/pricing/` — option pricing: closed-form Black-Scholes(-Merton)
+  prices and Greeks, and option-position helpers. A Monte Carlo method, if one is
+  added, must have a closed-form or reference test to validate against where one
+  exists.
 - `src/quantcore/risk/` — VaR/CVaR, volatility models (GARCH)
+- `src/quantcore/statistics/` — statistical tests, regression, HAC, the
+  stationary bootstrap and multiple-testing statistics
+- `src/quantcore/performance/` — performance ratios and Sharpe-ratio inference
+- `src/quantcore/portfolio/`, `time_series/`, `regime/`, `execution/`,
+  `filtering/` — portfolio weights and covariance, ARIMA/VAR, HMM, trading costs,
+  the dynamic hedge ratio
 - `src/quantcore/core/` — Numba-optimized numerical kernels (SDE solvers,
   random path generation). Relaxed mypy rules here (see pyproject.toml)
-  because Numba decorators aren't fully typeable yet.
+  because Numba decorators aren't fully typeable yet. `price_paths.py` is the
+  exception: plain NumPy on purpose, because it draws from a caller-supplied
+  `numpy.random.Generator` and guarantees bit-stable output for a given
+  generator state.
 - `tests/` — mirrors src/ structure 1:1
+- `conformance/` — compares each public quantity with an independent oracle
+  on hypothesis-generated inputs. `targets/` holds the quantcore adapter and
+  the oracle per quantity, `tolerances.py` the written tolerance for each,
+  `conformance_map.json` the committed status of every quantity. CI fails
+  when a fresh run's statuses differ from the map. See `conformance/README.md`.
+- `benchmarks/` — wall-clock comparisons against the same reference libraries
 
 ## Conventions
 
@@ -54,6 +82,20 @@ numbers without re-deriving them.
   `core/`).
 - No silent fallbacks: if a Numba-compiled path fails, raise — don't
   transparently fall back to slow Python without telling the caller.
+- A function that delegates to a library calls it directly. There is no
+  `backend` argument, and the function passes every option explicitly, so a
+  change in a library default cannot move a number. The library is imported
+  inside the function, on first use. No library outside the runtime
+  dependencies is imported from `src/quantcore`. The `oracle` extra is for
+  tests, conformance and benchmarks only.
+- A change that moves a public function's numbers, or adds a public function
+  that has an independent oracle, updates its conformance target and
+  regenerates `conformance/conformance_map.json` in the same change. A
+  tolerance in `conformance/tolerances.py` is derived from the numerics of the
+  computation and is never widened to make a quantity pass.
+- A delegated function is checked by convention tests (options passed, units,
+  annualisation, sign), not by a conformance target that compares the library
+  with itself.
 - This package will be `pip install`-ed by other projects (agentic-trading,
   fraud-detection). Treat the public API in each module's `__init__.py` as a
   contract — don't rename or change signatures without checking downstream use.

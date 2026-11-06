@@ -1,11 +1,8 @@
-"""Convex hedge sizing and option lifecycle math for listed-option positions.
+"""Hedge sizing and expiry selection for listed-option positions.
 
-Builds on the closed-form Black-Scholes pricer to answer the practical
-questions a listed-options desk needs once a pricing model is in place:
-how many put contracts to buy for a target level of portfolio protection,
-what a long option position settles to at expiry, how its mark-to-market
-P&L evolves day by day as it decays toward expiry, and which listed
-expiry to roll into for a target tenor.
+Builds on the closed-form Black-Scholes pricer to answer two practical
+questions: how many put contracts to buy for a target level of portfolio
+protection, and which listed expiry to roll into for a target tenor.
 
 References:
     Black, F. and Scholes, M. (1973). "The Pricing of Options and Corporate
@@ -24,7 +21,7 @@ from datetime import date
 import numpy as np
 import numpy.typing as npt
 
-from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
+from quantcore.pricing.black_scholes import black_scholes_put
 
 _VALID_OPTION_TYPES = ("call", "put")
 _CONTRACT_MULTIPLIER = 100
@@ -178,186 +175,6 @@ def _protective_put_sizing(
 def _validate_option_type(option_type: str) -> None:
     if option_type not in _VALID_OPTION_TYPES:
         raise ValueError(f"option_type must be one of {_VALID_OPTION_TYPES}, got {option_type!r}")
-
-
-def _validate_option_expiry_payoff(
-    spot_at_expiry: float,
-    strike: float,
-    contracts: int,
-    multiplier: float,
-    option_type: str,
-) -> None:
-    if spot_at_expiry < 0.0:
-        raise ValueError("spot_at_expiry must be non-negative")
-    if strike <= 0.0:
-        raise ValueError("strike must be strictly positive")
-    if contracts < 0:
-        raise ValueError("contracts must be non-negative")
-    if multiplier <= 0.0:
-        raise ValueError("multiplier must be strictly positive")
-    _validate_option_type(option_type)
-
-
-def option_expiry_payoff(
-    spot_at_expiry: float,
-    strike: float,
-    premium_paid: float,
-    contracts: int,
-    multiplier: float,
-    option_type: str,
-) -> float:
-    """Compute the terminal net P&L of a long option position at expiry.
-
-    Assumes a LONG option holder (buyer): net P&L is
-    `contracts * multiplier * (intrinsic_value - premium_paid)`. A short
-    position has the opposite sign and is not what this function computes
-    -- callers holding a short position should negate the result.
-
-    Args:
-        spot_at_expiry: Underlying price at expiry.
-        strike: Option strike price (K).
-        premium_paid: Premium paid per share when the position was opened
-            (i.e. the option price at entry, not the total premium).
-        contracts: Number of contracts held (non-negative).
-        multiplier: Contract multiplier (e.g. 100 shares per contract for
-            standard US equity options).
-        option_type: "call" or "put".
-
-    Returns:
-        Net dollar P&L at expiry: `contracts * multiplier * (intrinsic - premium_paid)`.
-
-    Raises:
-        ValueError: If any input fails validation (see field descriptions).
-    """
-    _validate_option_expiry_payoff(spot_at_expiry, strike, contracts, multiplier, option_type)
-    return _option_expiry_payoff(
-        spot_at_expiry, strike, premium_paid, contracts, multiplier, option_type
-    )
-
-
-def _option_expiry_payoff(
-    spot_at_expiry: float,
-    strike: float,
-    premium_paid: float,
-    contracts: int,
-    multiplier: float,
-    option_type: str,
-) -> float:
-    if option_type == "call":
-        intrinsic = max(spot_at_expiry - strike, 0.0)
-    else:
-        intrinsic = max(strike - spot_at_expiry, 0.0)
-    return float(contracts * multiplier * (intrinsic - premium_paid))
-
-
-def _validate_option_position_pnl(
-    entry_price: float,
-    contracts: int,
-    multiplier: float,
-    spot_path: npt.NDArray[np.float64],
-    strike: float,
-    expiry: float,
-    iv_path: npt.NDArray[np.float64],
-    option_type: str,
-) -> None:
-    if contracts < 0:
-        raise ValueError("contracts must be non-negative")
-    if multiplier <= 0.0:
-        raise ValueError("multiplier must be strictly positive")
-    if spot_path.ndim != 1 or spot_path.size == 0:
-        raise ValueError("spot_path must be a non-empty 1D array")
-    if iv_path.shape != spot_path.shape:
-        raise ValueError("iv_path must have the same shape as spot_path")
-    if np.any(spot_path <= 0.0):
-        raise ValueError("spot_path values must be strictly positive")
-    if np.any(iv_path < 0.0):
-        raise ValueError("iv_path values must be non-negative")
-    if strike <= 0.0:
-        raise ValueError("strike must be strictly positive")
-    if expiry < 0.0:
-        raise ValueError("expiry must be non-negative")
-    _validate_option_type(option_type)
-
-
-def option_position_pnl(
-    entry_price: float,
-    contracts: int,
-    multiplier: float,
-    spot_path: npt.NDArray[np.float64],
-    strike: float,
-    expiry: float,
-    iv_path: npt.NDArray[np.float64],
-    r: float,
-    option_type: str,
-) -> npt.NDArray[np.float64]:
-    """Compute daily mark-to-market P&L for a long option position over a path.
-
-    `spot_path` and `iv_path` are assumed to be daily-frequency arrays of
-    consecutive trading days from entry (index 0) to expiry (last index),
-    inclusive. Time-to-expiry is assumed to decay *linearly* from `expiry`
-    down to 0 over `len(spot_path) - 1` steps (i.e. calendar/trading-day
-    spacing is treated as uniform) -- this is an approximation for real
-    calendars with weekends/holidays but is standard for a daily P&L
-    series. Each day's option value is repriced independently via
-    `black_scholes_call`/`black_scholes_put` at that day's spot, IV, and
-    time-to-expiry; this is a per-day repricing (not a recursive/stateful
-    simulation), so it is implemented with a vectorized/list-comprehension
-    NumPy loop rather than Numba, consistent with how Greeks are computed
-    elsewhere in this package via repeated SciPy-backed calls. At the final
-    day (time-to-expiry == 0), `black_scholes_call`/`black_scholes_put`
-    already collapse to intrinsic value, so no special-casing is needed for
-    expiry-day P&L.
-
-    Args:
-        entry_price: Price paid per share when the position was opened.
-        contracts: Number of contracts held (non-negative).
-        multiplier: Contract multiplier (e.g. 100).
-        spot_path: Daily underlying prices from entry to expiry, shape (n,).
-        strike: Option strike price (K).
-        expiry: Time to expiry in years at entry (T), i.e. at `spot_path[0]`.
-        iv_path: Daily implied volatilities, same shape as `spot_path`.
-        r: Risk-free interest rate, continuously compounded.
-        option_type: "call" or "put".
-
-    Returns:
-        Array of shape (n,) with `contracts * multiplier * (option_value[i] - entry_price)`
-        for each day i.
-
-    Raises:
-        ValueError: If any input fails validation (see field descriptions).
-    """
-    _validate_option_position_pnl(
-        entry_price, contracts, multiplier, spot_path, strike, expiry, iv_path, option_type
-    )
-    return _option_position_pnl(
-        entry_price, contracts, multiplier, spot_path, strike, expiry, iv_path, r, option_type
-    )
-
-
-def _option_position_pnl(
-    entry_price: float,
-    contracts: int,
-    multiplier: float,
-    spot_path: npt.NDArray[np.float64],
-    strike: float,
-    expiry: float,
-    iv_path: npt.NDArray[np.float64],
-    r: float,
-    option_type: str,
-) -> npt.NDArray[np.float64]:
-    n = spot_path.size
-    steps = n - 1
-    time_to_expiry = np.linspace(expiry, 0.0, n) if steps > 0 else np.array([0.0], dtype=np.float64)
-    pricer = black_scholes_call if option_type == "call" else black_scholes_put
-
-    option_values = np.array(
-        [
-            pricer(float(spot_path[i]), strike, r, float(iv_path[i]), float(time_to_expiry[i]))
-            for i in range(n)
-        ],
-        dtype=np.float64,
-    )
-    return np.asarray(contracts * multiplier * (option_values - entry_price), dtype=np.float64)
 
 
 def _validate_option_roll_schedule(

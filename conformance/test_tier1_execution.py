@@ -1,0 +1,287 @@
+"""Tier-1 differential tests: execution costs against a hand-derived closed-form reference.
+
+Covers `square_root_market_impact`, `short_borrow_cost` and `margin_financing_cost`. Unlike the
+performance and statistics targets, these take scalar arguments, not a series -- there
+is no "length" to bucket. `conformance.generators.length_bucket_for` and the `short`/`medium`/
+`long` coverage buckets it defines describe series length specifically and do not apply here, so
+each function declares a single length bucket, `"scalar"`, and every recorded case uses it, which
+satisfies the coverage gate (`build_report.DECLARED_COVERAGE`). Coverage breadth for these
+functions instead comes from the declared *families* below, which cover the magnitude and
+participation-rate ranges the contract calls for.
+"""
+
+import math
+from dataclasses import dataclass
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+from conformance.compare import registry
+from conformance.harness import check
+from conformance.targets.execution import (
+    margin_financing_cost,
+    short_borrow_cost,
+    square_root_market_impact,
+)
+
+_SQUARE_ROOT_MARKET_IMPACT = registry()["square_root_market_impact"]
+_SHORT_BORROW_COST = registry()["short_borrow_cost"]
+_MARGIN_FINANCING_COST = registry()["margin_financing_cost"]
+
+_SCALAR_BUCKET = "scalar"
+
+# Declared coverage: `build_report.py` fails the build if any declared family or length bucket
+# ends up with zero recorded cases.
+SQUARE_ROOT_MARKET_IMPACT_FAMILIES: tuple[str, ...] = (
+    "typical",
+    "tiny_magnitude",
+    "huge_magnitude",
+    "zero_vol",
+    "tiny_participation",
+    "huge_participation",
+)
+SQUARE_ROOT_MARKET_IMPACT_BUCKETS: tuple[str, ...] = (_SCALAR_BUCKET,)
+
+SHORT_BORROW_COST_FAMILIES: tuple[str, ...] = (
+    "typical",
+    "tiny_magnitude",
+    "huge_magnitude",
+    "zero_days",
+    "long_horizon",
+)
+SHORT_BORROW_COST_BUCKETS: tuple[str, ...] = (_SCALAR_BUCKET,)
+
+MARGIN_FINANCING_COST_FAMILIES: tuple[str, ...] = (
+    "typical",
+    "tiny_magnitude",
+    "huge_magnitude",
+    "zero_days",
+    "long_horizon",
+)
+MARGIN_FINANCING_COST_BUCKETS: tuple[str, ...] = (_SCALAR_BUCKET,)
+
+
+_DAYS_PER_10_YEARS = 3650
+
+
+def _finite_floats(min_value: float, max_value: float) -> st.SearchStrategy[float]:
+    return st.floats(
+        min_value=min_value, max_value=max_value, allow_nan=False, allow_infinity=False
+    )
+
+
+@dataclass(frozen=True)
+class MarketImpactCase:
+    """One `square_root_market_impact` input, tagged with the family that produced it."""
+
+    trade_size: float
+    adv: float
+    daily_vol: float
+    coefficient: float
+    family: str
+
+
+@st.composite
+def market_impact_case(draw: st.DrawFn) -> MarketImpactCase:
+    """Draw a `square_root_market_impact` input from a magnitude/participation-rate family."""
+    family = draw(
+        st.sampled_from(
+            [
+                "typical",
+                "tiny_magnitude",
+                "huge_magnitude",
+                "zero_vol",
+                "tiny_participation",
+                "huge_participation",
+            ]
+        )
+    )
+    coefficient = draw(_finite_floats(0.0, 5.0))
+    if family == "typical":
+        adv = draw(_finite_floats(1.0, 1e8))
+        participation = draw(_finite_floats(1e-4, 2.0))
+        daily_vol = draw(_finite_floats(0.0, 0.5))
+    elif family == "tiny_magnitude":
+        adv = draw(_finite_floats(1e-6, 1e-3))
+        participation = draw(_finite_floats(1e-6, 2.0))
+        daily_vol = draw(_finite_floats(0.0, 1e-6))
+    elif family == "huge_magnitude":
+        adv = draw(_finite_floats(1e12, 1e15))
+        participation = draw(_finite_floats(1e-4, 2.0))
+        daily_vol = draw(_finite_floats(0.0, 1e3))
+    elif family == "zero_vol":
+        adv = draw(_finite_floats(1.0, 1e8))
+        participation = draw(_finite_floats(1e-4, 2.0))
+        daily_vol = 0.0
+    elif family == "tiny_participation":
+        adv = draw(_finite_floats(1.0, 1e8))
+        participation = draw(_finite_floats(1e-6, 1e-6))
+        daily_vol = draw(_finite_floats(0.0, 0.5))
+    else:  # huge_participation
+        adv = draw(_finite_floats(1.0, 1e8))
+        participation = draw(_finite_floats(1.0, 10.0))
+        daily_vol = draw(_finite_floats(0.0, 0.5))
+    sign = draw(st.sampled_from([1.0, -1.0]))
+    trade_size = sign * participation * adv
+    return MarketImpactCase(
+        trade_size=trade_size, adv=adv, daily_vol=daily_vol, coefficient=coefficient, family=family
+    )
+
+
+@given(case=market_impact_case())
+def test_square_root_market_impact_matches_closed_form(case: MarketImpactCase) -> None:
+    """Quantcore's `square_root_market_impact` against the hand-derived square-root law."""
+    check(
+        _SQUARE_ROOT_MARKET_IMPACT,
+        case.trade_size,
+        case.adv,
+        case.daily_vol,
+        case.coefficient,
+        family=case.family,
+        length_bucket=_SCALAR_BUCKET,
+    )
+
+
+@dataclass(frozen=True)
+class CarryCase:
+    """One `short_borrow_cost`/`margin_financing_cost` input, tagged with its family."""
+
+    notional: float
+    rate_annual: float
+    days_held: float
+    family: str
+
+
+@st.composite
+def carry_case(draw: st.DrawFn) -> CarryCase:
+    """Draw a carry-cost input from a magnitude/horizon family, ACT/365 accrual."""
+    family = draw(
+        st.sampled_from(
+            ["typical", "tiny_magnitude", "huge_magnitude", "zero_days", "long_horizon"]
+        )
+    )
+    if family == "typical":
+        notional = draw(_finite_floats(0.0, 1e9))
+        rate_annual = draw(_finite_floats(0.0, 1.0))
+        days_held = draw(_finite_floats(0.0, 400.0))
+    elif family == "tiny_magnitude":
+        notional = draw(_finite_floats(0.0, 1e-6))
+        rate_annual = draw(_finite_floats(0.0, 1e-8))
+        days_held = draw(_finite_floats(0.0, 5.0))
+    elif family == "huge_magnitude":
+        notional = draw(_finite_floats(1e12, 1e15))
+        rate_annual = draw(_finite_floats(0.0, 5.0))
+        days_held = draw(_finite_floats(0.0, 400.0))
+    elif family == "zero_days":
+        notional = draw(_finite_floats(0.0, 1e9))
+        rate_annual = draw(_finite_floats(0.0, 1.0))
+        days_held = 0.0
+    else:  # long_horizon
+        notional = draw(_finite_floats(0.0, 1e9))
+        rate_annual = draw(_finite_floats(0.0, 1.0))
+        days_held = draw(_finite_floats(365.0, float(_DAYS_PER_10_YEARS)))
+    return CarryCase(notional=notional, rate_annual=rate_annual, days_held=days_held, family=family)
+
+
+@given(case=carry_case())
+def test_short_borrow_cost_matches_closed_form(case: CarryCase) -> None:
+    """Quantcore's `short_borrow_cost` against the hand-derived ACT/365 accrual."""
+    check(
+        _SHORT_BORROW_COST,
+        case.notional,
+        case.rate_annual,
+        case.days_held,
+        family=case.family,
+        length_bucket=_SCALAR_BUCKET,
+    )
+
+
+@given(case=carry_case())
+def test_margin_financing_cost_matches_closed_form(case: CarryCase) -> None:
+    """Quantcore's `margin_financing_cost` against the hand-derived ACT/365 accrual."""
+    check(
+        _MARGIN_FINANCING_COST,
+        case.notional,
+        case.rate_annual,
+        case.days_held,
+        family=case.family,
+        length_bucket=_SCALAR_BUCKET,
+    )
+
+
+# --- Contract tests: NaN/inf/negative through the validating functions of `targets.execution` ---
+#
+# The targets' validating wrappers must reject invalid input with `ValueError`.
+
+
+def test_square_root_market_impact_rejects_nan_inf_and_bad_sign() -> None:
+    """`square_root_market_impact` raises `ValueError` on NaN/inf and non-positive `adv`."""
+    for bad_value, argument, kwargs in [
+        (math.nan, "trade_size", {}),
+        (math.inf, "trade_size", {}),
+        (math.nan, "adv", {}),
+        (0.0, "adv", {}),
+        (-1.0, "adv", {}),
+        (math.inf, "adv", {}),
+        (math.nan, "daily_vol", {}),
+        (-0.01, "daily_vol", {}),
+        (math.inf, "daily_vol", {}),
+        (math.nan, "coefficient", {}),
+        (-1.0, "coefficient", {}),
+        (math.inf, "coefficient", {}),
+    ]:
+        base = {"trade_size": 1000.0, "adv": 1_000_000.0, "daily_vol": 0.02, "coefficient": 1.0}
+        base[argument] = bad_value
+        base.update(kwargs)
+        try:
+            square_root_market_impact(**base)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected ValueError for {argument}={bad_value!r}")
+
+
+def test_short_borrow_cost_rejects_nan_inf_and_negative() -> None:
+    """`short_borrow_cost` raises `ValueError` on NaN/inf/negative `notional`/`rate`/`days_held`."""
+    for argument, bad_value in [
+        ("notional", math.nan),
+        ("notional", math.inf),
+        ("notional", -1.0),
+        ("borrow_rate_annual", math.nan),
+        ("borrow_rate_annual", math.inf),
+        ("borrow_rate_annual", -0.01),
+        ("days_held", math.nan),
+        ("days_held", math.inf),
+        ("days_held", -1.0),
+    ]:
+        base = {"notional": 1_000_000.0, "borrow_rate_annual": 0.02, "days_held": 30.0}
+        base[argument] = bad_value
+        try:
+            short_borrow_cost(**base)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected ValueError for {argument}={bad_value!r}")
+
+
+def test_margin_financing_cost_rejects_nan_inf_and_negative() -> None:
+    """`margin_financing_cost` raises `ValueError` on NaN/inf/negative inputs."""
+    for argument, bad_value in [
+        ("notional", math.nan),
+        ("notional", math.inf),
+        ("notional", -1.0),
+        ("financing_rate_annual", math.nan),
+        ("financing_rate_annual", math.inf),
+        ("financing_rate_annual", -0.01),
+        ("days_held", math.nan),
+        ("days_held", math.inf),
+        ("days_held", -1.0),
+    ]:
+        base = {"notional": 1_000_000.0, "financing_rate_annual": 0.05, "days_held": 30.0}
+        base[argument] = bad_value
+        try:
+            margin_financing_cost(**base)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected ValueError for {argument}={bad_value!r}")

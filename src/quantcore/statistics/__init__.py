@@ -1,11 +1,25 @@
+from quantcore.statistics.bootstrap import (
+    BootstrapInterval,
+    SpaPValues,
+    optimal_block_length,
+    spa_test,
+    stationary_bootstrap_ci,
+)
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
-    johansen_trace_test,
     ou_half_life,
     spread_zscore,
 )
+from quantcore.statistics.diagnostics import (
+    arch_lm_test,
+    jarque_bera_test,
+    kpss_test,
+)
+from quantcore.statistics.hac import HacTResult, hac_t_test
+from quantcore.statistics.multiple_testing import CscvPbo, cscv_pbo, effective_n_eigen
 from quantcore.statistics.regression import (
+    FactorLoadingsResult,
     factor_loadings,
     fama_macbeth_regression,
     newey_west_cov,
@@ -14,14 +28,27 @@ from quantcore.statistics.regression import (
 )
 
 __all__ = [
+    "BootstrapInterval",
+    "CscvPbo",
+    "FactorLoadingsResult",
+    "HacTResult",
+    "SpaPValues",
     "adf_test",
+    "arch_lm_test",
+    "cscv_pbo",
+    "effective_n_eigen",
     "engle_granger_test",
     "factor_loadings",
     "fama_macbeth_regression",
-    "johansen_trace_test",
+    "hac_t_test",
+    "jarque_bera_test",
+    "kpss_test",
     "newey_west_cov",
     "newey_west_optimal_lags",
     "ols",
+    "optimal_block_length",
     "ou_half_life",
+    "spa_test",
     "spread_zscore",
+    "stationary_bootstrap_ci",
 ]

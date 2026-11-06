@@ -1,17 +1,10 @@
-"""Tests for the Euler-Maruyama SDE solver and GBM path simulator.
+"""Tests for the GBM path simulator.
 
-Reference: Kloeden & Platen (1992), Ch. 9 — Euler-Maruyama scheme
+Reference: Kloeden & Platen (1992), Ch. 9 — Euler-Maruyama scheme in log-price space.
 
-    X_{k+1} = X_k + a(X_k, t_k) * dt + b(X_k, t_k) * dW_k,  dW_k ~ N(0, dt)
-
-`simulate_gbm_paths` specializes this to a(S, t) = r * S, b(S, t) = sigma * S.
-
-Note: because Euler-Maruyama is a *discretization* of the continuous SDE, the
-degenerate zero-volatility GBM path is exactly the discrete compounding
+The degenerate zero-volatility GBM path is exactly the discrete compounding
 recursion S_{k+1} = S_k * (1 + r * dt), NOT the continuous closed-form
-S_0 * exp(r * T). Tests below check against the discrete recursion, which is
-exact regardless of step count, rather than the continuous solution (which
-Euler-Maruyama only approximates).
+S_0 * exp(r * T); the tests check against the discrete recursion.
 """
 
 from __future__ import annotations
@@ -19,155 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from quantcore.core.sde_solver import euler_maruyama, simulate_gbm_paths
-
-# ---------------------------------------------------------------------------
-# euler_maruyama: shape, initial condition, reproducibility
-# ---------------------------------------------------------------------------
-
-
-def _zero_drift(x: np.ndarray, _t: float) -> np.ndarray:
-    return np.zeros_like(x)
-
-
-def _unit_diffusion(x: np.ndarray, _t: float) -> np.ndarray:
-    return np.ones_like(x)
-
-
-def test_euler_maruyama_output_shape() -> None:
-    paths = euler_maruyama(
-        drift=_zero_drift,
-        diffusion=_unit_diffusion,
-        x0=0.0,
-        t0=0.0,
-        t1=1.0,
-        num_steps=10,
-        num_paths=5,
-        seed=1,
-    )
-    assert paths.shape == (5, 11)
-
-
-def test_euler_maruyama_initial_column_equals_x0() -> None:
-    x0 = 3.5
-    paths = euler_maruyama(
-        drift=_zero_drift,
-        diffusion=_unit_diffusion,
-        x0=x0,
-        t0=0.0,
-        t1=1.0,
-        num_steps=8,
-        num_paths=4,
-        seed=1,
-    )
-    assert np.allclose(paths[:, 0], x0)
-
-
-def test_euler_maruyama_reproducible_with_seed() -> None:
-    kwargs = dict(
-        drift=_zero_drift,
-        diffusion=_unit_diffusion,
-        x0=1.0,
-        t0=0.0,
-        t1=1.0,
-        num_steps=10,
-        num_paths=5,
-        seed=99,
-    )
-    paths1 = euler_maruyama(**kwargs)
-    paths2 = euler_maruyama(**kwargs)
-    assert np.array_equal(paths1, paths2)
-
-
-def test_euler_maruyama_zero_diffusion_is_deterministic_ode_path() -> None:
-    # dX = c dt, b = 0 -> X_k = x0 + c * k * dt, exactly, for every path.
-    c = 2.0
-    x0 = 5.0
-    t0, t1, num_steps = 0.0, 2.0, 4
-    dt = (t1 - t0) / num_steps
-
-    def const_drift(x: np.ndarray, _t: float) -> np.ndarray:
-        return np.full_like(x, c)
-
-    def zero_diffusion(x: np.ndarray, _t: float) -> np.ndarray:
-        return np.zeros_like(x)
-
-    paths = euler_maruyama(
-        drift=const_drift,
-        diffusion=zero_diffusion,
-        x0=x0,
-        t0=t0,
-        t1=t1,
-        num_steps=num_steps,
-        num_paths=3,
-        seed=1,
-    )
-    expected = x0 + c * dt * np.arange(num_steps + 1)
-    for row in range(3):
-        assert np.allclose(paths[row], expected)
-
-
-def test_euler_maruyama_num_steps_one_boundary() -> None:
-    paths = euler_maruyama(
-        drift=_zero_drift,
-        diffusion=_unit_diffusion,
-        x0=0.0,
-        t0=0.0,
-        t1=1.0,
-        num_steps=1,
-        num_paths=3,
-        seed=1,
-    )
-    assert paths.shape == (3, 2)
-
-
-@pytest.mark.parametrize("num_steps", [0, -1])
-def test_euler_maruyama_non_positive_num_steps_raises(num_steps: int) -> None:
-    # num_steps must be >= 1 whenever t1 > t0: dt = (t1 - t0) / num_steps is
-    # undefined (division by zero) for num_steps=0, and a negative step
-    # count is meaningless.
-    with pytest.raises(ValueError):
-        euler_maruyama(
-            drift=_zero_drift,
-            diffusion=_unit_diffusion,
-            x0=0.0,
-            t0=0.0,
-            t1=1.0,
-            num_steps=num_steps,
-            num_paths=3,
-            seed=1,
-        )
-
-
-def test_euler_maruyama_negative_num_paths_raises() -> None:
-    # A negative path count is not representable as an array dimension and
-    # has no meaningful interpretation.
-    with pytest.raises(ValueError):
-        euler_maruyama(
-            drift=_zero_drift,
-            diffusion=_unit_diffusion,
-            x0=0.0,
-            t0=0.0,
-            t1=1.0,
-            num_steps=10,
-            num_paths=-1,
-            seed=1,
-        )
-
-
-def test_euler_maruyama_end_before_start_raises() -> None:
-    with pytest.raises(ValueError):
-        euler_maruyama(
-            drift=_zero_drift,
-            diffusion=_unit_diffusion,
-            x0=0.0,
-            t0=1.0,
-            t1=0.0,
-            num_steps=10,
-            num_paths=3,
-            seed=1,
-        )
-
+from quantcore.core.sde_solver import simulate_gbm_paths
 
 # ---------------------------------------------------------------------------
 # simulate_gbm_paths

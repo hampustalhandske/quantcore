@@ -1,23 +1,19 @@
 """Cointegration testing and mean-reversion statistics for pairs/spread trading.
 
 Engle-Granger (1987) two-step:
-    Step 1 — estimate cointegrating vector via OLS: y = beta*x + epsilon
-    Step 2 — ADF test on residuals epsilon_hat;
+    Step 1 — estimate cointegrating vector via OLS: y = alpha + beta*x + epsilon
+    Step 2 — ADF test on residuals epsilon_hat, with no constant in the
+             ADF regression (epsilon_hat is mean-zero by construction);
              null hypothesis: epsilon_hat has a unit root (no cointegration)
 
 ADF test statistic (Dickey & Fuller 1979):
     Delta(y_t) = alpha + rho*y_{t-1} + sum_{j=1}^p gamma_j*Delta(y_{t-j}) + e_t
-    t-stat for rho=0 is the ADF statistic ("constant, no trend" specification,
-    case "c" in the Dickey-Fuller/MacKinnon literature). p-values are obtained
-    by interpolating against MacKinnon's (1994) tabulated asymptotic
-    Dickey-Fuller quantiles for case "c", not a Student-t reference
-    distribution — see `_adf_test` for details and tail-clamping behavior.
-
-Johansen trace test (Johansen 1988): reduced-rank regression of Delta(Y_t) and
-Y_{t-1} on lagged differences, then eigen-decomposition of
-    S11^{-1/2} * S10 * S00^{-1} * S01 * S11^{-1/2}
-where S00, S01, S10, S11 are the residual covariance matrices from those two
-regressions. Trace statistic for rank r: -n * sum_{i=r+1}^{k} ln(1 - lambda_i).
+    t-stat for rho=0 is the ADF statistic. p-values come from MacKinnon's
+    (1994) response-surface approximation, parameterized by N, the number of
+    I(1) series in the regression the tested residuals came from: a direct
+    unit-root test on one series (`adf_test`) uses N=1, the Engle-Granger
+    residual-based test (`engle_granger_test`) uses N=2. Both tests are
+    computed by `statsmodels` (`adfuller`, `coint`).
 
 OU half-life (Avellaneda & Lee 2010):
     Delta(spread_t) = a * spread_{t-1} + noise  (fit via OLS)
@@ -30,8 +26,6 @@ Z-score (rolling):
 References:
     Engle, R.F. and Granger, C.W.J. (1987). "Co-Integration and Error
     Correction: Representation, Estimation, and Testing." Econometrica.
-    Johansen, S. (1988). "Statistical Analysis of Cointegration Vectors."
-    Journal of Economic Dynamics and Control.
     Avellaneda, M. and Lee, J.-H. (2010). "Statistical Arbitrage in the U.S.
     Equities Market." Quantitative Finance.
     Dickey, D.A. and Fuller, W.A. (1979). "Distribution of the Estimators for
@@ -51,52 +45,21 @@ import numpy.typing as npt
 # ADF unit-root test
 # ---------------------------------------------------------------------------
 
-# Asymptotic (T -> infinity) quantiles of the Dickey-Fuller "c" (constant, no
-# trend) distribution, MacKinnon (1994) / reproduced in MacKinnon (2010) and
-# in standard references (e.g. Hamilton (1994), Table B.6, "rho" case with
-# constant only). tau is the test statistic, p its right-tail-inclusive
-# cumulative probability under the null of a unit root; both columns are
-# monotonically increasing together, so interpolation is well-defined.
-_MACKINNON_C_TAU: npt.NDArray[np.float64] = np.array(
-    [-3.43, -3.12, -2.86, -2.57, -0.44, -0.07, 0.23, 0.60]
-)
-_MACKINNON_C_P: npt.NDArray[np.float64] = np.array(
-    [0.01, 0.025, 0.05, 0.10, 0.90, 0.95, 0.975, 0.99]
-)
+_ADF_REGRESSION_CASES = ("n", "c", "ct")
+_ADF_AUTOLAGS = ("aic", "bic", "t-stat")
 
 
-def _mackinnon_c_pvalue(t_stat: float) -> float:
-    """Approximate ADF p-value for the "c" (constant, no trend) case.
-
-    Linearly interpolates against tabulated MacKinnon (1994) asymptotic
-    Dickey-Fuller quantiles. Statistics beyond the tabulated range are
-    linearly extrapolated using the slope of the nearest table segment —
-    the true DF density has thin, well-behaved tails there, so a local
-    linear extrapolation stays close to the true surface far better than
-    flat-lining at the nearest tabulated probability would. The result is
-    then clamped to [0.0001, 0.9999]: MacKinnon's response-surface/table
-    approach is only fit over the tabulated statistic range, so arbitrarily
-    extreme statistics saturate at the nearest tail probability rather than
-    reporting an unbounded (and unvalidated) p-value.
-    """
-    tau = _MACKINNON_C_TAU
-    p = _MACKINNON_C_P
-    if t_stat <= tau[0]:
-        slope = (p[1] - p[0]) / (tau[1] - tau[0])
-        p_value = p[0] + slope * (t_stat - tau[0])
-    elif t_stat >= tau[-1]:
-        slope = (p[-1] - p[-2]) / (tau[-1] - tau[-2])
-        p_value = p[-1] + slope * (t_stat - tau[-1])
-    else:
-        p_value = float(np.interp(t_stat, tau, p))
-    return float(np.clip(p_value, 0.0001, 0.9999))
-
-
-def _validate_adf_inputs(series: npt.NDArray[np.float64], max_lags: int) -> None:
+def _validate_adf_inputs(
+    series: npt.NDArray[np.float64], max_lags: int, trend: str, autolag: str | None
+) -> None:
     if series.size == 0:
         raise ValueError("series must be non-empty")
     if max_lags < 0:
         raise ValueError("max_lags must be non-negative")
+    if trend not in _ADF_REGRESSION_CASES:
+        raise ValueError(f"trend must be one of {_ADF_REGRESSION_CASES}")
+    if autolag is not None and autolag not in _ADF_AUTOLAGS:
+        raise ValueError('autolag must be "aic", "bic", "t-stat", or None')
     min_length = max_lags + 5
     if series.size < min_length:
         raise ValueError(
@@ -104,47 +67,77 @@ def _validate_adf_inputs(series: npt.NDArray[np.float64], max_lags: int) -> None
         )
 
 
-def adf_test(series: npt.NDArray[np.float64], max_lags: int = 1) -> tuple[float, float]:
+def adf_test(
+    series: npt.NDArray[np.float64],
+    max_lags: int = 1,
+    trend: str = "c",
+    autolag: str | None = None,
+) -> tuple[float, float]:
     """Augmented Dickey-Fuller test for a unit root.
 
     Args:
         series: The time series to test.
-        max_lags: Number of lagged differences included in the regression.
+        max_lags: If `autolag` is None (default), the exact number of
+            lagged differences included in the regression. If `autolag` is
+            set, the maximum lag to search over (0, 1, ..., max_lags).
+        trend: Deterministic terms in the regression: "n" (none), "c"
+            (constant, the default — matches the original behavior), or
+            "ct" (constant and linear trend).
+        autolag: Lag-length selection criterion: `None` (default; use
+            `max_lags` lags exactly, unchanged from the original behavior),
+            `"aic"`, `"bic"` (minimize the corresponding information
+            criterion over 0..max_lags, holding the regression sample fixed
+            across candidates so the criteria are comparable), or
+            `"t-stat"` (Hall's (1994) general-to-specific procedure: start
+            at max_lags and drop the highest lag until its own t-statistic
+            is significant at a 5%-sized test, `|t| >= 1.6448536...` =
+            `scipy.stats.norm.ppf(0.95)`; matches
+            `statsmodels.tsa.stattools.adfuller`'s `autolag="t-stat"`).
 
     Returns:
-        Tuple (adf_statistic, p_value). p_value is computed via interpolation
-        against MacKinnon's (1994) tabulated asymptotic Dickey-Fuller
-        quantiles for the "constant, no trend" case, and clamped to
-        [0.0001, 0.9999] for statistics outside the tabulated range.
+        Tuple (adf_statistic, p_value). p_value is computed via MacKinnon's
+        (1994) response-surface approximation to the Dickey-Fuller
+        distribution for the given `trend` case (N=1: `series` is tested
+        directly, not a residual from an estimated cointegrating
+        regression). It lies in [0, 1] and equals the p-value
+        `statsmodels.tsa.stattools.adfuller` reports for the same
+        statistic: many orders of magnitude below 1e-4 for a strongly
+        stationary series, exactly 0.0 for a statistic below the range
+        MacKinnon tabulated (-19.04, -18.83 and -16.18 for "n", "c" and
+        "ct"), and exactly 1.0 for one above it (2.74 for "c", 0.70 for
+        "ct"; the "n" surface has no upper limit). Guard against 0.0
+        before taking its logarithm or dividing by it.
+
+    References:
+        Dickey, D.A. and Fuller, W.A. (1979). "Distribution of the
+        Estimators for Autoregressive Time Series with a Unit Root."
+        *Journal of the American Statistical Association*, 74(366),
+        427-431. MacKinnon, J.G. (1994). "Approximate Asymptotic
+        Distribution Functions for Unit-Root and Cointegration Tests."
+        *Journal of Business & Economic Statistics*, 12(2), 167-176.
+        See docs/REFERENCES.md.
     """
-    _validate_adf_inputs(series, max_lags)
-    return _adf_test(series, max_lags)
+    _validate_adf_inputs(series, max_lags, trend, autolag)
+    return _adf_test(series, max_lags, trend, autolag)
 
 
-def _adf_test(series: npt.NDArray[np.float64], max_lags: int) -> tuple[float, float]:
-    dy = np.diff(series)
-    level = series[:-1]
-    start = max_lags
-    end = dy.size
-    n_obs = end - start
+def _adf_test(
+    series: npt.NDArray[np.float64], max_lags: int, trend: str, autolag: str | None
+) -> tuple[float, float]:
+    from statsmodels.tsa.stattools import adfuller
 
-    y_reg = dy[start:end]
-    columns = [np.ones(n_obs), level[start:end]]
-    for lag in range(1, max_lags + 1):
-        columns.append(dy[start - lag : end - lag])
-    x_reg = np.column_stack(columns)
-
-    beta, _, _, _ = np.linalg.lstsq(x_reg, y_reg, rcond=None)
-    residuals = y_reg - x_reg @ beta
-    k = x_reg.shape[1]
-    dof = n_obs - k
-    sigma2 = float(np.sum(residuals**2) / dof)
-    xtx_inv = np.linalg.inv(x_reg.T @ x_reg)
-    se_rho = float(np.sqrt(sigma2 * xtx_inv[1, 1]))
-
-    t_stat = float(beta[1] / se_rho)
-    p_value = _mackinnon_c_pvalue(t_stat)
-    return t_stat, p_value
+    statistic, p_value, *_ = adfuller(
+        series,
+        maxlag=max_lags,
+        regression=trend,
+        autolag=autolag,
+        store=False,
+        regresults=False,
+        result_object=False,
+    )
+    if not (np.isfinite(statistic) and np.isfinite(p_value)):
+        raise ValueError("the ADF statistic is undefined for this series (it may be constant)")
+    return float(statistic), float(p_value)
 
 
 # ---------------------------------------------------------------------------
@@ -172,8 +165,22 @@ def engle_granger_test(
 
     Returns:
         Tuple (beta, adf_statistic, p_value): the OLS cointegrating
-        coefficient and the ADF test result (see `adf_test` for how
-        p_value is computed) on the OLS residuals.
+        coefficient (step 1 fits `y = alpha + beta*x + u` with an
+        intercept) and the ADF statistic on the OLS residuals, with its
+        p-value from MacKinnon's (1994) response surface for N=2 I(1)
+        series (y and x) — the Engle-Granger distribution, not the plain
+        (N=1) Dickey-Fuller distribution `adf_test` on a raw series uses.
+        Residuals from an estimated cointegrating regression have already
+        had one degree of unit-root freedom absorbed by the OLS fit, so
+        their null distribution lies further left than a raw series' does;
+        using the N=1 distribution here would overstate significance.
+
+        The step-2 ADF regression uses one lagged difference and no
+        constant (the residuals are mean-zero by construction of step 1),
+        and the p-value is exactly 0.0 / 1.0 for a statistic beyond
+        MacKinnon's tabulated range. Both conventions match
+        `statsmodels.tsa.stattools.coint(y, x, trend="c", maxlag=1,
+        autolag=None)`, which computes them.
     """
     _validate_engle_granger_inputs(y, x)
     return _engle_granger_test(y, x)
@@ -182,116 +189,25 @@ def engle_granger_test(
 def _engle_granger_test(
     y: npt.NDArray[np.float64], x: npt.NDArray[np.float64]
 ) -> tuple[float, float, float]:
-    x_reg = np.column_stack([np.ones_like(x), x])
-    ols_beta, _, _, _ = np.linalg.lstsq(x_reg, y, rcond=None)
-    beta = float(ols_beta[1])
-    residuals = y - x_reg @ ols_beta
-    adf_stat, p_value = _adf_test(residuals, max_lags=1)
-    return beta, adf_stat, p_value
+    from statsmodels.tsa.stattools import coint
 
-
-# ---------------------------------------------------------------------------
-# Johansen trace test
-# ---------------------------------------------------------------------------
-
-# Standard asymptotic 95% critical values for the Johansen trace test, case
-# "unrestricted constant / no trend" (Johansen 1988; commonly reproduced as
-# in Osterwald-Lenum 1992 / MacKinnon, Haug & Michelis 1999), indexed by
-# k - r (the number of common trends under the null).
-_JOHANSEN_TRACE_CRIT_95: dict[int, float] = {
-    1: 12.3212,
-    2: 24.2761,
-    3: 40.1749,
-    4: 60.0627,
-    5: 84.4500,
-    6: 114.9020,
-    7: 149.7180,
-    8: 185.9000,
-    9: 227.7300,
-    10: 271.7900,
-}
-
-
-def _validate_johansen_inputs(data: npt.NDArray[np.float64], n_lags: int) -> None:
-    if data.ndim != 2 or data.shape[1] < 2:
-        raise ValueError("data must be 2D with at least 2 columns")
-    if n_lags < 1:
-        raise ValueError("n_lags must be a positive integer")
-    if data.shape[1] > max(_JOHANSEN_TRACE_CRIT_95):
-        raise ValueError("johansen_trace_test only supports up to 10 series")
-    min_rows = n_lags + data.shape[1] + 5
-    if data.shape[0] < min_rows:
-        raise ValueError(
-            f"data must have at least {min_rows} rows for n_lags={n_lags} and "
-            f"{data.shape[1]} columns"
-        )
-
-
-def johansen_trace_test(
-    data: npt.NDArray[np.float64], n_lags: int = 1
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Johansen trace test for cointegration rank via reduced-rank regression.
-
-    Args:
-        data: Shape (T, k) — k time series.
-        n_lags: Number of lagged differences in the VECM short-run dynamics.
-
-    Returns:
-        Tuple (trace_statistics, critical_values_95pct, eigenvectors):
-        trace_statistics has shape (k,) — trace_statistics[r] tests
-        H0: rank <= r; critical_values_95pct has shape (k,); eigenvectors has
-        shape (k, k), columns are the (unnormalized) cointegrating vectors.
-    """
-    _validate_johansen_inputs(data, n_lags)
-    return _johansen_trace_test(data, n_lags)
-
-
-def _johansen_trace_test(
-    data: npt.NDArray[np.float64], n_lags: int
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    _, k = data.shape
-    d_y = np.diff(data, axis=0)  # d_y[i] = Y_{i+1} - Y_i
-
-    dep = d_y[n_lags:]  # Delta Y_t, t = n_lags+1 .. t_total-1
-    level = data[n_lags:-1]  # Y_{t-1}, same t range
-    n_obs = dep.shape[0]
-
-    z = np.column_stack(
-        [np.ones(n_obs)] + [d_y[n_lags - lag : d_y.shape[0] - lag] for lag in range(1, n_lags + 1)]
+    design = np.column_stack([np.ones_like(x), x])
+    beta = float(np.linalg.lstsq(design, y, rcond=None)[0][1])
+    # Step 2 is `coint`'s augmented Engle-Granger test: ADF on the residuals
+    # of the constant-including regression, one lagged difference, no
+    # deterministic terms, p-value from the N=2 surface.
+    statistic, p_value, _ = coint(
+        y,
+        x,
+        trend="c",
+        method="aeg",
+        maxlag=1,
+        autolag=None,
+        return_results=None,
     )
-
-    def _residuals(target: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        coefs, _, _, _ = np.linalg.lstsq(z, target, rcond=None)
-        result: npt.NDArray[np.float64] = target - z @ coefs
-        return result
-
-    r0 = _residuals(dep)
-    r1 = _residuals(level)
-
-    s00 = r0.T @ r0 / n_obs
-    s01 = r0.T @ r1 / n_obs
-    s10 = r1.T @ r0 / n_obs
-    s11 = r1.T @ r1 / n_obs
-
-    s11_eigvals, s11_eigvecs = np.linalg.eigh(s11)
-    s11_eigvals = np.clip(s11_eigvals, 1e-12, None)
-    s11_inv_sqrt = s11_eigvecs @ np.diag(s11_eigvals**-0.5) @ s11_eigvecs.T
-    s00_inv = np.linalg.inv(s00)
-
-    m = s11_inv_sqrt @ s10 @ s00_inv @ s01 @ s11_inv_sqrt
-    m = (m + m.T) / 2.0  # symmetrize away floating-point asymmetry
-    eigvals, eigvecs_sym = np.linalg.eigh(m)
-
-    order = np.argsort(eigvals)[::-1]
-    eigvals = np.clip(eigvals[order], 0.0, 1.0 - 1e-12)
-    eigvecs_sym = eigvecs_sym[:, order]
-    eigenvectors = s11_inv_sqrt @ eigvecs_sym
-
-    trace_stats = np.array(
-        [-n_obs * np.sum(np.log(1.0 - eigvals[r:])) for r in range(k)], dtype=np.float64
-    )
-    crit_values = np.array([_JOHANSEN_TRACE_CRIT_95[k - r] for r in range(k)], dtype=np.float64)
-    return trace_stats, crit_values, eigenvectors
+    if not (np.isfinite(statistic) and np.isfinite(p_value)):
+        raise ValueError("the Engle-Granger statistic is undefined for these series")
+    return beta, float(statistic), float(p_value)
 
 
 # ---------------------------------------------------------------------------

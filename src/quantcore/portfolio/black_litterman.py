@@ -26,40 +26,6 @@ import numpy as np
 import numpy.typing as npt
 
 
-def _validate_implied_equilibrium_returns_inputs(
-    cov_matrix: npt.NDArray[np.float64],
-    market_weights: npt.NDArray[np.float64],
-    risk_aversion: float,
-) -> None:
-    if cov_matrix.ndim != 2 or cov_matrix.shape[0] != cov_matrix.shape[1]:
-        raise ValueError("cov_matrix must be a square 2D matrix")
-    if market_weights.shape != (cov_matrix.shape[0],):
-        raise ValueError("market_weights must have shape (k,) matching cov_matrix")
-    if risk_aversion <= 0.0:
-        raise ValueError("risk_aversion must be strictly positive")
-
-
-def implied_equilibrium_returns(
-    cov_matrix: npt.NDArray[np.float64],
-    market_weights: npt.NDArray[np.float64],
-    risk_aversion: float,
-) -> npt.NDArray[np.float64]:
-    """Reverse-optimize implied equilibrium excess returns.
-
-    Args:
-        cov_matrix: (k, k) covariance matrix of asset returns.
-        market_weights: (k,) portfolio weights, typically market-cap weights.
-            Not required to sum to 1: an all-zero vector is a valid input and
-            represents no informative prior, giving Pi = 0.
-        risk_aversion: Market risk aversion coefficient (lambda).
-
-    Returns:
-        (k,) implied equilibrium excess returns Pi.
-    """
-    _validate_implied_equilibrium_returns_inputs(cov_matrix, market_weights, risk_aversion)
-    return _implied_equilibrium_returns(cov_matrix, market_weights, risk_aversion)
-
-
 def _implied_equilibrium_returns(
     cov_matrix: npt.NDArray[np.float64],
     market_weights: npt.NDArray[np.float64],
@@ -109,8 +75,8 @@ def black_litterman(
     Args:
         cov_matrix: (k, k) covariance matrix of asset returns.
         market_weights: (k,) portfolio weights, typically market-cap weights,
-            used to derive the equilibrium prior Pi (see
-            `implied_equilibrium_returns`). Not required to sum to 1: an
+            used to derive the equilibrium prior Pi (Pi =
+            risk_aversion * cov_matrix @ market_weights). Not required to sum to 1: an
             all-zero vector is a valid input meaning no informative prior
             (Pi = 0), leaving the posterior driven entirely by the views.
         P: (v, k) view matrix.

@@ -28,9 +28,9 @@ import numpy as np
 
 from quantcore.risk.volatility import (
     _garch_11_variance_numba_kernel,
-    _garch_11_variance_numpy,
     garch_11_variance,
 )
+from tests.reference_kernels import _garch_11_variance_numpy
 
 
 def test_numba_and_numpy_garch_kernels_agree_on_hand_picked_series() -> None:
@@ -82,7 +82,13 @@ def test_numba_kernel_matches_public_garch_11_variance() -> None:
     returns = np.array([0.01, -0.02, 0.015, 0.005, -0.01, 0.02, -0.015, 0.008])
     omega, alpha, beta = 0.00003, 0.12, 0.8
 
-    public_variance = garch_11_variance(returns, omega=omega, alpha=alpha, beta=beta)
+    public_variance = garch_11_variance(
+        returns,
+        omega=omega,
+        alpha=alpha,
+        beta=beta,
+        presample_variance=omega / (1.0 - alpha - beta),
+    )
     reference_variance = _garch_11_variance_numpy(returns, omega, alpha, beta)
 
     assert np.allclose(public_variance, reference_variance, rtol=1e-10, atol=1e-10)

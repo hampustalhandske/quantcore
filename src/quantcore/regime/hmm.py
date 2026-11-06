@@ -8,6 +8,12 @@ Gaussian HMM with K hidden states, T observations:
 Forward variable: alpha_t(k) = P(y_1,...,y_t, s_t=k)
 Backward variable: beta_t(k) = P(y_{t+1},...,y_T | s_t=k)
 
+`hmm_predict_proba` returns the smoothed posterior (Baum-Welch's gamma), which
+conditions on the whole sequence y_1..y_T:
+    gamma_t(k) = alpha_t(k)*beta_t(k) / sum_j alpha_t(j)*beta_t(j)
+It equals the filtered posterior P(s_t=k | y_1..y_t) only at the last point of
+the window; earlier rows use later observations.
+
 Baum-Welch E-step (Baum et al. 1970):
     gamma_t(k) = alpha_t(k)*beta_t(k) / sum_j alpha_t(j)*beta_t(j)
     xi_t(i,j)  = alpha_t(i)*A_{ij}*b_j(y_{t+1})*beta_{t+1}(j) / sum_{i,j}(...)
@@ -251,70 +257,6 @@ def _hmm_fit(
     return transition_matrix, means, variances, initial_probs
 
 
-def select_hmm_n_states(
-    observations: npt.NDArray[np.float64],
-    max_states: int,
-    criterion: str = "bic",
-) -> int:
-    """Grid-search Gaussian HMM state count and return the one minimizing an information criterion.
-
-    Defaults to BIC rather than AIC: BIC's stronger penalty on the number of
-    parameters (log(n) vs. 2) discourages splitting genuine regimes into
-    spurious extra states, which AIC is prone to do for HMMs since additional
-    states can always improve in-sample likelihood by overfitting transient
-    fluctuations.
-
-    The log-likelihood of each fitted candidate is recomputed here via the
-    forward algorithm (`_forward_log`) rather than by extending `hmm_fit` to
-    also return it, since `hmm_fit`'s return signature is a public API
-    contract relied on by downstream packages.
-
-    Args:
-        observations: Univariate observation sequence, shape (T,).
-        max_states: Largest number of hidden states to try (inclusive),
-            searched from 1. Each candidate is fit with `hmm_fit`'s default
-            n_iter/tol/seed.
-        criterion: "aic" or "bic".
-
-    Returns:
-        The n_states minimizing the chosen criterion.
-
-    Raises:
-        ValueError: If `criterion` is not "aic" or "bic".
-    """
-    if criterion not in ("aic", "bic"):
-        raise ValueError('criterion must be "aic" or "bic"')
-    if max_states < 1:
-        raise ValueError("max_states must be a positive integer")
-
-    n_obs = observations.shape[0]
-    best_n_states: int | None = None
-    best_score = np.inf
-
-    for n_states in range(1, max_states + 1):
-        transition_matrix, means, variances, initial_probs = hmm_fit(observations, n_states)
-
-        log_emission = _log_emission_matrix(observations, means, variances)
-        log_a = np.log(np.clip(transition_matrix, _MIN_PROB, None))
-        log_pi = np.log(np.clip(initial_probs, _MIN_PROB, None))
-        log_alpha = _forward_log(log_emission, log_a, log_pi)
-        log_l = float(_logsumexp_rows(log_alpha[-1:]).item())
-
-        k_params = n_states * (n_states - 1) + 2 * n_states + (n_states - 1)
-        score = (
-            2.0 * k_params - 2.0 * log_l
-            if criterion == "aic"
-            else k_params * np.log(n_obs) - 2.0 * log_l
-        )
-
-        if score < best_score:
-            best_score = score
-            best_n_states = n_states
-
-    assert best_n_states is not None
-    return best_n_states
-
-
 def _validate_hmm_params(
     observations: npt.NDArray[np.float64],
     transition_matrix: npt.NDArray[np.float64],
@@ -385,7 +327,11 @@ def hmm_predict_proba(
     variances: npt.NDArray[np.float64],
     initial_probs: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
-    """Compute smoothed state posteriors gamma_t(k) via forward-backward.
+    """Compute smoothed state posteriors gamma_t(k) = P(s_t=k | y_1..y_T) via forward-backward.
+
+    Smoothed equals filtered only at the window's last point; earlier rows
+    use later observations, so the result is for retrospective analysis of a
+    full, already-observed history, not for a causal signal.
 
     Args:
         observations: Observation sequence, shape (T,).

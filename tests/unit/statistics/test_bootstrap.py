@@ -2,7 +2,10 @@
 
 The pinned values were computed by edgelab's `block_length`, `stationary_bootstrap_ci` and
 `spa_p_values` on the inputs the helpers below build, with generators seeded as here. Both sides
-draw the same `arch` resamples from the same generator state, so the values are compared exactly.
+draw the same `arch` resamples from the same generator state. An SPA p-value is a count over the
+replicates and is compared exactly. A block length or an interval bound goes through
+floating-point sums whose last bits depend on the platform's NumPy build, and is compared at
+relative `_PIN_REL`. Resamples that differ by a single draw move these values by far more.
 
 `optimal_block_length` and `spa_test` are computed by `arch`; their tests check the conventions
 quantcore passes to it.
@@ -80,6 +83,10 @@ _STATS = {
 
 # --- values pinned from edgelab -------------------------------------------------------------------
 
+# The pins were recorded on macOS arm64; on Linux x86-64 the same computation differs from them by
+# up to a few units in the last place (about 5e-16 relative).
+_PIN_REL = 1e-12
+
 # (data seed, n, kind, stat, method, ci, rng seed, (estimate, ci_low, ci_high), n_dropped)
 EDGELAB_CI_CASES = [
     (
@@ -133,7 +140,7 @@ def test_stationary_bootstrap_ci_matches_edgelab_values(
         x, _STATS[stat](x), rng=np.random.default_rng(rng_seed), n_boot=400, ci=ci, method=method
     )
     assert isinstance(result, BootstrapInterval)
-    assert (result.estimate, result.ci_low, result.ci_high) == expected
+    assert (result.estimate, result.ci_low, result.ci_high) == pytest.approx(expected, rel=_PIN_REL)
     assert result.n_dropped == n_dropped
     assert result.n_boot == 400
     assert result.ci_level == ci
@@ -151,7 +158,9 @@ def test_stationary_bootstrap_ci_matches_edgelab_values(
 def test_optimal_block_length_matches_edgelab_values(
     data_seed: int, n: int, kind: str, expected: float
 ) -> None:
-    assert optimal_block_length(_series(data_seed, n, kind)) == expected
+    assert optimal_block_length(_series(data_seed, n, kind)) == pytest.approx(
+        expected, rel=_PIN_REL
+    )
 
 
 def _spa_inputs(seed: int, t: int, k: int) -> tuple[np.ndarray, np.ndarray]:

@@ -192,6 +192,18 @@ Run on 2026-11-05: conformance 79 tests passed, 74 targets (73 verified, `select
 unverifiable; the nine QC-13 targets added, no status changed); full suite 2470 passed; ruff,
 mypy and `build_report --check` clean.
 
+### QC-18: The edgelab pins in the bootstrap tests fail on Linux — fixed (test-only)
+GitHub Actions on ubuntu-latest (run 42168519256, at 599b8bd) failed 9 tests in
+`tests/unit/statistics/test_bootstrap.py`: the three `optimal_block_length` pins and six of
+the seven `stationary_bootstrap_ci` pins. Each value differs from the macOS arm64 pin by one to
+four units in the last place (at most about 5e-16 relative). The NumPy sums take a different
+order on that build. The tests compared with `==`. They now compare at relative 1e-12, the
+tolerance the effective-N pins already use. A resample that differs by one draw moves these
+values by many orders of magnitude more, so the check still catches a change in the resamples
+or in the statistic. The SPA p-values (counts over replicates) and the PBO pins (ratios of
+small integers) stay exact; they passed on Linux. The conformance job passed. No library code
+changed, so the v0.3.1 tag stays at 599b8bd.
+
 ## Evaluation
 
 ### QC-14: Replace the active-set QP solver — done (deleted)

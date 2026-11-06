@@ -232,12 +232,35 @@ importing quantcore alone took over 10 minutes. The x86-64 evidence is GitHub's 
 200,000 x 2,001 array (3.2 GB). It was left out of the container run, which was capped at
 4 GB. It passes on GitHub's runners and on macOS.
 
-### QC-19: `ou_half_life` on a series with no mean reversion up to rounding — open
-For a pure trend, such as `cumsum(ones(n))`, the AR(1) slope on the level is exactly 0. lstsq
-returns rounding noise of either sign, and a negative noise of about -1e-17 gives a half-life of
-about 1e16 instead of the documented `ValueError`. Proposed fix (moves no number for a
-mean-reverting input): treat a slope within a few rounding errors of 0 as no mean reversion. It
-changes library behaviour, so it needs a v0.3.2 and the owner's word.
+### QC-19: `ou_half_life` on a series with no mean reversion up to rounding — done (v0.3.2)
+For a straight line, such as `cumsum(ones(n))`, the AR(1) slope on the level is exactly 0. lstsq
+returns rounding noise of either sign. A negative noise of about -1e-17 gave a half-life of about
+1e16, or `-inf` once `log(1 + a)` rounds to 0, instead of the documented `ValueError`.
+`ou_half_life` now also raises unless the centred slope `sum(c * delta) / sum(c**2)`, with
+`c = level - mean(level)`, is below minus its worst-case rounding bound
+`eps * (n * sum(|c * delta|) + 2 * max(|level|) * sum(|delta|)) / sum(c**2)`. The bound has no
+tuned constant. Measured: on 474 exact straight lines (n from 5 to 1e6, steps 1e-8
+to 1e5, offsets up to 1e12) the centred slope used at most 0.28 of the bound; on 2,144
+mean-reverting AR(1) fits (n from 5 to 20,000, phi from -0.5 to 0.999, offsets up to 1e8) the
+smallest margin was 1.45e5 times the bound, and none was refused. The returned half-life is
+still the formula on lstsq's slope, so no returned number moves. Owner's word given 2026-11-06.
+
+### QC-20: `ConvergenceError` does not unpickle — done (v0.3.2)
+`pickle.loads(pickle.dumps(err))` raised `TypeError`: `__init__` takes four arguments and
+`BaseException`'s default `__reduce__` replays only the message. agentic-trading checkpoints
+fits that hold a `ConvergenceError` (GJR, EGARCH). `ConvergenceError.__reduce__` returns all
+four constructor arguments and the instance `__dict__`, so notes survive too.
+`CIRNoMeanReversionError` takes only a message and already round-trips; quantcore has no other
+exception classes.
+
+### QC-21: `ou_half_life` loses its slope when the level is far from 0 — open
+lstsq fits the slope on the uncentred `[1, level]`, whose condition number grows with
+`|mean(level)| / std(level)`. Measured against the centred slope on AR(1) spreads with unit
+noise: relative error up to 9e-11 at an offset of 1e4 and 8e-9 at 1e6, and at 1e8 the slope is
+lost (relative error 1, sign wrong on 345 of 720 fits). Since v0.3.2 a wrong-sign slope there
+raises `ValueError`, but a wrong negative slope still returns a wrong half-life. Proposed fix:
+compute the slope in centred form, which moves the last bits of every half-life, so it needs
+a conformance run, a changelog example and the owner's word.
 
 ## Evaluation
 

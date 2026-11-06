@@ -235,9 +235,34 @@ class TestOuHalfLife:
         assert half_life > 0.0
         assert half_life == pytest.approx(expected, rel=0.5)
 
+    @pytest.mark.parametrize("n", [5, 6, 10, 50, 1000, 100_000])
+    @pytest.mark.parametrize("step", [1e-3, 0.37, 1.0, 7.0])
+    @pytest.mark.parametrize("offset", [0.0, -3.0, 2.5, 1e3, 1e6, 1e9])
+    @pytest.mark.parametrize("sign", [1.0, -1.0])
+    def test_straight_line_raises(self, n: int, step: float, offset: float, sign: float) -> None:
+        # A straight line has slope exactly 0 on its level. The computed slope is rounding
+        # noise of either sign, and a negative noise must not pass as mean reversion.
+        line = offset + sign * step * np.arange(float(n))
+        with pytest.raises(ValueError, match="mean reversion"):
+            ou_half_life(line)
+
+    def test_level_constant_before_the_last_observation_raises(self) -> None:
+        with pytest.raises(ValueError, match="mean reversion"):
+            ou_half_life(np.array([1.0, 1.0, 1.0, 1.0, 2.0]))
+
+    @pytest.mark.parametrize("offset", [0.0, 1e2, 1e6])
+    def test_mean_reverting_result_is_the_lstsq_formula(self, offset: float) -> None:
+        # The rounding check decides only whether to raise; the half-life is the formula on
+        # lstsq's slope, unchanged.
+        spread = _stationary_ar1(500, phi=0.9, seed=RNG_SEED) + offset
+        delta = spread[1:] - spread[:-1]
+        design = np.column_stack([np.ones(spread.size - 1), spread[:-1]])
+        a = np.linalg.lstsq(design, delta, rcond=None)[0][1]
+        assert ou_half_life(spread) == float(-np.log(2.0) / np.log(1.0 + a))
+
     # Note: an explicit "random walk / weakly-explosive series raises" test
-    # was deliberately omitted here beyond test_invalid_inputs' deterministic
-    # ramp. Both a true unit-root random walk and a weakly-explosive noisy
+    # was deliberately omitted here beyond the deterministic diverging and
+    # straight-line cases above. Both a true unit-root random walk and a weakly-explosive noisy
     # AR(1) can produce a *negative* finite-sample OLS point estimate purely
     # from sampling noise (the well-known Dickey-Fuller finite-sample bias),
     # so "raises ValueError" is not a reliable invariant for a single noisy

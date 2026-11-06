@@ -6,7 +6,20 @@ results that changed carry a before/after example, as the project's
 ground rules require — other projects install this package and must be able
 to see exactly what changed and why before upgrading.
 
-## [Unreleased]
+## [0.3.2] — 2026-11-06
+
+### Fixed
+
+- `ou_half_life` raises `ValueError` when the AR(1) slope is not negative by more than its
+  rounding error. A straight line has slope exactly 0, and the computed slope is rounding noise
+  of either sign; a negative noise used to pass as mean reversion. Example (macOS arm64):
+  `ou_half_life(np.arange(5.0))` returned 6.2e15 in 0.3.1 and `ou_half_life(np.arange(50.0))`
+  returned `-inf`; both raise now. A series whose level is constant before the last
+  observation raises too. Every half-life that is returned is unchanged, bit for bit
+  (`docs/ISSUES.md` QC-19).
+- `quantcore.risk.ConvergenceError` round-trips through `pickle` with `params`,
+  `log_likelihood`, `optimizer_message` and any notes. Unpickling it raised `TypeError` in
+  0.3.1 (`docs/ISSUES.md` QC-20).
 
 ### Added
 

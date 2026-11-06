@@ -220,7 +220,8 @@ class TestOuHalfLife:
     def test_invalid_inputs(self) -> None:
         with pytest.raises(ValueError):
             ou_half_life(np.array([]))
-        diverging = np.cumsum(np.ones(50))
+        # Each step adds 5% of the level: the AR(1) slope on the level is +0.05.
+        diverging = 1.05 ** np.arange(50.0)
         with pytest.raises(ValueError):
             ou_half_life(diverging)
 

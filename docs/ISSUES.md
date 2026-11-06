@@ -192,7 +192,7 @@ Run on 2026-11-05: conformance 79 tests passed, 74 targets (73 verified, `select
 unverifiable; the nine QC-13 targets added, no status changed); full suite 2470 passed; ruff,
 mypy and `build_report --check` clean.
 
-### QC-18: The edgelab pins in the bootstrap tests fail on Linux — fixed (test-only)
+### QC-18: Tests that depend on the platform's last bits fail on Linux — fixed (test-only)
 GitHub Actions on ubuntu-latest (run 42168519256, at 599b8bd) failed 9 tests in
 `tests/unit/statistics/test_bootstrap.py`: the three `optimal_block_length` pins and six of
 the seven `stationary_bootstrap_ci` pins. Each value differs from the macOS arm64 pin by one to
@@ -203,6 +203,41 @@ values by many orders of magnitude more, so the check still catches a change in 
 or in the statistic. The SPA p-values (counts over replicates) and the PBO pins (ratios of
 small integers) stay exact; they passed on Linux. The conformance job passed. No library code
 changed, so the v0.3.1 tag stays at 599b8bd.
+
+The pull-request run at a09faa2 (42170073473) then failed
+`test_units_of_the_returns_only_rescale_omega[10000.0]` in `tests/unit/risk/test_arch_fits.py`:
+omega differed by 1.2e-6 relative, and the test allowed 1e-6. Measured locally: perturbing each
+input by at most one unit in the last place moves the fitted omega by up to 1.03e-6 relative,
+and alpha and beta by up to 1.2e-7 absolute. 1e-6 is therefore below the fit's own noise. The
+same measurement on the GJR rescaling test (`TestArchConventions`) gives 1.5e-6 relative on
+omega against its 1e-5. Both omegas are now compared at 1e-4 relative, and `fit_garch_11`'s
+alpha and beta at 1e-5 absolute: about 50 to 100 times the measured noise. A wrong unit
+convention would move omega by a factor of `scale**2`.
+
+Sweep of the whole suite. A local pytest plugin flipped the last bit of the generated test
+inputs. It recorded, for every `pytest.approx` and `assert_allclose`, the share of the tolerance
+used. Under the flips, the only failures were the 18 bit-exact price-path pins. These are kept
+exact: they are skipped off macOS arm64 already. No other comparison used more than 16% of its
+tolerance where the tolerance is under 1e-9. The largest was the PACF step-up formula at rtol
+1e-15: IEEE arithmetic on fixed inputs, kept.
+
+A linux/arm64 container run of the test job (Linux OpenBLAS and libm) failed one more test.
+`TestOuHalfLife::test_invalid_inputs` used `cumsum(ones(50))` as its diverging series. Its
+level slope is exactly 0, so whether `ou_half_life` raises depends on the sign of lstsq's
+rounding: macOS gives 0.0 and raises, while Linux arm64 gives about -1e-17 and returns a
+half-life of about 1e16. The test now uses an explosive series (slope +0.05). The zero-slope
+case itself is QC-19. A linux/amd64 run was not possible on this Mac: under emulation,
+importing quantcore alone took over 10 minutes. The x86-64 evidence is GitHub's own runs.
+`TestCirMoments` in `tests/oracle/core/test_sde_moments_oracle.py` simulates a
+200,000 x 2,001 array (3.2 GB). It was left out of the container run, which was capped at
+4 GB. It passes on GitHub's runners and on macOS.
+
+### QC-19: `ou_half_life` on a series with no mean reversion up to rounding — open
+For a pure trend, such as `cumsum(ones(n))`, the AR(1) slope on the level is exactly 0. lstsq
+returns rounding noise of either sign, and a negative noise of about -1e-17 gives a half-life of
+about 1e16 instead of the documented `ValueError`. Proposed fix (moves no number for a
+mean-reverting input): treat a slope within a few rounding errors of 0 as no mean reversion. It
+changes library behaviour, so it needs a v0.3.2 and the owner's word.
 
 ## Evaluation
 

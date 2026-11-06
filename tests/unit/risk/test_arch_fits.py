@@ -63,11 +63,15 @@ class TestFitGarch11:
 
     @pytest.mark.parametrize("scale", [1e-6, 1e-2, 1.0, 1e4])
     def test_units_of_the_returns_only_rescale_omega(self, scale: float) -> None:
+        # Scaling changes the standardised series in its last bits, and arch's optimiser stops
+        # at a slightly different point. On this series a change of one unit in the last place
+        # moves omega by up to 1.0e-6 relative and alpha and beta by up to 1.2e-7. The
+        # tolerances are about 100 times that; a unit error moves omega by a factor of scale**2.
         omega, alpha, beta = fit_garch_11(self.RETURNS)
         scaled_omega, scaled_alpha, scaled_beta = fit_garch_11(self.RETURNS * scale)
-        assert scaled_omega == pytest.approx(omega * scale**2, rel=1e-6)
-        assert scaled_alpha == pytest.approx(alpha, abs=1e-6)
-        assert scaled_beta == pytest.approx(beta, abs=1e-6)
+        assert scaled_omega == pytest.approx(omega * scale**2, rel=1e-4)
+        assert scaled_alpha == pytest.approx(alpha, abs=1e-5)
+        assert scaled_beta == pytest.approx(beta, abs=1e-5)
 
     def test_returns_without_variation_raise(self) -> None:
         with pytest.raises(ValueError, match="no variation"):
@@ -230,8 +234,11 @@ class TestArchConventions:
 
     @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e4])
     def test_units_of_the_returns_only_rescale_the_constant(self, scale: float) -> None:
+        # A change of one unit in the last place of the returns moves the fitted GJR omega by up
+        # to 1.5e-6 relative and the other parameters by up to 2e-7, so the tolerances are 50 or
+        # more times the optimiser's noise. A unit error moves omega by a factor of scale**2.
         base, scaled = gjr_garch_fit(self.RETURNS), gjr_garch_fit(self.RETURNS * scale)
-        assert scaled.omega == pytest.approx(base.omega * scale**2, rel=1e-5)
+        assert scaled.omega == pytest.approx(base.omega * scale**2, rel=1e-4)
         assert scaled.alpha == pytest.approx(base.alpha, abs=1e-5)
         ebase, escaled = egarch_fit(self.RETURNS), egarch_fit(self.RETURNS * scale)
         assert escaled.omega == pytest.approx(

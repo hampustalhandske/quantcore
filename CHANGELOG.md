@@ -6,6 +6,13 @@ results that changed carry a before/after example, as the project's
 ground rules require — other projects install this package and must be able
 to see exactly what changed and why before upgrading.
 
+## [Unreleased]
+
+### Added
+
+- quantcore is released under the MIT licence (`LICENSE`, and `license` in
+  `pyproject.toml`). No code or number changes.
+
 ## [0.3.1] — 2026-11-05
 
 ### Fixed — numerical results changed

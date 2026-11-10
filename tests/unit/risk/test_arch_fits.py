@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pickle
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -251,7 +253,7 @@ class TestArchConventions:
             "dist": "normal",
             "rescale": False,
         }
-        assert seen["fit"] == {"disp": "off", "options": {"maxiter": 1000}}
+        assert seen["fit"] == {"disp": "off", "show_warning": False, "options": {"maxiter": 1000}}
 
     @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e4])
     def test_units_of_the_returns_only_rescale_the_constant(self, scale: float) -> None:
@@ -300,3 +302,66 @@ class TestArchConventions:
             with pytest.raises(UndefinedResultError, match="no variation") as raised:
                 fitter(np.full(100, value))  # type: ignore[operator]
             assert isinstance(raised.value, ValueError)
+
+
+_UNCONVERGED_FIT_SCRIPT = """
+import sys, warnings
+import numpy as np
+import scipy.optimize
+import arch.univariate.base as base
+from quantcore.risk import ConvergenceError, egarch_fit, fit_garch_11, gjr_garch_fit
+
+real_minimize = scipy.optimize.minimize
+
+def one_iteration(*args, **kwargs):
+    kwargs["options"] = {**kwargs.get("options", {}), "maxiter": 1}
+    return real_minimize(*args, **kwargs)
+
+base.minimize = one_iteration
+if sys.argv[1] == "show":
+    real_fit = base.ARCHModel.fit
+    base.ARCHModel.fit = lambda self, **kw: real_fit(self, **{**kw, "show_warning": True})
+returns = np.random.default_rng(7).standard_normal(400)
+filters_before = list(warnings.filters)
+for fitter in (fit_garch_11, gjr_garch_fit, egarch_fit):
+    try:
+        fitter(returns)
+    except ConvergenceError:
+        print("raised", fitter.__name__)
+print("filters unchanged", warnings.filters == filters_before)
+"""
+
+
+class TestNonConvergenceIsSilent:
+    """A fit that fails to converge raises ConvergenceError and writes nothing to stderr.
+
+    The fits run in a subprocess with Python's default warning filters, because pytest captures
+    warnings in-process. The optimizer is cut to one iteration so that arch genuinely reports
+    non-convergence.
+    """
+
+    @staticmethod
+    def _run(mode: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-c", _UNCONVERGED_FIT_SCRIPT, mode],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+
+    def test_unconverged_fits_raise_without_writing_to_stderr(self) -> None:
+        result = self._run("quiet")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split("\n")[:4] == [
+            "raised fit_garch_11",
+            "raised gjr_garch_fit",
+            "raised egarch_fit",
+            "filters unchanged True",
+        ]
+        assert result.stderr == ""
+
+    def test_negative_control_arch_warning_reaches_stderr(self) -> None:
+        result = self._run("show")
+        assert result.returncode == 0, result.stderr
+        assert "ConvergenceWarning" in result.stderr

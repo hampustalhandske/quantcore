@@ -255,11 +255,13 @@ def _fit_with_arch(
         epsilon / spread, mean="Zero", vol=vol, p=1, o=o, q=1, dist="normal", rescale=False
     )
     with warnings.catch_warnings():
-        # Non-convergence is reported by raising, not by a warning.
+        # Non-convergence is reported by raising, not by a warning. `show_warning=False` stops
+        # arch from warning; arch also installs a global ConvergenceWarning filter during the
+        # fit, which `catch_warnings` removes again on exit.
         from arch.utility.exceptions import ConvergenceWarning
 
         warnings.simplefilter("ignore", ConvergenceWarning)
-        fitted = model.fit(disp="off", options={"maxiter": 1000})
+        fitted = model.fit(disp="off", show_warning=False, options={"maxiter": 1000})
     return fitted, epsilon, spread
 
 

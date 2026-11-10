@@ -31,6 +31,17 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from quantcore.errors import UndefinedResultError
+
+
+def _check_no_constant_column(system: npt.NDArray[np.float64], quantity: str) -> None:
+    """Raise UndefinedResultError naming every column of `system` with zero range."""
+    constant = np.flatnonzero(np.ptp(system, axis=0) == 0.0)
+    if constant.size > 0:
+        raise UndefinedResultError(
+            f"column(s) {constant.tolist()} of the system have zero range; {quantity} is undefined"
+        )
+
 
 def _validate_var_fit_inputs(data: npt.NDArray[np.float64], n_lags: int) -> None:
     if data.ndim != 2 or data.shape[0] == 0:
@@ -67,12 +78,19 @@ def var_fit(
         `k*n_lags + 1`-parameter regression per equation, not a 1-parameter
         (mean-only) one.
 
+    Raises:
+        ValueError: `data` is not a non-empty 2-D array with at least 2 columns, `n_lags` is
+            not positive, or there are too few observations for `n_lags`.
+        UndefinedResultError: A column of `data` has zero range (`np.ptp == 0`): it is
+            collinear with the intercept, so the VAR coefficients are not identified.
+
     References:
         Lutkepohl, H. (2005). *New Introduction to Multiple Time Series
         Analysis*. Springer. (Sigma_u_hat, Section 3.2.2.) See
         docs/REFERENCES.md.
     """
     _validate_var_fit_inputs(data, n_lags)
+    _check_no_constant_column(data, "the VAR fit")
     return _var_fit(data, n_lags)
 
 
@@ -116,6 +134,8 @@ def select_var_lag_order(
     Raises:
         ValueError: If `criterion` is not "aic" or "bic", or if no candidate
             lag order is feasible for the given system length.
+        UndefinedResultError: A column of `system` has zero range (`np.ptp == 0`): it is
+            collinear with the intercept, so no candidate VAR is identified.
 
     Note:
         Every candidate lag order is fit on the *same* trailing window of
@@ -138,6 +158,7 @@ def select_var_lag_order(
     n_obs, k = system.shape
     if k < 2:
         raise ValueError("a VAR needs at least 2 series")
+    _check_no_constant_column(system, "the VAR lag order")
     n_eff = n_obs - max_lags
 
     from statsmodels.tsa.vector_ar.var_model import VAR
@@ -304,8 +325,28 @@ def granger_causality_test(
 
     Returns:
         Tuple (f_statistic, p_value).
+
+    Raises:
+        ValueError: `n_lags` is not positive, `y` and `x` differ in shape, or there are too
+            few observations for `n_lags`.
+        UndefinedResultError: `y` or `x` has zero range (`np.ptp == 0`), or one of their lags
+            is constant over the `T - n_lags` rows the regressions use (for example a series
+            that changes only at its last observation); the F-test is then undefined.
     """
     _validate_granger_causality_inputs(y, x, n_lags)
+    for name, series in (("y", y), ("x", x)):
+        if np.ptp(series) == 0.0:
+            raise UndefinedResultError(
+                f"{name} has zero range; the Granger causality F-test is undefined"
+            )
+    n_obs = y.shape[0]
+    for lag in range(1, n_lags + 1):
+        for name, series in (("y", y), ("x", x)):
+            if np.ptp(series[n_lags - lag : n_obs - lag]) == 0.0:
+                raise UndefinedResultError(
+                    f"lag {lag} of {name} is constant over the rows the regressions use; "
+                    "the Granger causality F-test is undefined"
+                )
     return _granger_causality_test(y, x, n_lags)
 
 

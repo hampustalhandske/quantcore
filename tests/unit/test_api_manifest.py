@@ -56,9 +56,16 @@ def test_every_export_resolves_to_a_name_its_module_defines() -> None:
 
 def test_every_public_function_and_class_is_listed() -> None:
     modules = _committed()["modules"]
-    for package_name in (m for m in modules if "exports" in m and m != "quantcore"):
+    for package_name in (m for m in modules if "exports" in modules[m]):
         package = importlib.import_module(package_name)
-        assert set(modules[package_name]["exports"]) == set(package.__all__)
+        listed = set(modules[package_name]["exports"]) | set(modules[package_name].get("names", {}))
+        assert listed == set(package.__all__), package_name
+
+
+def test_root_package_lists_its_exports_and_its_version() -> None:
+    root = _committed()["modules"]["quantcore"]
+    assert root["exports"] == {"UndefinedResultError": "quantcore.errors"}
+    assert root["names"] == {"__version__": {"kind": "value", "value": "str"}}
 
 
 def test_any_change_to_the_content_changes_the_hash() -> None:
@@ -141,6 +148,16 @@ def test_package_exports_name_their_module() -> None:
 def test_an_export_that_is_not_imported_from_a_module_is_refused() -> None:
     source = 'from quantcore.x.a import f\nTHRESHOLD = 1.0\n__all__ = ["f", "THRESHOLD"]\n'
     with pytest.raises(ValueError, match="THRESHOLD"):
+        describe_package_source(source, "quantcore.x")
+
+
+def test_version_is_a_value_only_in_the_root_package() -> None:
+    source = 'from quantcore.errors import E\n__version__ = "1"\n__all__ = ["E", "__version__"]\n'
+    assert describe_package_source(source, "quantcore") == {
+        "exports": {"E": "quantcore.errors"},
+        "names": {"__version__": {"kind": "value", "value": "str"}},
+    }
+    with pytest.raises(ValueError, match="__version__"):
         describe_package_source(source, "quantcore.x")
 
 

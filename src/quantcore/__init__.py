@@ -2,6 +2,8 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from quantcore.errors import UndefinedResultError
+
 try:
     __version__ = version("quantcore")
 except PackageNotFoundError:
@@ -10,4 +12,4 @@ except PackageNotFoundError:
     # installed distribution metadata to read the version from.
     __version__ = "0.0.0+unknown"
 
-__all__ = ["__version__"]
+__all__ = ["UndefinedResultError", "__version__"]

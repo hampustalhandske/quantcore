@@ -30,6 +30,8 @@ from itertools import combinations
 import numpy as np
 import numpy.typing as npt
 
+from quantcore.errors import UndefinedResultError, _finite_result
+
 _OMEGA_CLIP = 1e-12
 
 
@@ -89,7 +91,8 @@ def effective_n_eigen(returns: npt.NDArray[np.float64]) -> float:
     eigenvalues = np.clip(np.linalg.eigvalsh(corr), 0.0, None)
     sum_lambda = float(eigenvalues.sum())
     sum_lambda_sq = float(np.sum(eigenvalues**2))
-    return sum_lambda**2 / sum_lambda_sq if sum_lambda_sq > 0.0 else 1.0
+    n_eff = sum_lambda**2 / sum_lambda_sq if sum_lambda_sq > 0.0 else 1.0
+    return _finite_result(n_eff, "effective number of trials")
 
 
 def _per_period_sharpe(values: npt.NDArray[np.float64]) -> float:
@@ -138,7 +141,8 @@ def cscv_pbo(
     `1 + #(others below) + 0.5 * #(others equal)`; `omega = rank / (N + 1)`, clipped to
     `[1e-12, 1 - 1e-12]`, and the logit is `ln(omega / (1 - omega))`. When every in-sample score
     ties on every combination evaluated, no trial is ever selected and PBO is undefined, so the
-    function raises. Under the default `evaluate` that is a panel whose every column is constant.
+    function raises `quantcore.UndefinedResultError`. Under the default `evaluate` that is a panel
+    whose every column is constant.
 
     Args:
         returns: `T x N` finite per-period returns, one column per trial, `N >= 2`, `T >= S`.
@@ -158,8 +162,10 @@ def cscv_pbo(
 
     Raises:
         ValueError: `n_splits` is not even and at least 2; `returns` is not 2-D, has fewer than
-            2 columns or fewer than `n_splits` rows, or is not finite; subsampling is needed
-            and `rng` is None; or every in-sample score ties on every combination evaluated.
+            2 columns or fewer than `n_splits` rows, or is not finite; or subsampling is needed
+            and `rng` is None.
+        UndefinedResultError: Every in-sample score ties on every combination evaluated, so no
+            trial is ever selected and PBO is undefined.
     """
     if n_splits < 2 or n_splits % 2 != 0:
         raise ValueError("n_splits must be even and at least 2")
@@ -207,7 +213,7 @@ def cscv_pbo(
         logits[k] = math.log(omega / (1.0 - omega))
 
     if not any_selection:
-        raise ValueError(
+        raise UndefinedResultError(
             "PBO is undefined: every in-sample score ties on every combination, so no trial is "
             "ever selected (with the default evaluate: every column constant, or all identical)"
         )

@@ -9,7 +9,9 @@ import math
 
 import numpy as np
 import pytest
+from scipy.stats import norm
 
+from quantcore import UndefinedResultError
 from quantcore.performance import (
     DeflatedSharpeResult,
     SharpeSE,
@@ -394,8 +396,54 @@ def test_mertens_and_trl_argument_validation() -> None:
         with pytest.raises(ValueError, match="alpha"):
             minimum_track_record_length(x, 0.0, alpha)
     sr = float(x.mean() / x.std(ddof=1))
-    with pytest.raises(ValueError, match="equals sr_star"):
+    with pytest.raises(UndefinedResultError, match="equals sr_star") as raised:
         minimum_track_record_length(x, sr, 0.05)
+    assert isinstance(raised.value, ValueError)
+
+
+@pytest.mark.parametrize(
+    "constant", [np.full(20, 0.01), np.full(12, 0.002), np.zeros(15)], ids=["0.01", "0.002", "0"]
+)
+def test_zero_range_returns_raise_undefined(constant: np.ndarray) -> None:
+    calls = (
+        lambda: probabilistic_sharpe_ratio(constant),
+        lambda: sharpe_se_mertens(constant, periods_per_year=12),
+        lambda: minimum_track_record_length(constant, 0.0, 0.05),
+        lambda: deflated_sharpe_ratio(constant, [0.1, 0.2], n_effective=3),
+    )
+    for call in calls:
+        with pytest.raises(UndefinedResultError, match="zero range") as raised:
+            call()
+        assert isinstance(raised.value, ValueError)
+
+
+def test_one_value_off_a_constant_is_defined() -> None:
+    x = np.r_[np.full(11, 0.002), 0.003]
+    d = x - x.mean()
+    sr = float(x.mean() / x.std(ddof=1))
+    g3 = float(np.mean(d**3)) / float(d.std()) ** 3
+    g4 = float(np.mean(d**4)) / float(d.std()) ** 4
+    factor = 1.0 - g3 * sr + (g4 - 1.0) / 4.0 * sr**2
+    expected = float(norm.cdf(sr * math.sqrt(11) / math.sqrt(factor)))
+    assert probabilistic_sharpe_ratio(x) == pytest.approx(expected, rel=1e-9)
+
+
+def test_non_finite_sr_star_is_a_plain_value_error() -> None:
+    x = SERIES["normal"]
+    for bad in (math.nan, math.inf):
+        with pytest.raises(ValueError, match="sr_star") as raised:
+            probabilistic_sharpe_ratio(x, bad)
+        assert not isinstance(raised.value, UndefinedResultError)
+        with pytest.raises(ValueError, match="sr_star"):
+            minimum_track_record_length(x, bad, 0.05)
+
+
+def test_expected_max_sharpe_with_too_many_trials_raises_undefined() -> None:
+    # 1 - 1/N rounds to 1 in float64, so Phi^-1(1 - 1/N) is infinite.
+    with pytest.raises(UndefinedResultError, match="n_trials") as raised:
+        expected_max_sharpe(1e17, 1.0)
+    assert isinstance(raised.value, ValueError)
+    assert math.isfinite(expected_max_sharpe(1e15, 1.0))
 
 
 def test_dsr_invalid_arguments() -> None:
@@ -412,3 +460,16 @@ def test_dsr_invalid_arguments() -> None:
         deflated_sharpe_ratio(x[:5], [0.1, 0.2], n_effective=3)
     with pytest.raises(ValueError, match="at least 2"):
         deflated_sharpe_ratio(x[:1], [0.1], n_effective=3, trial_variance="no_skill")
+
+
+@pytest.mark.parametrize(
+    "x",
+    [
+        np.r_[1e-110, -2e-110, np.zeros(8), 3e-110, -1e-110],
+        np.r_[np.full(6, 1e150), -0.5, 0.25, np.full(4, 1e150)],
+    ],
+    ids=["moments_underflow", "moments_overflow"],
+)
+def test_unrepresentable_moments_raise_undefined(x: np.ndarray) -> None:
+    with pytest.raises(UndefinedResultError, match="float64"):
+        probabilistic_sharpe_ratio(x)

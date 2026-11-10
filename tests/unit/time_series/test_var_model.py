@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.time_series.var_model import (
     granger_causality_test,
     impulse_response,
@@ -44,8 +45,31 @@ class TestVarFit:
         assert sigma_u.shape == (2, 2)
         assert np.max(np.abs(coef_matrix[:, :2] - a1)) < 0.1
 
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    @pytest.mark.parametrize("column", [0, 1])
+    def test_zero_range_column_raises_naming_it(self, value: float, column: int) -> None:
+        data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 80, RNG_SEED)
+        data[:, column] = value
+        with pytest.raises(UndefinedResultError, match=rf"column\(s\) \[{column}\]") as raised:
+            var_fit(data, n_lags=1)
+        assert isinstance(raised.value, ValueError)
+
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    def test_all_constant_system_raises(self, value: float) -> None:
+        with pytest.raises(UndefinedResultError, match=r"\[0, 1, 2\]"):
+            var_fit(np.full((60, 3), value), n_lags=1)
+
 
 class TestSelectVarLagOrder:
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    @pytest.mark.parametrize("column", [0, 1])
+    def test_zero_range_column_raises_naming_it(self, value: float, column: int) -> None:
+        data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 80, RNG_SEED)
+        data[:, column] = value
+        with pytest.raises(UndefinedResultError, match=rf"column\(s\) \[{column}\]") as raised:
+            select_var_lag_order(data, max_lags=3)
+        assert isinstance(raised.value, ValueError)
+
     def test_invalid_criterion_raises(self) -> None:
         data = _simulate_var1(np.array([[0.5, 0.0], [0.0, 0.3]]), 100, RNG_SEED)
         with pytest.raises(ValueError):
@@ -213,3 +237,28 @@ class TestStatsmodelsConventions:
         assert granger_causality_test(y, x, 3) == (2.5, 0.05)
         assert seen["maxlag"] == [3] and seen["addconst"] is True
         np.testing.assert_array_equal(seen["data"], np.column_stack([y, x]))
+
+
+class TestGrangerUndefined:
+    @pytest.mark.parametrize("constant", ["y", "x"])
+    @pytest.mark.parametrize("level", [0.0, 0.01])
+    def test_zero_range_series_raises_undefined(self, constant: str, level: float) -> None:
+        varying = np.random.default_rng(3).normal(size=60)
+        flat = np.full(60, level)
+        y, x = (flat, varying) if constant == "y" else (varying, flat)
+        with pytest.raises(UndefinedResultError, match=f"^{constant} has zero range") as raised:
+            granger_causality_test(y, x, n_lags=2)
+        assert isinstance(raised.value, ValueError)
+
+    def test_lag_constant_over_the_regression_rows_raises_undefined(self) -> None:
+        # x changes only at its last observation, so both lags of x are constant on rows 2..59.
+        x = np.r_[np.full(59, 0.01), 0.02]
+        y = np.random.default_rng(3).normal(size=60)
+        with pytest.raises(UndefinedResultError, match="lag 1 of x is constant"):
+            granger_causality_test(y, x, 2)
+
+    def test_one_value_off_a_constant_is_defined(self) -> None:
+        x = np.full(60, 0.01)
+        x[30] = 0.02
+        f_stat, p_value = granger_causality_test(np.random.default_rng(3).normal(size=60), x, 2)
+        assert np.isfinite(f_stat) and 0.0 <= p_value <= 1.0

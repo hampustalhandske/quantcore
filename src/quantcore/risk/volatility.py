@@ -37,6 +37,8 @@ import numba
 import numpy as np
 import numpy.typing as npt
 
+from quantcore.errors import UndefinedResultError, _finite_result
+
 
 class ConvergenceError(RuntimeError):
     """Maximum-likelihood optimization failed to converge to a fully
@@ -217,10 +219,13 @@ def variance_backcast(returns: npt.NDArray[np.float64]) -> float:
         The backcast variance, in the units of `returns` squared.
 
     Raises:
-        ValueError: If `returns` is empty.
+        ValueError: If `returns` is empty or contains NaN or infinity.
+        UndefinedResultError: The squared residuals overflow float64.
     """
     _validate_fit_garch_inputs(returns)
-    return _backcast(returns - returns.mean())
+    if not np.all(np.isfinite(returns)):
+        raise ValueError("returns must contain only finite values")
+    return _finite_result(_backcast(returns - returns.mean()), "variance backcast")
 
 
 def _fit_with_arch(
@@ -237,14 +242,15 @@ def _fit_with_arch(
         standard deviation.
 
     Raises:
-        ValueError: The mean-adjusted returns are all zero.
+        UndefinedResultError: `returns` has zero range, or the mean-adjusted returns are all
+            zero.
     """
     import arch
 
     epsilon = returns - returns.mean()
     spread = float(np.std(epsilon))
-    if not spread > 0.0:
-        raise ValueError(f"returns have no variation; {caller} cannot be fit to them")
+    if np.ptp(returns) == 0.0 or not spread > 0.0:
+        raise UndefinedResultError(f"returns have no variation; {caller} cannot be fit to them")
     model = arch.arch_model(
         epsilon / spread, mean="Zero", vol=vol, p=1, o=o, q=1, dist="normal", rescale=False
     )
@@ -315,7 +321,8 @@ def fit_garch_11(returns: npt.NDArray[np.float64]) -> tuple[float, float, float]
         they were fitted to.
 
     Raises:
-        ValueError: If `returns` is empty or has no variation.
+        ValueError: If `returns` is empty.
+        UndefinedResultError: If `returns` has no variation (`np.ptp == 0`).
         ConvergenceError: If `arch`'s optimization does not report
             convergence (a `RuntimeError` subclass — see `ConvergenceError`).
             No silent fallback and no partial result is returned in this

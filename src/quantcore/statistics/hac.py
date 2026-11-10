@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import t as student_t
 
+from quantcore.errors import UndefinedResultError
 from quantcore.statistics.regression import newey_west_cov, newey_west_optimal_lags
 
 _MIN_OBS = 10
@@ -48,7 +49,11 @@ def hac_t_test(
         sample mean and its HAC standard error.
 
     Raises:
-        ValueError: Invalid `x`, `lags`, `alternative` or `null`, or a non-positive HAC variance.
+        ValueError: Invalid `x`, `lags`, `alternative` or `null`.
+        UndefinedResultError: `x` has zero range (`np.ptp == 0`), or the Newey-West variance is
+            not positive, so the t-statistic is undefined. The range test catches a constant
+            such as 0.01, whose demeaned values are rounding residue that would otherwise give a
+            t-statistic near 1e16.
     """
     if x.ndim != 1 or x.size < _MIN_OBS or not np.isfinite(x).all():
         raise ValueError(f"x must be a finite 1-D array of at least {_MIN_OBS} observations")
@@ -62,11 +67,15 @@ def hac_t_test(
     n_lags = newey_west_optimal_lags(x) if lags is None else lags
     if not 0 <= n_lags < n:
         raise ValueError(f"lags must satisfy 0 <= lags < n={n}, got {n_lags}")
+    if np.ptp(x) == 0.0:
+        raise UndefinedResultError("x has zero range; the HAC t-statistic is undefined")
     mean = float(x.mean())
     cov = newey_west_cov(np.ones((n, 1)), x - mean, n_lags, small_sample_correction=True)
     variance = float(cov[0, 0])
     if not (np.isfinite(variance) and variance > 0.0):
-        raise ValueError("Newey-West variance is not positive")
+        raise UndefinedResultError(
+            "Newey-West variance is not positive; the t-statistic is undefined"
+        )
     se = variance**0.5
     t_stat = (mean - null) / se
     tail = {"two-sided": -abs(t_stat), "greater": -t_stat, "less": t_stat}[alternative]

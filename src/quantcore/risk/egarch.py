@@ -50,6 +50,7 @@ import numba
 import numpy as np
 import numpy.typing as npt
 
+from quantcore.errors import UndefinedResultError
 from quantcore.risk.volatility import (
     _fit_with_arch,
     _presample,
@@ -99,12 +100,27 @@ def egarch_11_variance(
         ln(sigma_t^2), the log-conditional-variance series, same length as
         `returns`. Exponentiate the result if variance is needed.
 
+    Raises:
+        ValueError: If `returns` is empty, `beta` is not strictly between -1
+            and 1, or `presample_variance` is given and is not finite and
+            strictly positive.
+        UndefinedResultError: If `presample_variance` is `None` and the
+            backcast of `returns` is 0 (all-zero returns, or returns so
+            small that their squares underflow): ln(sigma_0^2) is then
+            -infinity and the series is undefined. Pass a positive
+            `presample_variance` to compute the series from a given start.
+
     References:
         Nelson (1991), "Conditional Heteroskedasticity in Asset Returns: A
         New Approach." See docs/REFERENCES.md.
     """
     _validate_egarch_inputs(returns, omega, beta)
     presample = _presample(returns, presample_variance)
+    if presample == 0.0:
+        raise UndefinedResultError(
+            "the backcast variance of returns is 0, so ln(sigma_0^2) is undefined; pass a "
+            "positive presample_variance"
+        )
     initial = float(np.exp(omega + beta * np.log(presample)))
     return _egarch_11_variance(returns, omega, alpha, gamma, beta, initial)
 
@@ -219,7 +235,8 @@ def egarch_fit(returns: npt.NDArray[np.float64]) -> EGARCHParams:
         attained log-likelihood.
 
     Raises:
-        ValueError: If `returns` is empty or has no variation.
+        ValueError: If `returns` is empty.
+        UndefinedResultError: If `returns` has no variation (`np.ptp == 0`).
         ConvergenceError: If `arch` does not report convergence (see
             `volatility.ConvergenceError`; its `params` are
             `(omega, alpha, gamma, beta)` in that order for this function).
@@ -395,7 +412,8 @@ def gjr_garch_fit(returns: npt.NDArray[np.float64]) -> GJRGARCHParams:
         the attained log-likelihood.
 
     Raises:
-        ValueError: If `returns` is empty or has no variation.
+        ValueError: If `returns` is empty.
+        UndefinedResultError: If `returns` has no variation (`np.ptp == 0`).
         ConvergenceError: If `arch` does not report convergence (see
             `volatility.ConvergenceError`; its `params` are
             `(omega, alpha, gamma, beta)` in that order for this function).

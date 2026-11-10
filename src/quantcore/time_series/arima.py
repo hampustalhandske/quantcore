@@ -81,6 +81,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from quantcore.errors import UndefinedResultError
 from quantcore.risk.volatility import ConvergenceError
 
 
@@ -121,6 +122,14 @@ def ljung_box_test(
         the chi-squared survival function of Q with `n_lags - model_df`
         degrees of freedom. Computed by `statsmodels`' `acorr_ljungbox`.
 
+    Raises:
+        ValueError: `residuals` is empty, `n_lags` is not positive or not smaller than the
+            number of residuals, or `model_df` is negative or not smaller than `n_lags`.
+        UndefinedResultError: `residuals` has zero range (`np.ptp(residuals) == 0`), so its
+            autocorrelations are undefined. The range test catches a constant such as 0.01,
+            whose demeaned values are rounding residue that would otherwise read as strong
+            autocorrelation.
+
     References:
         Ljung, G.M. and Box, G.E.P. (1978). "On a Measure of Lack of Fit
         in Time Series Models." *Biometrika*, 65(2), 297-303. See
@@ -131,6 +140,11 @@ def ljung_box_test(
         raise ValueError("model_df must be non-negative")
     if model_df >= n_lags:
         raise ValueError("model_df must be strictly less than n_lags")
+    if np.ptp(residuals) == 0.0:
+        raise UndefinedResultError(
+            "residuals have zero range, so their autocorrelations are undefined; "
+            "the Ljung-Box statistic is undefined"
+        )
     return _ljung_box_test(residuals, n_lags, model_df)
 
 
@@ -219,17 +233,17 @@ def arima_fit(
         floating-point numbers they are: every partial autocorrelation of
         either part is at most `1 - 1e-6` in magnitude and the rounded
         coefficients are verified in rational arithmetic before they are
-        returned. When the likelihood has no maximum inside that region
-        (for example a differenced series that is constant, which an AR
-        root of 1 would reproduce exactly), the estimate lies on its edge.
-        A differenced series that is identically zero carries no
-        information about the coefficients and returns all-zero
-        coefficients with `sigma2_hat = 0.0`.
+        returned. When the likelihood has no maximum inside that region,
+        the estimate lies on its edge.
 
     Raises:
         ValueError: If `series` is empty, not 1-D, or contains a non-finite
             value; if `p` or `q` is negative, both are 0, or `d` is not 0,
             1, or 2; or if `series` has at most `d + max(p, q)` values.
+        UndefinedResultError: If the `d`-times-differenced series has zero
+            range (`np.ptp == 0`: a constant series at any `d`, a linear
+            trend at `d = 1`). A zero-mean ARMA has no maximum-likelihood
+            fit to it: the likelihood grows without bound.
         ConvergenceError: If the optimizer
             converges from no starting point (`quantcore.risk.ConvergenceError`,
             a `RuntimeError` subclass, the same exception the GARCH-family
@@ -273,6 +287,11 @@ def arima_fit(
         docs/REFERENCES.md.
     """
     _validate_arima_fit_inputs(series, p, d, q)
+    if np.ptp(_difference(series, d)) == 0.0:
+        raise UndefinedResultError(
+            f"the series differenced {d} time(s) has zero range; the ARIMA maximum-likelihood "
+            "estimate does not exist"
+        )
     return _arima_fit_exact_mle(series, p, d, q)
 
 
@@ -420,9 +439,12 @@ def select_arima_order(
     Raises:
         ValueError: If `criterion` is not "aic" or "bic"; if `series` is
             empty, not 1-D, or contains a non-finite value; or if no
-            candidate is left to compare, every one being too short for
-            its order, without variation after differencing, or not
-            converging.
+            candidate is left to compare and at least one of them, or all,
+            failed for a reason other than zero range: too short for its
+            order, or not converging.
+        UndefinedResultError: If every candidate long enough for its order
+            has a differenced series with zero range, so no candidate has a
+            maximum-likelihood fit (a constant series, for example).
 
     References:
         Akaike, H. (1974). "A New Look at the Statistical Model
@@ -440,6 +462,8 @@ def select_arima_order(
 
     best_order: tuple[int, int, int] | None = None
     best_score = np.inf
+    n_valid_orders = 0
+    n_zero_range = 0
 
     for d in range(max_d + 1):
         differenced: npt.NDArray[np.float64] | None = None
@@ -452,9 +476,11 @@ def select_arima_order(
                 except ValueError:
                     continue
 
+                n_valid_orders += 1
                 if differenced is None:
                     differenced = _differenced_for_exact_mle(series, d)
                 if np.ptp(differenced) == 0.0:
+                    n_zero_range += 1
                     continue
                 fit = _fit_exact_mle(differenced, p, q, fitted)
                 if fit is None or not fit.converged:
@@ -472,6 +498,11 @@ def select_arima_order(
                     best_score = score
                     best_order = (p, d, q)
 
+    if best_order is None and n_valid_orders > 0 and n_zero_range == n_valid_orders:
+        raise UndefinedResultError(
+            "every candidate order has a differenced series with zero range; no ARIMA "
+            "maximum-likelihood fit exists"
+        )
     if best_order is None:
         raise ValueError(
             "no feasible (p, d, q) order found for the given series and bounds: every "

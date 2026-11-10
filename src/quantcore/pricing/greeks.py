@@ -29,12 +29,22 @@ References:
     dividend yield extension used by `dividend_yield` throughout.)
 
     See docs/REFERENCES.md.
+
+Every input must be finite. With sigma = 0 and T > 0, d1 is +-inf except when
+the forward sits exactly at the strike (ln(S/K) + (r - q)T == 0), where d1 is
+0/0: Delta, Vega and Theta then raise `quantcore.UndefinedResultError` (a
+`ValueError`), and so does Gamma, whose sigma -> 0+ limit there is +inf. Off
+that point Gamma is 0 at sigma = 0. Gamma is 0 at T = 0. Any Greek that
+overflows float64 also raises `UndefinedResultError`.
 """
 
 from __future__ import annotations
 
 import numpy as np
 from scipy.stats import norm
+
+from quantcore.errors import UndefinedResultError, _finite_result
+from quantcore.pricing.black_scholes import _validate_finite_inputs
 
 _VALID_OPTION_TYPES = ("call", "put")
 
@@ -60,6 +70,21 @@ def _validate_option_type(option_type: str) -> None:
         raise ValueError(f"option_type must be one of {_VALID_OPTION_TYPES}, got {option_type!r}")
 
 
+def _d1_numerator(
+    spot: float,
+    strike: float,
+    rate: float,
+    volatility: float,
+    t: float,
+    dividend_yield: float = 0.0,
+) -> float:
+    """`ln(S/K) + (r - q + sigma^2 / 2) T`, the numerator of d1.
+
+    At sigma = 0 it is 0 exactly when the forward sits at the strike, where d1 is 0/0.
+    """
+    return float(np.log(spot / strike) + (rate - dividend_yield + 0.5 * volatility**2) * t)
+
+
 def _d1_d2(
     spot: float,
     strike: float,
@@ -68,10 +93,8 @@ def _d1_d2(
     t: float,
     dividend_yield: float = 0.0,
 ) -> tuple[float, float]:
-
-    d1 = (np.log(spot / strike) + (rate - dividend_yield + 0.5 * volatility**2) * t) / (
-        volatility * np.sqrt(t)
-    )
+    numerator = _d1_numerator(spot, strike, rate, volatility, t, dividend_yield)
+    d1 = numerator / (volatility * np.sqrt(t))
     d2 = d1 - volatility * np.sqrt(t)
     return float(d1), float(d2)
 
@@ -111,9 +134,26 @@ def bs_delta(
 
     Returns:
         Delta_call = exp(-qT)*Phi(d1), Delta_put = exp(-qT)*(Phi(d1) - 1).
+
+    Raises:
+        ValueError: An input is not finite, `spot` or `strike` is not strictly positive,
+            `volatility` or `time_to_maturity` is negative, or `option_type` is unknown.
+        UndefinedResultError: `volatility` is 0 with `time_to_maturity` > 0 and the forward exactly
+            at the strike, where d1 is 0/0; or Delta overflows float64.
     """
+    _validate_finite_inputs(
+        spot=spot,
+        strike=strike,
+        rate=rate,
+        volatility=volatility,
+        time_to_maturity=time_to_maturity,
+        dividend_yield=dividend_yield,
+    )
     _validate_bs_delta(spot, strike, rate, volatility, time_to_maturity, option_type)
-    return _bs_delta(spot, strike, rate, volatility, time_to_maturity, option_type, dividend_yield)
+    return _finite_result(
+        _bs_delta(spot, strike, rate, volatility, time_to_maturity, option_type, dividend_yield),
+        "delta",
+    )
 
 
 def _bs_delta(
@@ -167,9 +207,26 @@ def bs_gamma(
 
     Returns:
         Gamma = exp(-qT)*phi(d1) / (S*sigma*sqrt(T)).
+
+    Raises:
+        ValueError: An input is not finite, `spot` or `strike` is not strictly positive,
+            `volatility` or `time_to_maturity` is negative.
+        UndefinedResultError: `volatility` is 0 with `time_to_maturity` > 0 and the forward
+            exactly at the strike, where Gamma's limit is +inf; or Gamma overflows float64.
     """
+    _validate_finite_inputs(
+        spot=spot,
+        strike=strike,
+        rate=rate,
+        volatility=volatility,
+        time_to_maturity=time_to_maturity,
+        dividend_yield=dividend_yield,
+    )
     _validate_bs_gamma(spot, strike, rate, volatility, time_to_maturity)
-    return _bs_gamma(spot, strike, rate, volatility, time_to_maturity, dividend_yield)
+    return _finite_result(
+        _bs_gamma(spot, strike, rate, volatility, time_to_maturity, dividend_yield),
+        "gamma",
+    )
 
 
 def _bs_gamma(
@@ -180,8 +237,13 @@ def _bs_gamma(
     time_to_maturity: float,
     dividend_yield: float = 0.0,
 ) -> float:
-
-    if time_to_maturity == 0.0 or volatility == 0.0:
+    if time_to_maturity == 0.0:
+        return 0.0
+    if volatility == 0.0:
+        if _d1_numerator(spot, strike, rate, volatility, time_to_maturity, dividend_yield) == 0.0:
+            raise UndefinedResultError(
+                "volatility is 0 with the forward exactly at the strike; Gamma's limit is infinite"
+            )
         return 0.0
     d1, _ = _d1_d2(spot, strike, rate, volatility, time_to_maturity, dividend_yield)
     discount = np.exp(-dividend_yield * time_to_maturity)
@@ -218,9 +280,26 @@ def bs_vega(
     Returns:
         Vega = S*exp(-qT)*phi(d1)*sqrt(T), per unit (100 vol points) of
         volatility.
+
+    Raises:
+        ValueError: An input is not finite, `spot` or `strike` is not strictly positive,
+            `volatility` or `time_to_maturity` is negative.
+        UndefinedResultError: `volatility` is 0 with `time_to_maturity` > 0 and the forward exactly
+            at the strike, where d1 is 0/0; or Vega overflows float64.
     """
+    _validate_finite_inputs(
+        spot=spot,
+        strike=strike,
+        rate=rate,
+        volatility=volatility,
+        time_to_maturity=time_to_maturity,
+        dividend_yield=dividend_yield,
+    )
     _validate_bs_vega(spot, strike, rate, volatility, time_to_maturity)
-    return _bs_vega(spot, strike, rate, volatility, time_to_maturity, dividend_yield)
+    return _finite_result(
+        _bs_vega(spot, strike, rate, volatility, time_to_maturity, dividend_yield),
+        "vega",
+    )
 
 
 def _bs_vega(
@@ -274,9 +353,26 @@ def bs_theta(
 
     Returns:
         Theta per calendar day (time decay of option value).
+
+    Raises:
+        ValueError: An input is not finite, `spot` or `strike` is not strictly positive,
+            `volatility` or `time_to_maturity` is negative, or `option_type` is unknown.
+        UndefinedResultError: `volatility` is 0 with `time_to_maturity` > 0 and the forward exactly
+            at the strike, where d1 is 0/0; or Theta overflows float64.
     """
+    _validate_finite_inputs(
+        spot=spot,
+        strike=strike,
+        rate=rate,
+        volatility=volatility,
+        time_to_maturity=time_to_maturity,
+        dividend_yield=dividend_yield,
+    )
     _validate_bs_theta(spot, strike, rate, volatility, time_to_maturity, option_type)
-    return _bs_theta(spot, strike, rate, volatility, time_to_maturity, option_type, dividend_yield)
+    return _finite_result(
+        _bs_theta(spot, strike, rate, volatility, time_to_maturity, option_type, dividend_yield),
+        "theta",
+    )
 
 
 def _bs_theta(

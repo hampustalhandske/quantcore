@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from scipy.stats import ttest_1samp
 
+from quantcore import UndefinedResultError
 from quantcore.statistics import HacTResult, hac_t_test, newey_west_optimal_lags
 
 
@@ -145,9 +146,25 @@ def test_null_shifts_t_by_mean_difference_over_se() -> None:
         (np.arange(20.0), {"lags": 20}, "lags"),
         (np.arange(20.0), {"alternative": "both"}, "alternative"),
         (np.arange(20.0), {"null": float("nan")}, "null"),
-        (np.ones(20), {}, "not positive"),
+        (np.ones(20), {}, "zero range"),
     ],
 )
 def test_invalid_inputs_raise(x: np.ndarray, kwargs: dict, match: str) -> None:
     with pytest.raises(ValueError, match=match):
         hac_t_test(x, **kwargs)
+
+
+@pytest.mark.parametrize("value", [0.0, 0.01, 0.002, 3.7])
+@pytest.mark.parametrize("lags", [None, 0, 3])
+def test_zero_range_x_raises_undefined(value: float, lags: int | None) -> None:
+    # Without the range check 0.01 gave a t-statistic of about 3.7e16.
+    with pytest.raises(UndefinedResultError, match="x has zero range") as raised:
+        hac_t_test(np.full(40, value), lags=lags)
+    assert isinstance(raised.value, ValueError)
+
+
+def test_one_value_off_a_constant_is_defined() -> None:
+    x = np.full(40, 0.01)
+    x[3] = 0.011
+    result = hac_t_test(x)
+    assert np.isfinite(result.t) and result.se > 0.0

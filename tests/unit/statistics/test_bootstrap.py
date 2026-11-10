@@ -12,12 +12,14 @@ quantcore passes to it.
 """
 
 import inspect
+import math
 
 import numpy as np
 import pytest
 from arch.bootstrap import SPA, StationaryBootstrap
 from arch.bootstrap import optimal_block_length as arch_optimal_block_length
 
+from quantcore import UndefinedResultError
 from quantcore.statistics import (
     BootstrapInterval,
     SpaPValues,
@@ -217,6 +219,35 @@ def test_optimal_block_length_is_arch_stationary_column_not_circular() -> None:
 def test_optimal_block_length_rejects_bad_input(x: np.ndarray) -> None:
     with pytest.raises(ValueError):
         optimal_block_length(x)
+
+
+# At n = 8 `arch` divides 0 by 0 for its longest lag and warns; the block length stays finite.
+@pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
+@pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
+@pytest.mark.parametrize("n", [2, 3, 7])
+def test_optimal_block_length_needs_eight_observations(n: int) -> None:
+    x = np.random.default_rng(n).normal(size=n)
+    with pytest.raises(ValueError, match="at least 8") as raised:
+        optimal_block_length(x)
+    assert not isinstance(raised.value, UndefinedResultError)
+    assert math.isfinite(optimal_block_length(np.random.default_rng(n).normal(size=8)))
+
+
+@pytest.mark.parametrize(
+    "x", [np.zeros(20), np.full(20, 0.002), np.full(20, 5.0)], ids=["0", "0.002", "5"]
+)
+def test_optimal_block_length_of_a_constant_series_raises_undefined(x: np.ndarray) -> None:
+    with pytest.raises(UndefinedResultError, match="zero range") as raised:
+        optimal_block_length(x)
+    assert isinstance(raised.value, ValueError)
+    with pytest.raises(UndefinedResultError):
+        stationary_bootstrap_ci(x, _mean, rng=np.random.default_rng(0), n_boot=20)
+
+
+def test_optimal_block_length_one_value_off_a_constant_matches_arch() -> None:
+    x = np.r_[np.zeros(19), 0.01]
+    expected = float(arch_optimal_block_length(x)["stationary"].iloc[0])
+    assert optimal_block_length(x) == expected
 
 
 # --- stationary_bootstrap_ci ----------------------------------------------------------------------
@@ -466,6 +497,64 @@ def test_spa_test_takes_losses_not_returns() -> None:
     )
     assert as_losses.consistent < 0.01
     assert as_returns.consistent > 0.5
+
+
+def _dyadic_benchmark(n: int) -> np.ndarray:
+    # Quarter-integer losses: adding a dyadic offset and subtracting it back
+    # is exact, so the loss differential is exactly constant.
+    return np.random.default_rng(21).integers(-40, 40, size=n) / 4.0
+
+
+@pytest.mark.parametrize("studentize", [True, False])
+@pytest.mark.parametrize(
+    ("offset", "case"),
+    [(0.0, "identical"), (0.5, "constant-offset worse"), (-0.5, "constant-offset better")],
+)
+def test_spa_test_zero_range_differential_raises_naming_the_column(
+    offset: float, case: str, studentize: bool
+) -> None:
+    benchmark = _dyadic_benchmark(120)
+    noise = np.random.default_rng(22).normal(0.0, 1.0, 120)
+    models = np.column_stack([benchmark + noise, benchmark + offset, benchmark - noise])
+    rng = np.random.default_rng(5)
+    state = rng.bit_generator.state
+    with pytest.raises(UndefinedResultError, match=r"column\(s\) \[1\]") as excinfo:
+        spa_test(benchmark, models, rng=rng, block_size=4, reps=50, studentize=studentize)
+    assert isinstance(excinfo.value, ValueError), case
+    assert rng.bit_generator.state == state
+
+
+def test_spa_test_names_every_zero_range_column() -> None:
+    benchmark = _dyadic_benchmark(60)
+    noise = np.random.default_rng(23).normal(0.0, 1.0, 60)
+    models = np.column_stack([benchmark, benchmark + noise, benchmark + 0.25])
+    with pytest.raises(UndefinedResultError, match=r"\[0, 2\]"):
+        spa_test(
+            benchmark, models, rng=np.random.default_rng(1), block_size=4, reps=50, studentize=True
+        )
+
+
+@pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+def test_spa_test_constant_benchmark_and_model_raise(value: float) -> None:
+    with pytest.raises(UndefinedResultError, match="zero range"):
+        spa_test(
+            np.full(40, value),
+            np.full((40, 2), value),
+            rng=np.random.default_rng(1),
+            block_size=4,
+            reps=50,
+            studentize=True,
+        )
+
+
+def test_spa_test_one_value_off_a_constant_differential_is_defined() -> None:
+    benchmark = _dyadic_benchmark(120)
+    models = (benchmark + 0.5)[:, np.newaxis].copy()
+    models[7, 0] += 0.25
+    result = spa_test(
+        benchmark, models, rng=np.random.default_rng(1), block_size=4, reps=50, studentize=True
+    )
+    assert 0.0 <= result.lower <= result.consistent <= result.upper <= 1.0
 
 
 @pytest.mark.parametrize("k", [1, 5, 20])

@@ -10,12 +10,26 @@
 References:
     These are standard day-count carry/accrual conventions (simple interest,
     actual/365) with no single canonical paper; see docs/REFERENCES.md.
+
+Every input must be finite; a cost that overflows float64 raises
+`quantcore.UndefinedResultError` (a `ValueError`).
 """
 
 from __future__ import annotations
 
+import math
+
+from quantcore.errors import _finite_result
+
 
 def _validate_simple_annual_carry(notional: float, rate_annual: float, days_held: int) -> None:
+    for name, value in (
+        ("notional", notional),
+        ("rate_annual", rate_annual),
+        ("days_held", days_held),
+    ):
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
     if notional < 0.0:
         raise ValueError("notional must be non-negative")
     if rate_annual < 0.0:
@@ -41,9 +55,15 @@ def short_borrow_cost(notional: float, borrow_rate_annual: float, days_held: int
 
     Returns:
         Borrow cost in the same currency units as `notional`.
+
+    Raises:
+        ValueError: An input is negative or not finite.
+        UndefinedResultError: The cost overflows float64.
     """
     _validate_simple_annual_carry(notional, borrow_rate_annual, days_held)
-    return _simple_annual_carry(notional, borrow_rate_annual, days_held)
+    return _finite_result(
+        _simple_annual_carry(notional, borrow_rate_annual, days_held), "short borrow cost"
+    )
 
 
 def margin_financing_cost(notional: float, financing_rate_annual: float, days_held: int) -> float:
@@ -64,6 +84,12 @@ def margin_financing_cost(notional: float, financing_rate_annual: float, days_he
 
     Returns:
         Financing cost in the same currency units as `notional`.
+
+    Raises:
+        ValueError: An input is negative or not finite.
+        UndefinedResultError: The cost overflows float64.
     """
     _validate_simple_annual_carry(notional, financing_rate_annual, days_held)
-    return _simple_annual_carry(notional, financing_rate_annual, days_held)
+    return _finite_result(
+        _simple_annual_carry(notional, financing_rate_annual, days_held), "margin financing cost"
+    )

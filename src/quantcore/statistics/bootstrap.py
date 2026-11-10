@@ -34,7 +34,13 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm
 
+from quantcore.errors import UndefinedResultError, _finite_result
+
 _PROPORTION_CLIP = 1e-10
+
+# Shortest series `arch`'s block-length rule accepts: it computes autocorrelations up to lag
+# ceil(sqrt(n)) + max(5, floor(log10(n))), which must not exceed n.
+_MIN_BLOCK_LENGTH_OBS = 8
 
 
 def _as_series(x: npt.NDArray[np.float64], name: str) -> npt.NDArray[np.float64]:
@@ -57,19 +63,28 @@ def optimal_block_length(x: npt.NDArray[np.float64]) -> float:
     geometric block-length distribution, not an integer.
 
     Args:
-        x: 1-D finite series, at least 2 observations.
+        x: 1-D finite series, at least 8 observations.
 
     Returns:
         The expected block length.
 
     Raises:
-        ValueError: `x` is not 1-D, has fewer than 2 observations or is not finite.
+        ValueError: `x` is not 1-D, has fewer than 8 observations or is not finite.
+        UndefinedResultError: `x` has zero range (`np.ptp(x) == 0`), so its autocorrelations
+            are undefined; or `arch` returns a value that is not finite.
     """
     from arch.bootstrap import optimal_block_length as _arch_optimal_block_length
 
     array = _as_series(x, "x")
+    if array.shape[0] < _MIN_BLOCK_LENGTH_OBS:
+        raise ValueError(f"x must have at least {_MIN_BLOCK_LENGTH_OBS} observations")
+    if np.ptp(array) == 0.0:
+        raise UndefinedResultError(
+            "x has zero range, so its autocorrelations are undefined; "
+            "the optimal block length is undefined"
+        )
     table = _arch_optimal_block_length(array)
-    return float(table["stationary"].iloc[0])
+    return _finite_result(float(table["stationary"].iloc[0]), "optimal block length")
 
 
 @dataclass(frozen=True)
@@ -193,16 +208,20 @@ def stationary_bootstrap_ci(
         ci: Confidence level, strictly between 0 and 1.
         method: `"percentile"` or `"bca"`.
         block_length: Expected block length, positive and finite. None uses
-            `optimal_block_length(x)`.
+            `optimal_block_length(x)`, which needs at least 8 observations and a non-constant
+            `x`.
 
     Returns:
         `BootstrapInterval` with the estimate `stat(x)`, the interval, the level, the block length
         used, `n_boot` and the number of dropped resamples.
 
     Raises:
-        ValueError: `x` is not 1-D, has fewer than 2 observations or is not finite; `n_boot` is
-            not positive; `ci` is not in `(0, 1)`; `method` is neither `"percentile"` nor
-            `"bca"`; `block_length` is not positive and finite; or every resample is dropped.
+        ValueError: `x` is not 1-D, has fewer than 2 observations (fewer than 8 when
+            `block_length` is None) or is not finite; `n_boot` is not positive; `ci` is not in
+            `(0, 1)`; `method` is neither `"percentile"` nor `"bca"`; `block_length` is not
+            positive and finite; or every resample is dropped.
+        UndefinedResultError: `block_length` is None and `optimal_block_length(x)` is
+            undefined (a constant `x`).
     """
     from arch.bootstrap import StationaryBootstrap
 
@@ -304,6 +323,11 @@ def spa_test(
         ValueError: `block_size` or `reps` is not positive; `benchmark_losses` is not 1-D with
             at least 2 observations; `model_losses` is not 2-D with at least 1 column; the two
             differ in length; or either is not finite.
+        UndefinedResultError: A column of the loss differential `benchmark_losses -
+            model_losses[:, j]` has zero range (`np.ptp == 0`): a model identical to the
+            benchmark, or differing from it by a constant. Its differential has no variance,
+            so the re-centring threshold and the bootstrap distribution are degenerate. The
+            message names the column(s); `rng` is not advanced.
     """
     from arch.bootstrap import SPA
 
@@ -321,6 +345,13 @@ def spa_test(
         raise ValueError("model_losses must have at least 1 column")
     if not np.isfinite(models).all():
         raise ValueError("model_losses must be finite")
+    differential = benchmark[:, np.newaxis] - models
+    constant = np.flatnonzero(np.ptp(differential, axis=0) == 0.0)
+    if constant.size > 0:
+        raise UndefinedResultError(
+            f"the loss differential of model column(s) {constant.tolist()} against the "
+            "benchmark has zero range; the SPA p-values are undefined"
+        )
 
     spa = SPA(
         benchmark,

@@ -25,6 +25,12 @@
       CVaR_i = w_i * (Sigma*w)_i / sqrt(w^T Sigma w) * z_alpha
       where z_alpha = Phi^-1(confidence_level); sum(CVaR_i) = portfolio VaR
 
+A function that returns a single number raises `quantcore.UndefinedResultError` (a
+`ValueError`) when that number is undefined or infinite: a zero-range series for the Sharpe and
+information ratios, no return below the risk-free rate for Sortino, no drawdown for Calmar, no
+loss for the profit factor, no non-zero return for `hit_rate(..., zero_policy="exclude")`, or a
+result that overflows float64. The returns must be finite.
+
 References:
     Sharpe, W.F. (1966), "Mutual Fund Performance." Sortino, F.A. and van der
     Meer, R. (1991), "Downside Risk." Young, T.W. (1991), "Calmar Ratio: A
@@ -41,12 +47,16 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm
 
+from quantcore.errors import UndefinedResultError, _finite_result
+
 AnnualizedReturnMethod = Literal["cagr", "arithmetic"]
 
 
 def _validate_returns(returns: npt.NDArray[np.float64]) -> None:
     if returns.size == 0:
         raise ValueError("returns must be non-empty")
+    if not np.all(np.isfinite(returns)):
+        raise ValueError("returns must contain only finite values")
 
 
 def _validate_sharpe_ratio(
@@ -82,9 +92,21 @@ def sharpe_ratio(
             simple pro-rata one (match whichever convention `returns`
             itself uses).
         periods_per_year: Number of periods in a year (e.g. 252 for daily).
+
+    Returns:
+        `mean(returns - risk_free_rate) / std(returns, ddof=1) * sqrt(periods_per_year)`.
+
+    Raises:
+        ValueError: `returns` is empty or contains NaN or infinity.
+        UndefinedResultError: `returns` has zero range (`np.ptp(returns) == 0`: a constant
+            series, or a single observation), so the standard deviation is zero; or the
+            result overflows float64. The range test also catches a constant such as 0.002,
+            whose computed standard deviation is rounding residue rather than exactly 0.
     """
     _validate_sharpe_ratio(returns, risk_free_rate, periods_per_year)
-    return _sharpe_ratio(returns, risk_free_rate, periods_per_year)
+    if np.ptp(returns) == 0.0:
+        raise UndefinedResultError("returns have zero range; the Sharpe ratio is undefined")
+    return _finite_result(_sharpe_ratio(returns, risk_free_rate, periods_per_year), "Sharpe ratio")
 
 
 def _sharpe_ratio(
@@ -110,7 +132,7 @@ def sortino_ratio(
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
 ) -> float:
-    """Annualized Sortino ratio; returns `np.inf` if downside deviation is 0.
+    """Annualized Sortino ratio of `returns` against `risk_free_rate`.
 
     Downside deviation = sqrt(mean((returns - risk_free_rate) clipped above
     at 0, squared)) — the mean is over *all* observations (gains count as
@@ -124,9 +146,19 @@ def sortino_ratio(
             here, both as the excess-return subtrahend and as the downside
             deviation's target/threshold.
         periods_per_year: Number of periods in a year (e.g. 252 for daily).
+
+    Returns:
+        `mean(returns - risk_free_rate) / downside_deviation * sqrt(periods_per_year)`.
+
+    Raises:
+        ValueError: `returns` is empty or contains NaN or infinity.
+        UndefinedResultError: The downside deviation is 0 (no return lies below
+            `risk_free_rate`), or the result overflows float64.
     """
     _validate_sortino_ratio(returns, risk_free_rate, periods_per_year)
-    return _sortino_ratio(returns, risk_free_rate, periods_per_year)
+    return _finite_result(
+        _sortino_ratio(returns, risk_free_rate, periods_per_year), "Sortino ratio"
+    )
 
 
 def _sortino_ratio(
@@ -137,7 +169,10 @@ def _sortino_ratio(
     excess = returns - risk_free_rate
     downside_deviation = float(np.sqrt(np.mean(np.minimum(excess, 0.0) ** 2)))
     if downside_deviation == 0.0:
-        return float(np.inf)
+        raise UndefinedResultError(
+            "no return lies below the risk-free rate, so the downside deviation is 0; "
+            "the Sortino ratio is undefined"
+        )
     return float(np.mean(excess)) / downside_deviation * float(np.sqrt(periods_per_year))
 
 
@@ -151,9 +186,13 @@ def maximum_drawdown(returns: npt.NDArray[np.float64]) -> float:
     Measured against the running peak of the wealth path seeded with its
     starting capital of 1.0 (see `_drawdown_series`), so
     `maximum_drawdown(np.array([-0.5])) == 0.5`.
+
+    Raises:
+        ValueError: `returns` is empty or contains NaN or infinity.
+        UndefinedResultError: Compounding the returns overflows float64.
     """
     _validate_maximum_drawdown(returns)
-    return _maximum_drawdown(returns)
+    return _finite_result(_maximum_drawdown(returns), "maximum drawdown")
 
 
 def _maximum_drawdown(returns: npt.NDArray[np.float64]) -> float:
@@ -214,7 +253,7 @@ def calmar_ratio(
     periods_per_year: int = 252,
     return_method: AnnualizedReturnMethod = "cagr",
 ) -> float:
-    """Annualized return over maximum drawdown; returns `np.inf` if drawdown is 0.
+    """Annualized return over maximum drawdown.
 
     Args:
         returns: Periodic simple returns.
@@ -223,9 +262,19 @@ def calmar_ratio(
             matches empyrical/QuantStats/Young (1991) as commonly applied)
             or `"arithmetic"` (the prior default: mean(returns) *
             periods_per_year). See `annualized_return`.
+
+    Returns:
+        The annualized return divided by the maximum drawdown.
+
+    Raises:
+        ValueError: `returns` is empty or contains NaN or infinity, `periods_per_year` is not
+            positive, `return_method` is unknown, or (for `"cagr"`) the wealth path ends
+            below zero.
+        UndefinedResultError: The maximum drawdown is 0 (the wealth path never falls below
+            its running peak), or the result overflows float64.
     """
     _validate_calmar_ratio(returns, periods_per_year, return_method)
-    return _calmar_ratio(returns, periods_per_year, return_method)
+    return _finite_result(_calmar_ratio(returns, periods_per_year, return_method), "Calmar ratio")
 
 
 def _calmar_ratio(
@@ -233,7 +282,7 @@ def _calmar_ratio(
 ) -> float:
     mdd = _maximum_drawdown(returns)
     if mdd == 0.0:
-        return float(np.inf)
+        raise UndefinedResultError("the maximum drawdown is 0; the Calmar ratio is undefined")
     return _annualized_return(returns, periods_per_year, return_method) / abs(mdd)
 
 
@@ -245,6 +294,8 @@ def _validate_information_ratio(
     _validate_returns(returns)
     if benchmark_returns.size == 0:
         raise ValueError("benchmark_returns must be non-empty")
+    if not np.all(np.isfinite(benchmark_returns)):
+        raise ValueError("benchmark_returns must contain only finite values")
     if returns.shape != benchmark_returns.shape:
         raise ValueError("returns and benchmark_returns must have the same shape")
 
@@ -254,9 +305,27 @@ def information_ratio(
     benchmark_returns: npt.NDArray[np.float64],
     periods_per_year: int = 252,
 ) -> float:
-    """Annualized information ratio of `returns` relative to `benchmark_returns`."""
+    """Annualized information ratio of `returns` relative to `benchmark_returns`.
+
+    Returns:
+        `mean(d) / std(d, ddof=1) * sqrt(periods_per_year)` with `d = returns -
+        benchmark_returns`.
+
+    Raises:
+        ValueError: Either array is empty or contains NaN or infinity, or their shapes differ.
+        UndefinedResultError: The active returns `d` have zero range (`np.ptp(d) == 0`: a
+            constant difference, or a single observation), so the tracking error is zero; or
+            the result overflows float64.
+    """
     _validate_information_ratio(returns, benchmark_returns, periods_per_year)
-    return _information_ratio(returns, benchmark_returns, periods_per_year)
+    if np.ptp(returns - benchmark_returns) == 0.0:
+        raise UndefinedResultError(
+            "returns - benchmark_returns has zero range, so the tracking error is 0; "
+            "the information ratio is undefined"
+        )
+    return _finite_result(
+        _information_ratio(returns, benchmark_returns, periods_per_year), "information ratio"
+    )
 
 
 def _information_ratio(
@@ -298,21 +367,27 @@ def hit_rate(returns: npt.NDArray[np.float64], zero_policy: HitRateZeroPolicy = 
             a win.
 
     Returns:
-        Fraction of periods counted as a win, in [0, 1]. `NaN` if
-        `zero_policy="exclude"` and every period is exactly zero.
+        Fraction of periods counted as a win, in [0, 1].
+
+    Raises:
+        ValueError: `returns` is empty or contains NaN or infinity, or `zero_policy` is
+            unknown.
+        UndefinedResultError: `zero_policy="exclude"` and every period is exactly zero, which
+            leaves no period to count.
     """
     _validate_hit_rate(returns)
     if zero_policy not in ("loss", "win", "exclude"):
         raise ValueError('zero_policy must be "loss", "win", or "exclude"')
+    if zero_policy == "exclude" and not np.any(returns != 0.0):
+        raise UndefinedResultError(
+            'every return is 0, so hit_rate with zero_policy="exclude" is undefined'
+        )
     return _hit_rate(returns, zero_policy)
 
 
 def _hit_rate(returns: npt.NDArray[np.float64], zero_policy: HitRateZeroPolicy) -> float:
     if zero_policy == "exclude":
-        nonzero = returns[returns != 0.0]
-        if nonzero.size == 0:
-            return float("nan")
-        return float(np.mean(nonzero > 0.0))
+        return float(np.mean(returns[returns != 0.0] > 0.0))
     if zero_policy == "win":
         return float(np.mean(returns >= 0.0))
     return float(np.mean(returns > 0.0))
@@ -323,7 +398,7 @@ def _validate_profit_factor(returns: npt.NDArray[np.float64]) -> None:
 
 
 def profit_factor(returns: npt.NDArray[np.float64]) -> float:
-    """Sum of gains over absolute sum of losses; `np.inf` if there are no losses.
+    """Sum of gains over absolute sum of losses.
 
     Zero-return periods contribute to neither the gains nor the losses sum
     (they're excluded from both `returns > 0.0` and `returns < 0.0`) — on a
@@ -332,16 +407,24 @@ def profit_factor(returns: npt.NDArray[np.float64]) -> float:
     statistic without needing a separate option, unlike `hit_rate`, whose
     denominator (a period *count*, not a *sum*) does need `zero_policy` to
     get the same effect.
+
+    Returns:
+        `sum(r > 0) / |sum(r < 0)|`, never negative; 0.0 when there is no gain.
+
+    Raises:
+        ValueError: `returns` is empty or contains NaN or infinity.
+        UndefinedResultError: There is no negative return (an all-zero series included), or
+            the result overflows float64.
     """
     _validate_profit_factor(returns)
-    return _profit_factor(returns)
+    return _finite_result(_profit_factor(returns), "profit factor")
 
 
 def _profit_factor(returns: npt.NDArray[np.float64]) -> float:
     gains = float(np.sum(returns[returns > 0.0]))
     losses = float(np.sum(returns[returns < 0.0]))
     if losses == 0.0:
-        return float(np.inf)
+        raise UndefinedResultError("there is no negative return; the profit factor is undefined")
     return gains / abs(losses)
 
 

@@ -54,6 +54,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import chi2
 
+from quantcore.errors import UndefinedResultError
+
 # ---------------------------------------------------------------------------
 # Shared input checks
 # ---------------------------------------------------------------------------
@@ -88,7 +90,7 @@ def _validate_jarque_bera_inputs(series: npt.NDArray[np.float64]) -> None:
     # A range test, not a variance test: the mean of a constant array is
     # often not exactly that constant, which leaves a tiny non-zero variance.
     if np.ptp(series) == 0.0:
-        raise ValueError("series is constant; the Jarque-Bera statistic is undefined")
+        raise UndefinedResultError("series is constant; the Jarque-Bera statistic is undefined")
 
 
 def jarque_bera_test(series: npt.NDArray[np.float64]) -> tuple[float, float]:
@@ -112,8 +114,9 @@ def jarque_bera_test(series: npt.NDArray[np.float64]) -> tuple[float, float]:
         under-reject.
 
     Raises:
-        ValueError: `series` is not 1-D, has fewer than 2 observations,
-            contains NaN or infinite values, or is constant.
+        ValueError: `series` is not 1-D, has fewer than 2 observations, or
+            contains NaN or infinite values.
+        UndefinedResultError: `series` is constant (`np.ptp == 0`).
 
     References:
         Jarque, C.M. and Bera, A.K. (1980). "Efficient Tests for Normality,
@@ -201,11 +204,11 @@ def arch_lm_test(
 
     Raises:
         ValueError: `residuals` is not 1-D, is too short for the lag count,
-            or contains NaN or infinite values; `n_lags` is below 1; or the
-            squared residuals are constant over the regression sample
-            (observations `n_lags + 1` onwards), which leaves nothing to
-            explain. A series of equal magnitudes and alternating signs is
-            such a case.
+            or contains NaN or infinite values; or `n_lags` is below 1.
+        UndefinedResultError: The squared residuals are constant over the
+            regression sample (observations `n_lags + 1` onwards), which
+            leaves nothing to explain. A constant series is such a case, and
+            so is a series of equal magnitudes and alternating signs.
 
     References:
         Engle, R.F. (1982). "Autoregressive Conditional Heteroscedasticity
@@ -233,10 +236,10 @@ def _arch_lm_test(residuals: npt.NDArray[np.float64], n_lags: int) -> tuple[floa
     # overflow.
     scale = float(np.max(np.abs(residuals)))
     if scale == 0.0:
-        raise ValueError(constant_message)
+        raise UndefinedResultError(constant_message)
     scaled = residuals / scale
     if np.ptp(scaled[n_lags:] ** 2) == 0.0:
-        raise ValueError(constant_message)
+        raise UndefinedResultError(constant_message)
 
     statistic, p_value, _, _ = het_arch(
         scaled, nlags=n_lags, store=False, ddof=0, result_object=False
@@ -315,11 +318,12 @@ def kpss_test(
 
     Raises:
         ValueError: `series` is not 1-D, is too short, or contains NaN or
-            infinite values; `trend` or `n_lags` is out of range; the
-            residuals are no larger than rounding error (a constant series,
-            or under `"ct"` an exactly linear one, has nothing left to
-            test); or `n_lags` is `None` and `s0` above is exactly zero, in
-            which case a lag count has to be passed.
+            infinite values; or `trend` or `n_lags` is out of range.
+        UndefinedResultError: The residuals are no larger than rounding
+            error (a constant series, or under `"ct"` an exactly linear one,
+            has nothing left to test); `n_lags` is `None` and `s0` above is
+            exactly zero, in which case a lag count has to be passed; or the
+            statistic or p-value is not finite.
 
     Notes:
         The partial sums accumulate any error in the removed level, so the
@@ -342,7 +346,7 @@ def kpss_test(
 
 
 def _check_kpss_is_defined(scaled: npt.NDArray[np.float64], n_lags: int | None, trend: str) -> None:
-    """Raise `ValueError` for the series on which the KPSS statistic is undefined.
+    """Raise `UndefinedResultError` for the series on which the KPSS statistic is undefined.
 
     `scaled` is the series divided by a power of two. The statistic is undefined
     when no residual about the null's deterministic terms exceeds the rounding
@@ -354,7 +358,7 @@ def _check_kpss_is_defined(scaled: npt.NDArray[np.float64], n_lags: int | None, 
     n = scaled.size
     largest = float(np.max(np.abs(scaled)))
     if largest == 0.0:
-        raise ValueError(
+        raise UndefinedResultError(
             "series is constant to within rounding error; the KPSS statistic is undefined"
         )
     if trend == "c":
@@ -366,7 +370,7 @@ def _check_kpss_is_defined(scaled: npt.NDArray[np.float64], n_lags: int | None, 
     # Worst-case rounding error of a sum of n terms.
     if largest_residual <= 4.0 * n * float(np.finfo(np.float64).eps) * largest:
         shape = "constant" if trend == "c" else "a linear trend"
-        raise ValueError(
+        raise UndefinedResultError(
             f"series is {shape} to within rounding error; the KPSS statistic is undefined"
         )
     if n_lags is None:
@@ -379,7 +383,7 @@ def _check_kpss_is_defined(scaled: npt.NDArray[np.float64], n_lags: int | None, 
         # zero relative to gamma0 is zero, and the bandwidth ratio s1/s0 would
         # be rounding residue.
         if abs(s0) <= _KPSS_BANDWIDTH_TOLERANCE * gamma0:
-            raise ValueError(
+            raise UndefinedResultError(
                 "the automatic lag count is undefined for this series (its leading "
                 "autocovariances sum to zero to within rounding); pass n_lags explicitly"
             )
@@ -409,7 +413,7 @@ def _kpss_test(
             result_object=False,
         )
     if not (math.isfinite(statistic) and math.isfinite(p_value)):
-        raise ValueError(
+        raise UndefinedResultError(
             "the KPSS statistic is undefined for this series (no variation left "
             "after removing the deterministic terms, or a zero long-run variance); "
             "pass n_lags explicitly"

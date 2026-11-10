@@ -12,6 +12,11 @@ All Sharpe ratios in the formulas are per-period, `SR = mean(x) / std(x, ddof=1)
 with `g` the Euler-Mascheroni constant, `N` the number of independent trials and `V` the
 variance of the trials' per-period Sharpe ratios.
 
+A result that is undefined raises `quantcore.UndefinedResultError`, a `ValueError`: returns with
+zero range (`np.ptp == 0`, so zero variance), a variance factor that is not positive, `SR` equal
+to `SR*` in the minimum track record length, or a value that is not finite. Invalid input raises
+a plain `ValueError`.
+
 References:
     Mertens, E. (2002), "Comments on variance of the IID estimator in Lo (2002)." Opdyke, J.D.
     (2007), "Comparing Sharpe ratios: so where are the p-values?" Journal of Asset Management,
@@ -32,6 +37,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm
 
+from quantcore.errors import UndefinedResultError, _finite_result
 from quantcore.performance.metrics import _sharpe_ratio
 
 _MIN_OBS = 10
@@ -77,8 +83,10 @@ def _sharpe_and_variance_factor(returns: npt.NDArray[np.float64]) -> tuple[float
     """Return `(SR, 1 - gamma3 SR + (gamma4 - 1) / 4 SR^2)` after validating `returns`.
 
     Raises:
-        ValueError: `returns` is not a finite 1-D array of at least 10 observations, has zero
-            variance, or the factor is not positive.
+        ValueError: `returns` is not a finite 1-D array of at least 10 observations.
+        UndefinedResultError: `returns` has zero range (`np.ptp == 0`) or a computed standard
+            deviation of 0, a power of the standard deviation overflows or underflows float64,
+            or the factor is not positive.
     """
     x = np.asarray(returns, dtype=np.float64)
     if x.ndim != 1 or x.size < _MIN_OBS:
@@ -87,14 +95,20 @@ def _sharpe_and_variance_factor(returns: npt.NDArray[np.float64]) -> tuple[float
         raise ValueError("returns must be finite")
     d = x - x.mean()
     sigma = float(d.std(ddof=0))
-    if sigma == 0.0 or float(x.std(ddof=1)) == 0.0:
-        raise ValueError("returns have zero variance")
+    if np.ptp(x) == 0.0 or sigma == 0.0 or float(x.std(ddof=1)) == 0.0:
+        raise UndefinedResultError("returns have zero range; the Sharpe ratio is undefined")
     sr = _sharpe_ratio(x, 0.0, 1)
-    gamma3 = float(np.mean(d**3)) / sigma**3
-    gamma4 = float(np.mean(d**4)) / sigma**4
+    try:
+        gamma3 = float(np.mean(d**3)) / sigma**3
+        gamma4 = float(np.mean(d**4)) / sigma**4
+    except (OverflowError, ZeroDivisionError) as exc:
+        raise UndefinedResultError(
+            "the third or fourth power of the returns' standard deviation overflows or "
+            "underflows float64; the Sharpe variance factor is undefined"
+        ) from exc
     factor = 1.0 - gamma3 * sr + (gamma4 - 1.0) / 4.0 * sr**2
     if not (math.isfinite(factor) and factor > 0.0):
-        raise ValueError("the Sharpe variance factor is not positive")
+        raise UndefinedResultError("the Sharpe variance factor is not positive")
     return sr, factor
 
 
@@ -112,8 +126,10 @@ def sharpe_se_mertens(returns: npt.NDArray[np.float64], *, periods_per_year: int
         A `SharpeSE` of the annualised Sharpe ratio, its standard error and the sample size.
 
     Raises:
-        ValueError: `periods_per_year < 1`, fewer than 10 finite observations, zero variance, or
-            a non-positive variance factor.
+        ValueError: `periods_per_year < 1`, or `returns` is not a finite 1-D array of at least 10
+            observations.
+        UndefinedResultError: `returns` has zero range (zero variance), or the variance factor
+            is not positive.
     """
     if periods_per_year < 1:
         raise ValueError("periods_per_year must be at least 1")
@@ -135,12 +151,16 @@ def probabilistic_sharpe_ratio(returns: npt.NDArray[np.float64], sr_star: float 
         `H0: SR <= sr_star`.
 
     Raises:
-        ValueError: fewer than 10 finite observations, zero variance, or a non-positive variance
-            factor.
+        ValueError: `returns` is not a finite 1-D array of at least 10 observations, or
+            `sr_star` is not finite.
+        UndefinedResultError: `returns` has zero range (zero variance), or the variance factor
+            is not positive.
     """
+    if not math.isfinite(sr_star):
+        raise ValueError("sr_star must be finite")
     sr, factor = _sharpe_and_variance_factor(returns)
     z = (sr - sr_star) * math.sqrt(len(returns) - 1) / math.sqrt(factor)
-    return float(norm.cdf(z))
+    return _finite_result(float(norm.cdf(z)), "probabilistic Sharpe ratio")
 
 
 def minimum_track_record_length(
@@ -158,15 +178,24 @@ def minimum_track_record_length(
         `1 + factor (z_{1-alpha} / (SR - sr_star))^2`, in periods.
 
     Raises:
-        ValueError: `alpha` outside `(0, 1)`, `SR` equal to `sr_star` (relative 1e-9, absolute
-            1e-12), or any condition of `probabilistic_sharpe_ratio`.
+        ValueError: `alpha` outside `(0, 1)`, or any input condition of
+            `probabilistic_sharpe_ratio`.
+        UndefinedResultError: `SR` equal to `sr_star` (relative 1e-9, absolute 1e-12), any
+            undefined case of `probabilistic_sharpe_ratio`, or a result that overflows float64.
     """
     if not 0.0 < alpha < 1.0:
         raise ValueError("alpha must lie strictly between 0 and 1")
+    if not math.isfinite(sr_star):
+        raise ValueError("sr_star must be finite")
     sr, factor = _sharpe_and_variance_factor(returns)
     if math.isclose(sr, sr_star, rel_tol=1e-9, abs_tol=1e-12):
-        raise ValueError("the Sharpe ratio equals sr_star; the track record length is undefined")
-    return 1.0 + factor * (float(norm.ppf(1.0 - alpha)) / (sr - sr_star)) ** 2
+        raise UndefinedResultError(
+            "the Sharpe ratio equals sr_star; the track record length is undefined"
+        )
+    return _finite_result(
+        1.0 + factor * (float(norm.ppf(1.0 - alpha)) / (sr - sr_star)) ** 2,
+        "minimum track record length",
+    )
 
 
 def expected_max_sharpe(
@@ -192,6 +221,8 @@ def expected_max_sharpe(
 
     Raises:
         ValueError: `n_trials < 2` or not finite, or `var_sharpe` negative or not finite.
+        UndefinedResultError: `n_trials` is so large (above about 1e16) that `1 - 1/N` rounds
+            to 1 in float64 and `Phi^-1(1 - 1/N)` is infinite.
     """
     if not (math.isfinite(n_trials) and n_trials >= 2.0):
         raise ValueError("n_trials must be at least 2")
@@ -199,7 +230,15 @@ def expected_max_sharpe(
         raise ValueError("var_sharpe must be a finite, non-negative value")
     z1 = float(norm.ppf(1.0 - 1.0 / n_trials))
     z2 = float(norm.ppf(1.0 - 1.0 / (n_trials * math.e)))
-    return math.sqrt(var_sharpe) * ((1.0 - euler_gamma) * z1 + euler_gamma * z2)
+    if not (math.isfinite(z1) and math.isfinite(z2)):
+        raise UndefinedResultError(
+            "n_trials is so large that 1 - 1/n_trials rounds to 1; the expected maximum Sharpe "
+            "ratio is not finite"
+        )
+    return _finite_result(
+        math.sqrt(var_sharpe) * ((1.0 - euler_gamma) * z1 + euler_gamma * z2),
+        "expected maximum Sharpe ratio",
+    )
 
 
 def deflated_sharpe_ratio(
@@ -229,8 +268,10 @@ def deflated_sharpe_ratio(
 
     Raises:
         ValueError: unknown `trial_variance`, empty or non-finite `family_sharpes`, non-finite
-            `n_effective`, `returns_best` shorter than 2 (`"no_skill"`), or any condition of
-            `probabilistic_sharpe_ratio` and `expected_max_sharpe`.
+            `n_effective` or `sr_star_override`, `returns_best` shorter than 2 (`"no_skill"`),
+            or any input condition of `probabilistic_sharpe_ratio` and `expected_max_sharpe`.
+        UndefinedResultError: any undefined case of `probabilistic_sharpe_ratio` (zero-range
+            `returns_best`, a non-positive variance factor) or of `expected_max_sharpe`.
     """
     if trial_variance not in ("family", "no_skill"):
         raise ValueError(f"trial_variance must be 'family' or 'no_skill', got {trial_variance!r}")

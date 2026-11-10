@@ -19,6 +19,7 @@ pytest.importorskip("empyrical")
 
 import empyrical
 
+from quantcore import UndefinedResultError
 from quantcore.performance.metrics import calmar_ratio
 
 pytestmark = pytest.mark.oracle
@@ -36,15 +37,19 @@ class TestCalmarRatioMatchesEmpyrical:
     def test_matches_with_default_cagr_method(self, seed: int) -> None:
         returns = _returns(500, seed, drift=0.0005)
         expected = empyrical.calmar_ratio(returns, period="daily")
-        actual = calmar_ratio(returns, periods_per_year=252)
         if np.isnan(expected):
-            # empyrical returns NaN when max_dd >= 0 (no drawdown); quantcore
-            # returns +inf for that case instead (documented, pre-existing
-            # convention, unrelated to this finding) -- not comparable
-            # directly, so just check quantcore's own invariant here.
-            assert np.isinf(actual)
+            # empyrical returns NaN when there is no drawdown; quantcore raises
+            # UndefinedResultError for the same case.
+            with pytest.raises(UndefinedResultError):
+                calmar_ratio(returns, periods_per_year=252)
         else:
-            assert actual == pytest.approx(expected, rel=1e-6)
+            assert calmar_ratio(returns, periods_per_year=252) == pytest.approx(expected, rel=1e-6)
+
+    def test_no_drawdown_is_undefined_on_both_sides(self) -> None:
+        returns = np.abs(_returns(50, RNG_SEED))
+        assert np.isnan(empyrical.calmar_ratio(returns, period="daily"))
+        with pytest.raises(UndefinedResultError):
+            calmar_ratio(returns, periods_per_year=252)
 
     def test_arithmetic_method_does_not_match_empyrical(self) -> None:
         # Demonstrates the fix: the old default (arithmetic) does NOT match

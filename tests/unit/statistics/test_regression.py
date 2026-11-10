@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.statistics.regression import (
     factor_loadings,
     fama_macbeth_regression,
@@ -61,6 +62,31 @@ class TestOls:
         y = np.zeros(3)
         _, _, r_squared = ols(y, x)
         assert np.isnan(r_squared)
+
+    @pytest.mark.parametrize("value", [0.0, 0.01, 0.002, 3.7, -146.7])
+    def test_zero_range_y_with_intercept_gives_nan_r_squared(self, value: float) -> None:
+        # 0.01 and 0.002 leave rounding residue after demeaning; the range
+        # test still sees them as constant.
+        x = np.linspace(-1.0, 2.0, 50)
+        X = np.column_stack([np.ones_like(x), x])
+        coefficients, _, r_squared = ols(np.full(50, value), X)
+        assert np.isnan(r_squared)
+        assert coefficients[0] == pytest.approx(value, abs=1e-12)
+
+    def test_constant_non_zero_y_without_intercept_is_defined(self) -> None:
+        # Uncentered R^2 measures fit against the origin: a non-zero
+        # constant has a positive denominator.
+        x = np.column_stack([np.linspace(1.0, 2.0, 20), np.linspace(-1.0, 3.0, 20) ** 2])
+        _, _, r_squared = ols(np.full(20, 0.01), x)
+        assert np.isfinite(r_squared) and 0.0 <= r_squared <= 1.0
+
+    def test_one_value_off_a_constant_y_is_defined(self) -> None:
+        x = np.linspace(-1.0, 2.0, 50)
+        X = np.column_stack([np.ones_like(x), x])
+        y = np.full(50, 0.01)
+        y[10] = 0.011
+        _, _, r_squared = ols(y, X)
+        assert np.isfinite(r_squared)
 
     def test_uncentered_r_squared_without_intercept_column(self) -> None:
         rng = np.random.default_rng(RNG_SEED)
@@ -176,6 +202,33 @@ class TestFactorLoadings:
         assert result.p_values[2] < 0.01
         assert result.p_values[0] > 0.05
 
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    def test_zero_range_returns_give_nan_r_squared_t_stats_and_p_values(self, value: float) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        factors = rng.normal(scale=0.01, size=(120, 2))
+        result = factor_loadings(np.full(120, value), factors)
+        assert np.isnan(result.r_squared)
+        assert np.all(np.isnan(result.t_stats))
+        assert np.all(np.isnan(result.p_values))
+        assert result.loadings[0] == pytest.approx(value, abs=1e-12)
+        np.testing.assert_allclose(result.loadings[1:], 0.0, atol=1e-10)
+        assert np.all(np.isfinite(result.standard_errors))
+
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    def test_zero_range_factor_column_raises_naming_it(self, value: float) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        factors = rng.normal(scale=0.01, size=(120, 3))
+        factors[:, 1] = value
+        returns = rng.normal(scale=0.01, size=120)
+        with pytest.raises(UndefinedResultError, match=r"factor column\(s\) \[1\]") as excinfo:
+            factor_loadings(returns, factors)
+        assert isinstance(excinfo.value, ValueError)
+
+    def test_zero_range_one_dimensional_factor_raises(self) -> None:
+        returns = np.random.default_rng(RNG_SEED).normal(size=50)
+        with pytest.raises(UndefinedResultError, match=r"\[0\]"):
+            factor_loadings(returns, np.full(50, 0.01))
+
     def test_default_n_lags_nw_matches_newey_west_optimal_lags(self) -> None:
         rng = np.random.default_rng(RNG_SEED)
         T = 300
@@ -251,3 +304,43 @@ class TestFamaMacbethRegression:
         _, t_plain = fama_macbeth_regression(returns, betas)
         _, t_nw0 = fama_macbeth_regression(returns, betas, n_lags_nw=0)
         np.testing.assert_allclose(t_plain, t_nw0, rtol=0.05)
+
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    def test_all_zero_beta_column_raises_naming_it(self, value: float) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        betas = rng.normal(size=(15, 3))
+        betas[:, 2] = 0.0
+        returns = np.full((40, 15), value) + rng.normal(scale=0.01, size=(40, 15))
+        with pytest.raises(UndefinedResultError, match=r"beta column\(s\) \[2\]") as excinfo:
+            fama_macbeth_regression(returns, betas)
+        assert isinstance(excinfo.value, ValueError)
+
+    @pytest.mark.parametrize("n_lags_nw", [None, 2])
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    def test_constant_returns_give_nan_t_stats(self, value: float, n_lags_nw: int | None) -> None:
+        # Every period has the same cross-section, so lambda_t is the same
+        # in every period: the mean is defined, its t-statistic is not.
+        betas = np.random.default_rng(RNG_SEED).normal(size=(15, 2))
+        mean_risk_premia, t_stats = fama_macbeth_regression(
+            np.full((40, 15), value), betas, n_lags_nw=n_lags_nw
+        )
+        assert np.all(np.isfinite(mean_risk_premia))
+        assert np.all(np.isnan(t_stats))
+
+    def test_repeated_cross_section_gives_nan_t_stats(self) -> None:
+        rng = np.random.default_rng(RNG_SEED)
+        betas = rng.normal(size=(15, 2))
+        returns = np.tile(rng.normal(scale=0.01, size=15), (30, 1))
+        mean_risk_premia, t_stats = fama_macbeth_regression(returns, betas)
+        assert np.all(np.isfinite(mean_risk_premia))
+        assert np.all(np.isnan(t_stats))
+
+    def test_constant_cross_section_each_period_is_defined(self) -> None:
+        # A constant non-zero beta column acts as the intercept; a period
+        # whose returns are equal across assets loads only on it.
+        rng = np.random.default_rng(RNG_SEED)
+        betas = np.column_stack([np.ones(15), rng.normal(size=15)])
+        returns = rng.normal(scale=0.01, size=(40, 1)) * np.ones((1, 15))
+        returns += rng.normal(scale=0.001, size=(40, 15))
+        mean_risk_premia, t_stats = fama_macbeth_regression(returns, betas)
+        assert np.all(np.isfinite(mean_risk_premia)) and np.all(np.isfinite(t_stats))

@@ -9,6 +9,7 @@ from fractions import Fraction
 import numpy as np
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.statistics import arch_lm_test, jarque_bera_test, kpss_test
 
 RNG_SEED = 12345
@@ -99,8 +100,9 @@ class TestJarqueBeraTest:
         # The mean of np.full(252, 0.07) is not exactly 0.07, so its
         # deviations are rounding residue rather than zeros; the series is
         # constant all the same.
-        with pytest.raises(ValueError, match="constant"):
+        with pytest.raises(UndefinedResultError, match="constant") as raised:
             jarque_bera_test(series)
+        assert isinstance(raised.value, ValueError)
 
     def test_too_few_observations_raises(self) -> None:
         with pytest.raises(ValueError, match="at least 2"):
@@ -196,8 +198,9 @@ class TestArchLmTest:
         ],
     )
     def test_constant_squared_residuals_raise(self, residuals: np.ndarray) -> None:
-        with pytest.raises(ValueError, match="constant"):
+        with pytest.raises(UndefinedResultError, match="constant") as raised:
             arch_lm_test(residuals, n_lags=1)
+        assert isinstance(raised.value, ValueError)
 
     def test_non_positive_lag_count_raises(self) -> None:
         with pytest.raises(ValueError, match="n_lags"):
@@ -416,8 +419,9 @@ class TestKpssTest:
     def test_constant_series_raises(self, series: np.ndarray, trend: str) -> None:
         # The mean of np.full(252, 0.07) is not exactly 0.07, so its
         # residuals are rounding residue rather than zeros.
-        with pytest.raises(ValueError, match="rounding error"):
+        with pytest.raises(UndefinedResultError, match="rounding error") as raised:
             kpss_test(series, trend=trend)
+        assert isinstance(raised.value, ValueError)
 
     @pytest.mark.parametrize(
         "series",
@@ -430,7 +434,7 @@ class TestKpssTest:
         ],
     )
     def test_exactly_linear_series_raises_for_trend_stationarity(self, series: np.ndarray) -> None:
-        with pytest.raises(ValueError, match="rounding error"):
+        with pytest.raises(UndefinedResultError, match="rounding error"):
             kpss_test(series, trend="ct")
         # About a level it is an ordinary trending series with a statistic.
         statistic, _, _ = kpss_test(series, trend="c")
@@ -442,7 +446,7 @@ class TestKpssTest:
         # The guard is a tolerance relative to the variance, so the outcome does
         # not depend on whether the sum rounds to 0 or to 1e-17.
         series = np.array([2.0, 1.0, 3.0])
-        with pytest.raises(ValueError, match="n_lags"):
+        with pytest.raises(UndefinedResultError, match="n_lags"):
             kpss_test(series)
         statistic, _, _ = kpss_test(series, n_lags=0)
         assert statistic == pytest.approx((1.0 / 9.0) / (2.0 / 3.0), rel=1e-12)

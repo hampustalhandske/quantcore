@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.execution.financing import (
     margin_financing_cost,
     short_borrow_cost,
@@ -61,3 +64,22 @@ class TestMarginFinancingCost:
     ) -> None:
         with pytest.raises(ValueError):
             margin_financing_cost(notional, financing_rate_annual, days_held)
+
+
+@pytest.mark.parametrize("cost", [short_borrow_cost, margin_financing_cost])
+class TestUndefinedAndNonFinite:
+    @pytest.mark.parametrize(
+        "args", [(math.nan, 0.02, 10), (1e6, math.inf, 10), (math.inf, 0.02, 10)]
+    )
+    def test_non_finite_inputs_are_plain_value_errors(self, cost, args) -> None:
+        with pytest.raises(ValueError, match="must be finite") as raised:
+            cost(*args)
+        assert not isinstance(raised.value, UndefinedResultError)
+
+    def test_overflowing_cost_raises_undefined(self, cost) -> None:
+        with pytest.raises(UndefinedResultError, match="not finite") as raised:
+            cost(1e308, 1e10, 365)
+        assert isinstance(raised.value, ValueError)
+
+    def test_zero_cost_is_defined(self, cost) -> None:
+        assert cost(0.0, 0.02, 10) == 0.0

@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.performance import (
     common_sense_ratio,
     cpc_index,
@@ -86,7 +87,12 @@ class TestInputContract:
 
     @pytest.mark.parametrize("ratio", ACCEPTS_ONE_OBSERVATION)
     def test_single_observation_is_accepted_elsewhere(self, ratio: Ratio) -> None:
-        assert isinstance(ratio(np.array([-0.01])), float)
+        # One observation passes validation; the ratio is then a float or undefined (the CPC
+        # index needs a win and a loss, the outlier win ratio a non-negative return).
+        try:
+            assert isinstance(ratio(np.array([-0.01])), float)
+        except UndefinedResultError:
+            assert ratio in (cpc_index, outlier_win_ratio)
 
     @pytest.mark.parametrize("ratio", ALL_RATIOS)
     def test_result_is_a_python_float(self, ratio: Ratio) -> None:
@@ -145,9 +151,17 @@ class TestUlcerPerformanceIndex:
             total_return / ulcer_index(returns), rel=1e-12
         )
 
-    def test_never_under_water_is_inf(self) -> None:
-        assert ulcer_performance_index(ALL_POSITIVE) == math.inf
-        assert ulcer_performance_index(ALL_ZERO) == math.inf
+    @pytest.mark.parametrize("returns", [ALL_POSITIVE, ALL_ZERO, np.full(5, 0.002)])
+    def test_never_under_water_raises_undefined(self, returns: npt.NDArray[np.float64]) -> None:
+        with pytest.raises(UndefinedResultError, match="Ulcer Index is 0") as raised:
+            ulcer_performance_index(returns)
+        assert isinstance(raised.value, ValueError)
+
+    def test_one_small_drawdown_is_defined(self) -> None:
+        returns = np.array([0.01, -0.001, 0.02])
+        expected = (float(np.prod(1.0 + returns)) - 1.0) / ulcer_index(returns)
+        assert ulcer_performance_index(returns) == pytest.approx(expected, rel=1e-12)
+        assert ulcer_index(returns) == pytest.approx(math.sqrt(0.001**2 / 2.0), rel=1e-9)
 
     def test_total_loss(self) -> None:
         assert ulcer_performance_index(np.array([0.05, -1.0, 0.02, 0.03])) == pytest.approx(
@@ -187,23 +201,32 @@ class TestSerenityIndex:
         # Sum 0.0 but compounded return -0.25: the index is 0, not negative.
         assert serenity_index(np.array([0.5, -0.5])) == 0.0
 
-    def test_never_under_water_is_nan(self) -> None:
-        assert math.isnan(serenity_index(ALL_POSITIVE))
-        assert math.isnan(serenity_index(ALL_ZERO))
+    def test_never_under_water_raises_undefined(self) -> None:
+        with pytest.raises(UndefinedResultError, match="drawdown series has zero range"):
+            serenity_index(ALL_POSITIVE)
+        with pytest.raises(UndefinedResultError, match="returns have zero range"):
+            serenity_index(ALL_ZERO)
 
-    def test_constant_returns_are_nan(self) -> None:
-        assert math.isnan(serenity_index(np.full(30, -0.01)))
-        assert math.isnan(serenity_index(np.full(252, 0.07)))
+    @pytest.mark.parametrize(
+        "returns", [np.full(30, -0.01), np.full(252, 0.07), np.full(12, 0.002)]
+    )
+    def test_constant_returns_raise_undefined(self, returns: npt.NDArray[np.float64]) -> None:
+        with pytest.raises(UndefinedResultError, match="returns have zero range") as raised:
+            serenity_index(returns)
+        assert isinstance(raised.value, ValueError)
 
-    def test_constant_drawdown_is_nan(self) -> None:
-        assert math.isnan(serenity_index(ONE_LOSS_THEN_FLAT))
+    def test_constant_drawdown_raises_undefined(self) -> None:
+        with pytest.raises(UndefinedResultError, match="drawdown series has zero range"):
+            serenity_index(ONE_LOSS_THEN_FLAT)
 
-    def test_zero_denominator_from_an_overflowing_volatility_is_nan(self) -> None:
+    def test_zero_denominator_from_an_overflowing_volatility_raises_undefined(self) -> None:
         # The squared deviations of these returns exceed the float64 range, so the volatility is
         # infinite, the pitfall is zero, and so is its product with the Ulcer Index.
-        with pytest.warns(RuntimeWarning, match="overflow"):
-            value = serenity_index(np.array([-2.3e-16, 1e300]))
-        assert math.isnan(value)
+        with (
+            pytest.warns(RuntimeWarning, match="overflow"),
+            pytest.raises(UndefinedResultError, match="overflows"),
+        ):
+            serenity_index(np.array([-2.3e-16, 1e300]))
 
     def test_all_negative_is_finite_and_negative(self) -> None:
         value = serenity_index(ALL_NEGATIVE)
@@ -220,9 +243,14 @@ class TestGainToPainRatio:
         returns = np.random.default_rng(7).normal(0.001, 0.02, 500)
         assert gain_to_pain_ratio(returns) == pytest.approx(profit_factor(returns) - 1.0, rel=1e-12)
 
-    def test_no_losses_is_inf(self) -> None:
-        assert gain_to_pain_ratio(ALL_POSITIVE) == math.inf
-        assert gain_to_pain_ratio(ALL_ZERO) == math.inf
+    @pytest.mark.parametrize("returns", [ALL_POSITIVE, ALL_ZERO])
+    def test_no_losses_raises_undefined(self, returns: npt.NDArray[np.float64]) -> None:
+        with pytest.raises(UndefinedResultError, match="no negative return") as raised:
+            gain_to_pain_ratio(returns)
+        assert isinstance(raised.value, ValueError)
+
+    def test_single_loss_is_defined(self) -> None:
+        assert gain_to_pain_ratio(np.array([0.0, 0.03, -0.01])) == pytest.approx(2.0, rel=1e-12)
 
     def test_no_gains_is_minus_one(self) -> None:
         assert gain_to_pain_ratio(ALL_NEGATIVE) == pytest.approx(-1.0, rel=1e-12)
@@ -233,16 +261,30 @@ class TestCommonSenseRatio:
         assert common_sense_ratio(UP_THEN_DOWN) == pytest.approx(1.0, rel=1e-12)
         assert common_sense_ratio(MIXED) == pytest.approx(2.8 * 1.2 / 0.4375, rel=1e-12)
 
-    def test_no_losses_with_positive_lower_tail_is_inf(self) -> None:
-        assert common_sense_ratio(ALL_POSITIVE) == math.inf
+    def test_no_losses_with_positive_lower_tail_raises_undefined(self) -> None:
+        with pytest.raises(UndefinedResultError, match="no negative return") as raised:
+            common_sense_ratio(ALL_POSITIVE)
+        assert isinstance(raised.value, ValueError)
 
     def test_no_gains_is_zero(self) -> None:
         assert common_sense_ratio(ALL_NEGATIVE) == 0.0
 
-    def test_zero_lower_tail_quantile_is_nan(self) -> None:
-        assert math.isnan(common_sense_ratio(ALL_ZERO))
-        assert math.isnan(common_sense_ratio(ONE_LOSS_THEN_FLAT))
-        assert math.isnan(common_sense_ratio(np.concatenate(([0.05], np.zeros(39)))))
+    @pytest.mark.parametrize(
+        "returns",
+        [ALL_ZERO, ONE_LOSS_THEN_FLAT, np.concatenate(([0.05], np.zeros(39)))],
+        ids=["zeros", "one_loss", "one_gain"],
+    )
+    def test_zero_lower_tail_quantile_raises_undefined(
+        self, returns: npt.NDArray[np.float64]
+    ) -> None:
+        with pytest.raises(UndefinedResultError, match="5% quantile"):
+            common_sense_ratio(returns)
+
+    def test_single_loss_with_a_nonzero_lower_tail_is_defined(self) -> None:
+        # Sorted -0.01, 0.01, 0.02, 0.03: Q(0.05) = -0.01 + 0.15 * 0.02 = -0.007,
+        # Q(0.95) = 0.02 + 0.85 * 0.01 = 0.0285; profit factor 0.06 / 0.01.
+        returns = np.array([0.01, 0.02, 0.03, -0.01])
+        assert common_sense_ratio(returns) == pytest.approx(6.0 * 0.0285 / 0.007, rel=1e-12)
 
 
 class TestCpcIndex:
@@ -254,10 +296,11 @@ class TestCpcIndex:
         with_flat_periods = np.array([0.2, 0.0, -0.5, 1.5, 0.0, -0.25, 0.1, 0.3, 0.0])
         assert cpc_index(with_flat_periods) == pytest.approx(cpc_index(MIXED), rel=1e-12)
 
-    def test_no_wins_or_no_losses_is_nan(self) -> None:
-        assert math.isnan(cpc_index(ALL_POSITIVE))
-        assert math.isnan(cpc_index(ALL_NEGATIVE))
-        assert math.isnan(cpc_index(ALL_ZERO))
+    @pytest.mark.parametrize("returns", [ALL_POSITIVE, ALL_NEGATIVE, ALL_ZERO])
+    def test_no_wins_or_no_losses_raises_undefined(self, returns: npt.NDArray[np.float64]) -> None:
+        with pytest.raises(UndefinedResultError, match="positive and one negative") as raised:
+            cpc_index(returns)
+        assert isinstance(raised.value, ValueError)
 
 
 class TestOutlierWinRatio:
@@ -269,12 +312,21 @@ class TestOutlierWinRatio:
         # Sorted 0, 0, 0.1, 0.3: Q(0.99) = 0.1 + 0.97 * 0.2 = 0.294; mean of the four is 0.1.
         assert outlier_win_ratio(np.array([0.1, 0.0, 0.3, 0.0])) == pytest.approx(2.94, rel=1e-12)
 
-    def test_no_non_negative_return_is_nan(self) -> None:
-        assert math.isnan(outlier_win_ratio(ALL_NEGATIVE))
+    def test_no_non_negative_return_raises_undefined(self) -> None:
+        with pytest.raises(UndefinedResultError, match="no return is non-negative") as raised:
+            outlier_win_ratio(ALL_NEGATIVE)
+        assert isinstance(raised.value, ValueError)
 
-    def test_zero_mean_of_non_negative_returns_is_nan(self) -> None:
-        assert math.isnan(outlier_win_ratio(ALL_ZERO))
-        assert math.isnan(outlier_win_ratio(np.array([0.0, -0.01, 0.0])))
+    @pytest.mark.parametrize("returns", [ALL_ZERO, np.array([0.0, -0.01, 0.0])])
+    def test_zero_mean_of_non_negative_returns_raises_undefined(
+        self, returns: npt.NDArray[np.float64]
+    ) -> None:
+        with pytest.raises(UndefinedResultError, match="non-negative returns are all 0"):
+            outlier_win_ratio(returns)
+
+    def test_single_positive_return_is_defined(self) -> None:
+        # Sorted -0.01, 0.0, 0.02: Q(0.99) = 0.0 + 0.98 * 0.02 = 0.0196; mean of 0.0, 0.02 is 0.01.
+        assert outlier_win_ratio(np.array([0.0, -0.01, 0.02])) == pytest.approx(1.96, rel=1e-12)
 
 
 class TestOutlierLossRatio:
@@ -282,9 +334,11 @@ class TestOutlierLossRatio:
         assert outlier_loss_ratio(UP_THEN_DOWN) == pytest.approx(0.98, rel=1e-12)
         assert outlier_loss_ratio(MIXED) == pytest.approx(-0.4875 / -0.375, rel=1e-12)
 
-    def test_no_losses_is_nan(self) -> None:
-        assert math.isnan(outlier_loss_ratio(ALL_POSITIVE))
-        assert math.isnan(outlier_loss_ratio(ALL_ZERO))
+    @pytest.mark.parametrize("returns", [ALL_POSITIVE, ALL_ZERO])
+    def test_no_losses_raises_undefined(self, returns: npt.NDArray[np.float64]) -> None:
+        with pytest.raises(UndefinedResultError, match="no negative return") as raised:
+            outlier_loss_ratio(returns)
+        assert isinstance(raised.value, ValueError)
 
     def test_non_negative_lower_quantile_is_not_positive(self) -> None:
         # One loss among 39 flat periods: Q(0.01) = -0.05 * (1 - 0.39) = -0.0305 over a mean loss

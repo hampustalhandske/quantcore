@@ -6,6 +6,7 @@ import math
 
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.execution.market_impact import square_root_market_impact
 
 
@@ -61,3 +62,19 @@ class TestSquareRootMarketImpact:
     ) -> None:
         with pytest.raises(ValueError):
             square_root_market_impact(trade_size, adv, daily_vol, impact_coefficient)
+
+
+class TestUndefinedAndNonFinite:
+    @pytest.mark.parametrize(
+        "args",
+        [(math.nan, 1e6, 0.02, 1.0), (1e3, math.inf, 0.02, 1.0), (1e3, 1e6, math.nan, 1.0)],
+    )
+    def test_non_finite_inputs_are_plain_value_errors(self, args) -> None:
+        with pytest.raises(ValueError, match="must be finite") as raised:
+            square_root_market_impact(*args)
+        assert not isinstance(raised.value, UndefinedResultError)
+
+    def test_overflowing_impact_raises_undefined(self) -> None:
+        with pytest.raises(UndefinedResultError, match="not finite") as raised:
+            square_root_market_impact(1e300, 1e-300, 1e300, 1e300)
+        assert isinstance(raised.value, ValueError)

@@ -21,7 +21,8 @@ OU half-life (Avellaneda & Lee 2010):
     level-form AR(1) coefficient: phi = 1 + a
     half_life = -ln(2) / ln(phi), with ln(phi) computed as log1p(a)
     The slope is the OLS slope in centred form, which keeps its accuracy when the level is far
-    from 0. A slope that is not negative by more than its rounding error raises ValueError.
+    from 0. A slope that is not negative by more than its rounding error raises
+    `quantcore.UndefinedResultError` (a `ValueError`): the half-life is then undefined.
 
 Z-score (rolling):
     z_t = (spread_t - rolling_mean_t) / rolling_std_t
@@ -45,6 +46,8 @@ import math
 
 import numpy as np
 import numpy.typing as npt
+
+from quantcore.errors import UndefinedResultError, _finite_result
 
 # ---------------------------------------------------------------------------
 # ADF unit-root test
@@ -113,6 +116,12 @@ def adf_test(
         "ct"; the "n" surface has no upper limit). Guard against 0.0
         before taking its logarithm or dividing by it.
 
+    Raises:
+        ValueError: `series` is empty or shorter than `max_lags + 5`, `max_lags` is negative,
+            or `trend` or `autolag` is not one of the documented values.
+        UndefinedResultError: `series` has zero range (`np.ptp == 0`), checked before
+            statsmodels runs; or the statistic or its p-value is not finite.
+
     References:
         Dickey, D.A. and Fuller, W.A. (1979). "Distribution of the
         Estimators for Autoregressive Time Series with a Unit Root."
@@ -123,6 +132,8 @@ def adf_test(
         See docs/REFERENCES.md.
     """
     _validate_adf_inputs(series, max_lags, trend, autolag)
+    if np.ptp(series) == 0.0:
+        raise UndefinedResultError("series has zero range; the ADF statistic is undefined")
     return _adf_test(series, max_lags, trend, autolag)
 
 
@@ -141,7 +152,9 @@ def _adf_test(
         result_object=False,
     )
     if not (np.isfinite(statistic) and np.isfinite(p_value)):
-        raise ValueError("the ADF statistic is undefined for this series (it may be constant)")
+        raise UndefinedResultError(
+            "the ADF statistic is undefined for this series (it may be constant)"
+        )
     return float(statistic), float(p_value)
 
 
@@ -186,8 +199,20 @@ def engle_granger_test(
         MacKinnon's tabulated range. Both conventions match
         `statsmodels.tsa.stattools.coint(y, x, trend="c", maxlag=1,
         autolag=None)`, which computes them.
+
+    Raises:
+        ValueError: `y` or `x` is empty, they differ in length, or they have fewer than 10
+            observations.
+        UndefinedResultError: `y` or `x` has zero range (`np.ptp == 0`), checked before
+            statsmodels runs; or the statistic or its p-value is not finite, as for constant
+            residuals.
     """
     _validate_engle_granger_inputs(y, x)
+    for name, series in (("y", y), ("x", x)):
+        if np.ptp(series) == 0.0:
+            raise UndefinedResultError(
+                f"{name} has zero range; the Engle-Granger statistic is undefined"
+            )
     return _engle_granger_test(y, x)
 
 
@@ -211,7 +236,7 @@ def _engle_granger_test(
         return_results=None,
     )
     if not (np.isfinite(statistic) and np.isfinite(p_value)):
-        raise ValueError("the Engle-Granger statistic is undefined for these series")
+        raise UndefinedResultError("the Engle-Granger statistic is undefined for these series")
     return beta, float(statistic), float(p_value)
 
 
@@ -225,6 +250,8 @@ def _validate_ou_half_life_inputs(spread: npt.NDArray[np.float64]) -> None:
         raise ValueError("spread must be non-empty")
     if spread.size < 5:
         raise ValueError("spread must have at least 5 observations")
+    if not np.all(np.isfinite(spread)):
+        raise ValueError("spread must contain only finite values")
 
 
 def ou_half_life(spread: npt.NDArray[np.float64]) -> float:
@@ -237,14 +264,15 @@ def ou_half_life(spread: npt.NDArray[np.float64]) -> float:
         Half-life of mean reversion, in the same time units as `spread`.
 
     Raises:
-        ValueError: If the fitted slope `a` does not show mean reversion: `a >= 0`, or
+        ValueError: `spread` has fewer than 5 observations or contains NaN or infinity.
+        UndefinedResultError: The fitted slope `a` does not show mean reversion: `a >= 0`, or
             `1 + a <= 0`, or the slope is not negative by more than its rounding error. The
             last case covers a series whose slope is exactly 0 in exact arithmetic, such as a
             straight line, where the computed slope is rounding noise of either sign. It also
             covers a series whose level does not vary before the last observation.
     """
     _validate_ou_half_life_inputs(spread)
-    return _ou_half_life(spread)
+    return _finite_result(_ou_half_life(spread), "OU half-life")
 
 
 def _centred_slope(
@@ -280,7 +308,9 @@ def _ou_half_life(spread: npt.NDArray[np.float64]) -> float:
     level = spread[:-1]
     fitted = _centred_slope(level, delta)
     if fitted is None or not fitted[0] < -fitted[1] or not 1.0 + fitted[0] > 0.0:
-        raise ValueError("estimated series does not exhibit mean reversion (phi >= 0, diverging)")
+        raise UndefinedResultError(
+            "estimated series does not exhibit mean reversion (phi >= 0, diverging)"
+        )
     return -math.log(2.0) / math.log1p(fitted[0])
 
 

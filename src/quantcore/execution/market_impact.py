@@ -13,11 +13,16 @@ References:
     Transactions," Journal of Risk, 3, 5-40. Gatheral, J. (2010),
     "No-Dynamic-Arbitrage and Market Impact," Quantitative Finance, 10(7),
     749-759. See docs/REFERENCES.md.
+
+Every input must be finite; an impact that overflows float64 raises
+`quantcore.UndefinedResultError` (a `ValueError`).
 """
 
 from __future__ import annotations
 
 import math
+
+from quantcore.errors import _finite_result
 
 
 def _validate_square_root_market_impact(
@@ -26,6 +31,14 @@ def _validate_square_root_market_impact(
     daily_vol: float,
     impact_coefficient: float,
 ) -> None:
+    for name, value in (
+        ("trade_size", trade_size),
+        ("adv", adv),
+        ("daily_vol", daily_vol),
+        ("impact_coefficient", impact_coefficient),
+    ):
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
     if adv <= 0.0:
         raise ValueError("adv must be strictly positive")
     if daily_vol < 0.0:
@@ -59,9 +72,17 @@ def square_root_market_impact(
 
     Returns:
         Estimated temporary market impact magnitude, in basis points.
+
+    Raises:
+        ValueError: An input is not finite, `adv` is not strictly positive, or `daily_vol` or
+            `impact_coefficient` is negative.
+        UndefinedResultError: The impact overflows float64.
     """
     _validate_square_root_market_impact(trade_size, adv, daily_vol, impact_coefficient)
-    return _square_root_market_impact(trade_size, adv, daily_vol, impact_coefficient)
+    return _finite_result(
+        _square_root_market_impact(trade_size, adv, daily_vol, impact_coefficient),
+        "square-root market impact",
+    )
 
 
 def _square_root_market_impact(

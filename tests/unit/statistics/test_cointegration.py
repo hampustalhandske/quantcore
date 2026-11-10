@@ -8,6 +8,7 @@ from fractions import Fraction
 import numpy as np
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.statistics.cointegration import (
     adf_test,
     engle_granger_test,
@@ -33,7 +34,6 @@ def _stationary_ar1(n: int, phi: float, seed: int = RNG_SEED) -> np.ndarray:
     return series
 
 
-
 def _exact_ols_slope(level: np.ndarray, delta: np.ndarray) -> float:
     """The OLS slope of `delta` on `level` with an intercept, exact, rounded once to float."""
     xs = [Fraction(v) for v in level.tolist()]
@@ -43,6 +43,7 @@ def _exact_ols_slope(level: np.ndarray, delta: np.ndarray) -> float:
     sxy = sum(x * y for x, y in zip(xs, ys, strict=True))
     sxx = sum(x * x for x in xs)
     return float((n * sxy - sx * sy) / (n * sxx - sx * sx))
+
 
 class TestAdfTest:
     def test_invalid_inputs(self) -> None:
@@ -167,9 +168,18 @@ class TestStatsmodelsConventions:
             "return_results": None,
         }
 
-    def test_constant_series_raises(self) -> None:
-        with pytest.raises(ValueError):
-            adf_test(np.ones(50))
+    @pytest.mark.parametrize("value", [0.0, 0.01, 1.0, 3.7])
+    @pytest.mark.parametrize("trend", ["n", "c", "ct"])
+    def test_constant_series_raises_undefined(self, value: float, trend: str) -> None:
+        with pytest.raises(UndefinedResultError, match="series has zero range") as raised:
+            adf_test(np.full(50, value), trend=trend)
+        assert isinstance(raised.value, ValueError)
+
+    def test_one_value_off_a_constant_is_defined(self) -> None:
+        series = np.full(50, 0.01)
+        series[25] = 0.011
+        stat, pvalue = adf_test(series, max_lags=1)
+        assert math.isfinite(stat) and 0.0 <= pvalue <= 1.0
 
 
 class TestEngleGrangerTest:
@@ -178,6 +188,18 @@ class TestEngleGrangerTest:
             engle_granger_test(np.array([]), np.array([]))
         with pytest.raises(ValueError):
             engle_granger_test(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0]))
+
+    @pytest.mark.parametrize("value", [0.0, 0.01, 3.7])
+    @pytest.mark.parametrize("constant", ["y", "x"])
+    def test_zero_range_series_raises_naming_it(self, constant: str, value: float) -> None:
+        # Without the range check a constant y gave a p-value of about 0.80
+        # and a constant x one of about 0.95.
+        varying = _random_walk(200, seed=RNG_SEED)
+        flat = np.full(200, value)
+        y, x = (flat, varying) if constant == "y" else (varying, flat)
+        with pytest.raises(UndefinedResultError, match=f"^{constant} has zero range") as raised:
+            engle_granger_test(y, x)
+        assert isinstance(raised.value, ValueError)
 
     def test_cointegrated_series_rejects_no_cointegration(self) -> None:
         x = _random_walk(500, seed=RNG_SEED)
@@ -236,8 +258,25 @@ class TestOuHalfLife:
             ou_half_life(np.array([]))
         # Each step adds 5% of the level: the AR(1) slope on the level is +0.05.
         diverging = 1.05 ** np.arange(50.0)
-        with pytest.raises(ValueError):
+        with pytest.raises(UndefinedResultError, match="mean reversion"):
             ou_half_life(diverging)
+
+    def test_non_finite_spread_is_a_plain_value_error(self) -> None:
+        with pytest.raises(ValueError, match="finite") as raised:
+            ou_half_life(np.array([1.0, 0.5, np.nan, 0.2, 0.1]))
+        assert not isinstance(raised.value, UndefinedResultError)
+
+    @pytest.mark.parametrize(
+        "spread", [np.zeros(10), np.full(10, 0.002)], ids=["zeros", "constant_0.002"]
+    )
+    def test_constant_spread_raises_undefined(self, spread: np.ndarray) -> None:
+        with pytest.raises(UndefinedResultError, match="mean reversion") as raised:
+            ou_half_life(spread)
+        assert isinstance(raised.value, ValueError)
+
+    def test_halving_spread_is_defined(self) -> None:
+        # Each step halves the level exactly: centred slope -0.5, phi 0.5, half-life 1.
+        assert ou_half_life(0.5 ** np.arange(10.0)) == pytest.approx(1.0, rel=1e-12)
 
     def test_fast_mean_reverting_series_gives_short_half_life(self) -> None:
         # spread_t = phi * spread_{t-1} + noise is the level-form AR(1); the
@@ -257,11 +296,11 @@ class TestOuHalfLife:
         # A straight line has slope exactly 0 on its level. The computed slope is rounding
         # noise of either sign, and a negative noise must not pass as mean reversion.
         line = offset + sign * step * np.arange(float(n))
-        with pytest.raises(ValueError, match="mean reversion"):
+        with pytest.raises(UndefinedResultError, match="mean reversion"):
             ou_half_life(line)
 
     def test_level_constant_before_the_last_observation_raises(self) -> None:
-        with pytest.raises(ValueError, match="mean reversion"):
+        with pytest.raises(UndefinedResultError, match="mean reversion"):
             ou_half_life(np.array([1.0, 1.0, 1.0, 1.0, 2.0]))
 
     @pytest.mark.parametrize("offset", [0.0, 1e2, 1e4])

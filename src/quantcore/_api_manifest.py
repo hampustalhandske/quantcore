@@ -81,6 +81,10 @@ def describe_module_source(source: str) -> dict[str, Any]:
 def describe_package_source(source: str, package: str) -> dict[str, Any]:
     """The names a package's `__init__` lists in `__all__`, each with the module it comes from.
 
+    The root package `quantcore` also lists `__version__`, a string it reads from the installed
+    distribution's metadata; it is recorded under `names` as a value of kind `str`, beside the
+    imported names under `exports`.
+
     Raises:
         ValueError: A name in `__all__` is not imported by a `from ... import` in the source.
     """
@@ -96,10 +100,17 @@ def describe_package_source(source: str, package: str) -> dict[str, Any]:
             isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
         ):
             exported = list(ast.literal_eval(node.value))
+    values: dict[str, Any] = {}
+    if package == "quantcore" and "__version__" in exported:
+        exported.remove("__version__")
+        values["__version__"] = {"kind": "value", "value": "str"}
     missing = sorted(set(exported) - set(origin))
     if missing:
         raise ValueError(f"{package}: __all__ names not imported from a module: {missing}")
-    return {"exports": {name: origin[name] for name in sorted(exported)}}
+    description: dict[str, Any] = {"exports": {name: origin[name] for name in sorted(exported)}}
+    if values:
+        description["names"] = values
+    return description
 
 
 def _module_files() -> dict[str, Path]:
@@ -125,10 +136,7 @@ def build_manifest(version: str) -> dict[str, Any]:
     modules: dict[str, Any] = {}
     for name, path in _module_files().items():
         source = path.read_text(encoding="utf-8")
-        if name == "quantcore":
-            # The root package exports only `__version__`, read from the installed metadata.
-            modules[name] = {"names": {"__version__": {"kind": "value", "value": "str"}}}
-        elif path.name == "__init__.py":
+        if path.name == "__init__.py":
             modules[name] = describe_package_source(source, name)
         else:
             modules[name] = describe_module_source(source)

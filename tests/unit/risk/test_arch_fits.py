@@ -9,6 +9,7 @@ import pytest
 from arch import arch_model
 from scipy.optimize import OptimizeResult
 
+from quantcore import UndefinedResultError
 from quantcore.risk import (
     ConvergenceError,
     egarch_11_variance,
@@ -75,9 +76,12 @@ class TestFitGarch11:
         assert scaled_alpha == pytest.approx(alpha, abs=1e-5)
         assert scaled_beta == pytest.approx(beta, abs=1e-5)
 
-    def test_returns_without_variation_raise(self) -> None:
-        with pytest.raises(ValueError, match="no variation"):
-            fit_garch_11(np.full(100, 0.01))
+    @pytest.mark.parametrize("value", [0.0, 0.01, 0.002, 3.7])
+    def test_returns_without_variation_raise(self, value: float) -> None:
+        # np.full(n, 0.002) demeans to rounding residue, not zeros; the range test still sees it.
+        with pytest.raises(UndefinedResultError, match="no variation") as raised:
+            fit_garch_11(np.full(100, value))
+        assert isinstance(raised.value, ValueError)
 
     def test_non_convergence_raises_with_the_best_attempt(
         self, monkeypatch: pytest.MonkeyPatch
@@ -151,6 +155,21 @@ class TestFittedVariancePathsMatchArch:
     def test_empty_returns_raise(self) -> None:
         with pytest.raises(ValueError):
             variance_backcast(np.array([]))
+
+    def test_non_finite_returns_are_a_plain_value_error(self) -> None:
+        with pytest.raises(ValueError, match="finite") as raised:
+            variance_backcast(np.array([0.01, np.nan, 0.02]))
+        assert not isinstance(raised.value, UndefinedResultError)
+
+    @pytest.mark.filterwarnings("ignore:overflow:RuntimeWarning")
+    def test_overflowing_squares_raise_undefined(self) -> None:
+        with pytest.raises(UndefinedResultError, match="not finite") as raised:
+            variance_backcast(np.array([1e200, -1e200, 1e200]))
+        assert isinstance(raised.value, ValueError)
+
+    def test_constant_series_is_defined(self) -> None:
+        assert variance_backcast(np.zeros(10)) == 0.0
+        assert 0.0 <= variance_backcast(np.full(10, 0.002)) < 1e-30
 
 
 class TestPresampleVariance:
@@ -277,5 +296,7 @@ class TestArchConventions:
 
     @pytest.mark.parametrize("fitter", [egarch_fit, gjr_garch_fit])
     def test_returns_without_variation_raise(self, fitter: object) -> None:
-        with pytest.raises(ValueError, match="no variation"):
-            fitter(np.full(100, 0.01))  # type: ignore[operator]
+        for value in (0.0, 0.01, 0.002):
+            with pytest.raises(UndefinedResultError, match="no variation") as raised:
+                fitter(np.full(100, value))  # type: ignore[operator]
+            assert isinstance(raised.value, ValueError)

@@ -6,9 +6,10 @@ OLS (Gauss-Markov):
     has an intercept column (any column constant across all rows),
     uncentered (sum(y^2)) otherwise — matching the standard convention
     (e.g. statsmodels) that R^2 without an intercept measures fit against
-    the origin, not against the mean. NaN, not 1.0, when SS_tot is exactly
-    0 (y constant in the centered case, or all-zero in the uncentered
-    case): R^2 is undefined there, not a perfect fit by definition.
+    the origin, not against the mean. NaN, not 1.0, when y has zero range
+    (`np.ptp(y) == 0`) in the centered case, or is all-zero in the
+    uncentered case: R^2 is undefined there, not a perfect fit by
+    definition.
 
 Newey-West HAC covariance (Newey & West 1987):
     V_NW = (x^T x)^{-1} * S * (x^T x)^{-1}
@@ -19,7 +20,8 @@ Fama-MacBeth (1973):
     Step 1 — time-series: estimate beta_i = loadings for each asset
     Step 2 — cross-section: each period t: regress r_{i,t} on beta_i to get lambda_t
     Mean risk premia: lambda_bar = (1/T)*sum_t lambda_t
-    t-stat: lambda_bar / (std(lambda_t) / sqrt(T))
+    t-stat: lambda_bar / (std(lambda_t) / sqrt(T)); NaN for a factor whose
+    lambda_t has zero range across periods
 
 Implementation note: `ols`, `newey_west_cov` and `newey_west_optimal_lags` are
 closed forms of a few lines that take residuals and regressors directly, so they
@@ -39,6 +41,8 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm
+
+from quantcore.errors import UndefinedResultError
 
 
 def _validate_ols_inputs(y: npt.NDArray[np.float64], x: npt.NDArray[np.float64]) -> None:
@@ -68,10 +72,13 @@ def ols(
         column (any column constant across all rows), the uncentered
         convention (against the origin) otherwise — see
         `_has_intercept_column`. `r_squared` is `NaN`, not `1.0`, when its
-        denominator is exactly 0: a constant `y` (centered case) or an
-        all-zero `y` (uncentered case) has an undefined R², not a perfect
-        fit by definition. This is a documented value, not an error —
-        callers that can't accept `NaN` must check for it explicitly.
+        denominator is zero: a `y` with zero range (`np.ptp(y) == 0`,
+        centered case) or an all-zero `y` (uncentered case) has an
+        undefined R², not a perfect fit by definition. The range test
+        catches a constant such as 0.01 whose demeaned values are rounding
+        residue rather than exact zeros. This is a documented value, not an
+        error — callers that can't accept `NaN` must check for it
+        explicitly.
     """
     _validate_ols_inputs(y, x)
     return _ols(y, x)
@@ -100,11 +107,14 @@ def _ols(
     residuals = y - fitted
     ss_res = float(np.sum(residuals**2))
     if _has_intercept_column(x):
+        undefined = bool(np.ptp(y) == 0.0)
         ss_tot = float(np.sum((y - y.mean()) ** 2))
     else:
+        undefined = not bool(np.any(y != 0.0))
         ss_tot = float(np.sum(y**2))
-    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0.0 else float("nan")
-    return coefficients, residuals, r_squared
+    if undefined or not ss_tot > 0.0:
+        return coefficients, residuals, float("nan")
+    return coefficients, residuals, 1.0 - ss_res / ss_tot
 
 
 def _validate_newey_west_inputs(
@@ -211,6 +221,13 @@ def _validate_factor_loadings_inputs(
         raise ValueError("returns and factors must be non-empty")
     if returns.shape[0] != factors.shape[0]:
         raise ValueError("returns and factors must have the same number of observations")
+    factor_matrix = factors.reshape(factors.shape[0], -1)
+    constant = np.flatnonzero(np.ptp(factor_matrix, axis=0) == 0.0)
+    if constant.size > 0:
+        raise UndefinedResultError(
+            f"factor column(s) {constant.tolist()} have zero range and are collinear with the "
+            "intercept; their loadings are undefined"
+        )
 
 
 @dataclass(frozen=True)
@@ -221,16 +238,18 @@ class FactorLoadingsResult:
         loadings: Intercept (alpha) + f factor betas, shape (f+1,).
         standard_errors: Newey-West HAC standard errors of `loadings`,
             shape (f+1,).
-        t_stats: `loadings / standard_errors`, shape (f+1,).
+        t_stats: `loadings / standard_errors`, shape (f+1,). All `NaN` when
+            `returns` has zero range (`np.ptp == 0`): the residual variance
+            is zero, or rounding residue, and the t-statistics are undefined.
         p_values: Two-sided p-values from the standard normal distribution
             (the standard convention for asymptotic HAC-based inference —
             the Newey-West covariance itself is only asymptotically valid,
             so a finite-sample Student-t reference adds a precision the
             estimator doesn't have; matches `statsmodels`' HAC default),
-            shape (f+1,).
+            shape (f+1,). All `NaN` when `returns` has zero range.
         r_squared: Centered R^2 of the regression (the design always
             includes an intercept column, so this is always the centered
-            convention — see `ols`).
+            convention — see `ols`). `NaN` when `returns` has zero range.
         residuals: OLS residuals, shape (T,).
         n_lags_nw: Newey-West lag count actually used.
     """
@@ -260,7 +279,18 @@ def factor_loadings(
             sample size.
 
     Returns:
-        `FactorLoadingsResult`.
+        `FactorLoadingsResult`. When `returns` has zero range (`np.ptp ==
+        0`), `loadings`, `standard_errors` and `residuals` are as computed
+        (the intercept carries the constant, the factor betas are 0 up to
+        rounding) and `r_squared`, `t_stats` and `p_values` are `NaN`.
+
+    Raises:
+        ValueError: If `returns` or `factors` is empty, or their row counts
+            differ.
+        UndefinedResultError: If a column of `factors` has zero range
+            (`np.ptp == 0`). Such a column is collinear with the intercept,
+            so the loadings are not identified; the message names the
+            column(s).
     """
     _validate_factor_loadings_inputs(returns, factors)
     return _factor_loadings(returns, factors, n_lags_nw)
@@ -277,8 +307,12 @@ def _factor_loadings(
     resolved_n_lags_nw = newey_west_optimal_lags(residuals) if n_lags_nw is None else n_lags_nw
     cov = _newey_west_cov(design, residuals, resolved_n_lags_nw)
     standard_errors = np.sqrt(np.diag(cov))
-    t_stats = loadings / standard_errors
-    p_values = 2.0 * norm.sf(np.abs(t_stats))
+    if np.ptp(returns) == 0.0:
+        t_stats = np.full(loadings.shape, np.nan)
+        p_values = np.full(loadings.shape, np.nan)
+    else:
+        t_stats = loadings / standard_errors
+        p_values = 2.0 * norm.sf(np.abs(t_stats))
     return FactorLoadingsResult(
         loadings=loadings,
         standard_errors=standard_errors,
@@ -298,6 +332,12 @@ def _validate_fama_macbeth_inputs(
         raise ValueError("returns and betas must be non-empty")
     if returns.shape[1] != betas.shape[0]:
         raise ValueError("returns' asset count must match betas' asset count")
+    beta_matrix = betas.reshape(betas.shape[0], -1)
+    all_zero = np.flatnonzero(~np.any(beta_matrix != 0.0, axis=0))
+    if all_zero.size > 0:
+        raise UndefinedResultError(
+            f"beta column(s) {all_zero.tolist()} are all zero; their risk premia are undefined"
+        )
 
 
 def fama_macbeth_regression(
@@ -330,7 +370,19 @@ def fama_macbeth_regression(
     Returns:
         Tuple (mean_risk_premia, t_stats): time-averaged cross-sectional
         slope for each factor, and its t-statistic (see `n_lags_nw`), each
-        shape (f,).
+        shape (f,). A factor's t-statistic is `NaN` when its slopes
+        lambda_t have zero range across periods (`np.ptp == 0`, for example
+        when every period has the same cross-section of returns, or there
+        is one period): the standard error is zero, or rounding residue,
+        and the t-statistic is undefined. A constant non-zero beta column
+        is an intercept and is fitted as one.
+
+    Raises:
+        ValueError: If `returns` or `betas` is empty, their asset counts
+            differ, or `n_lags_nw` is negative.
+        UndefinedResultError: If a column of `betas` is all zero. That
+            factor's cross-sectional slope is not identified; the message
+            names the column(s).
 
     References:
         Fama, E.F. and MacBeth, J.D. (1973). "Risk, Return, and
@@ -375,5 +427,7 @@ def _fama_macbeth_regression(
             nw_var = _newey_west_cov(design, residuals, n_lags_nw)[0, 0]
             standard_errors[j] = float(np.sqrt(nw_var))
 
-    t_stats = mean_risk_premia / standard_errors
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t_stats = mean_risk_premia / standard_errors
+    t_stats[np.ptp(lambdas, axis=0) == 0.0] = np.nan
     return mean_risk_premia, t_stats

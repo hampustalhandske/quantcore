@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
+import math
 
-from quantcore.pricing.black_scholes import black_scholes_call
+import numpy as np
+import pytest
+from scipy.stats import norm
+
+from quantcore import UndefinedResultError
+from quantcore.pricing.black_scholes import black_scholes_call, black_scholes_put
 from quantcore.pricing.greeks import (
     bs_delta,
     bs_gamma,
@@ -281,3 +286,106 @@ class TestDividendYield:
         expected = (up - down) / (2.0 * _DIV_EPS)
         actual = bs_vega(**_DIV_KWARGS, dividend_yield=_DIV_Q)
         assert actual == pytest.approx(expected, abs=1e-4)
+
+
+# Zero volatility with the forward exactly at the strike: ln(S/K) + (r - q)T = 0, so d1 = 0/0.
+_FORWARD_AT_STRIKE = dict(spot=100.0, strike=100.0, rate=0.0, volatility=0.0, time_to_maturity=1.0)
+
+
+class TestUndefinedResults:
+    @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
+    @pytest.mark.parametrize(
+        "greek",
+        [
+            lambda **kw: bs_delta(option_type="call", **kw),
+            lambda **kw: bs_delta(option_type="put", **kw),
+            bs_vega,
+            lambda **kw: bs_theta(option_type="call", **kw),
+            lambda **kw: bs_theta(option_type="put", **kw),
+        ],
+        ids=["delta_call", "delta_put", "vega", "theta_call", "theta_put"],
+    )
+    def test_zero_volatility_with_the_forward_at_the_strike_raises(self, greek) -> None:
+        with pytest.raises(UndefinedResultError, match="not finite") as raised:
+            greek(**_FORWARD_AT_STRIKE)
+        assert isinstance(raised.value, ValueError)
+
+    def test_gamma_with_zero_volatility_and_the_forward_at_the_strike_raises(self) -> None:
+        # The sigma -> 0+ limit of Gamma there is +inf.
+        carry = {**_FORWARD_AT_STRIKE, "rate": 0.03, "dividend_yield": 0.03}
+        for kwargs in (_FORWARD_AT_STRIKE, carry):
+            with pytest.raises(UndefinedResultError, match="Gamma") as raised:
+                bs_gamma(**kwargs)
+            assert isinstance(raised.value, ValueError)
+
+    def test_gamma_is_zero_at_zero_volatility_off_the_forward_and_at_expiry(self) -> None:
+        assert bs_gamma(**{**_FORWARD_AT_STRIKE, "spot": 110.0}) == 0.0
+        assert bs_gamma(**{**_FORWARD_AT_STRIKE, "rate": 0.05}) == 0.0
+        assert bs_gamma(**{**_FORWARD_AT_STRIKE, "time_to_maturity": 0.0}) == 0.0
+
+    @pytest.mark.parametrize("dividend_yield", [0.0, 0.03])
+    def test_prices_at_zero_volatility_and_the_forward_at_the_strike_are_zero(
+        self, dividend_yield: float
+    ) -> None:
+        kwargs = {**_FORWARD_AT_STRIKE, "rate": dividend_yield, "dividend_yield": dividend_yield}
+        assert black_scholes_call(**kwargs) == 0.0
+        assert black_scholes_put(**kwargs) == 0.0
+
+    @pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
+    @pytest.mark.parametrize(
+        ("spot", "strike", "rate", "dividend_yield"),
+        [(110.0, 100.0, 0.05, 0.0), (90.0, 100.0, 0.05, 0.0), (100.0, 95.0, -0.01, 0.04)],
+    )
+    def test_zero_volatility_off_the_forward_matches_the_infinite_d1_path(
+        self, spot: float, strike: float, rate: float, dividend_yield: float
+    ) -> None:
+        t = 1.0
+        kwargs = dict(
+            spot=spot,
+            strike=strike,
+            rate=rate,
+            volatility=0.0,
+            time_to_maturity=t,
+            dividend_yield=dividend_yield,
+        )
+        # The closed form evaluated with d1 = d2 = +-inf, and the put through parity.
+        d1 = (np.log(spot / strike) + (rate - dividend_yield) * t) / np.float64(0.0)
+        spot_leg = spot * np.exp(-dividend_yield * t)
+        strike_leg = strike * np.exp(-rate * t)
+        call_via_d1 = float(spot_leg * norm.cdf(d1) - strike_leg * norm.cdf(d1))
+        put_via_parity = float(call_via_d1 - spot_leg + strike_leg)
+        assert black_scholes_call(**kwargs) == call_via_d1
+        assert black_scholes_put(**kwargs) == pytest.approx(put_via_parity, abs=1e-12)
+        assert black_scholes_call(**kwargs) == max(spot_leg - strike_leg, 0.0)
+        assert black_scholes_put(**kwargs) == max(strike_leg - spot_leg, 0.0)
+
+    @pytest.mark.filterwarnings("ignore:overflow:RuntimeWarning")
+    @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
+    def test_overflowing_price_raises_undefined(self) -> None:
+        kwargs = dict(spot=100.0, strike=100.0, rate=-800.0, time_to_maturity=1.0)
+        for volatility in (0.0, 0.2):
+            with pytest.raises(UndefinedResultError, match="not finite"):
+                black_scholes_put(volatility=volatility, **kwargs)
+
+    @pytest.mark.parametrize("name", ["spot", "strike", "rate", "volatility", "time_to_maturity"])
+    @pytest.mark.parametrize("bad", [math.nan, math.inf])
+    def test_non_finite_inputs_are_plain_value_errors(self, name: str, bad: float) -> None:
+        kwargs = {**_ATM, name: bad}
+        calls = (
+            lambda: black_scholes_call(**kwargs),
+            lambda: black_scholes_put(**kwargs),
+            lambda: bs_delta(option_type="call", **kwargs),
+            lambda: bs_gamma(**kwargs),
+            lambda: bs_vega(**kwargs),
+            lambda: bs_theta(option_type="put", **kwargs),
+        )
+        for call in calls:
+            with pytest.raises(ValueError, match=f"{name} must be finite") as raised:
+                call()
+            assert not isinstance(raised.value, UndefinedResultError)
+
+    def test_non_finite_dividend_yield_is_a_plain_value_error(self) -> None:
+        with pytest.raises(ValueError, match="dividend_yield must be finite"):
+            black_scholes_call(dividend_yield=math.nan, **_ATM)
+        with pytest.raises(ValueError, match="dividend_yield must be finite"):
+            bs_vega(dividend_yield=math.inf, **_ATM)

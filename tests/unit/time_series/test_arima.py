@@ -20,6 +20,7 @@ from scipy.stats import multivariate_normal
 
 import quantcore.risk
 import quantcore.time_series.arima as arima_module
+from quantcore import UndefinedResultError
 from quantcore.time_series.arima import (
     _EXACT_MLE_INFEASIBLE_PENALTY,
     _MAX_ABS_UNCONSTRAINED,
@@ -688,7 +689,6 @@ def _degenerate_series() -> dict[str, tuple[np.ndarray, tuple[int, int, int]]]:
     """Series whose likelihood peaks at or near the edge of the admissible region."""
     t = np.arange(40, dtype=np.float64)
     return {
-        "linear_trend_differenced_once": (3.0 + 0.5 * t, (1, 1, 0)),
         "linear_trend_in_levels": (3.0 + 0.5 * t, (1, 0, 0)),
         "alternating_signs": ((-1.0) ** t, (1, 0, 0)),
         "quadratic_trend_differenced_once": (t * t, (2, 1, 0)),
@@ -816,26 +816,29 @@ class TestArimaFitExactMle:
         assert np.all(np.abs(ma_pacf) <= largest_allowed)
         assert np.isfinite(sigma2) and sigma2 > 0.0
 
-    def test_constant_differenced_series_gives_the_boundary_estimate(self) -> None:
-        # The differences of a linear trend are constant, which an AR(1)
-        # with phi = 1 reproduces exactly: the likelihood rises all the way
-        # to the edge of the stationary region.
-        series = 3.0 + 0.5 * np.arange(40, dtype=np.float64)
-        ar_coefs, _, sigma2 = arima_fit(series, p=1, d=1, q=0)
-        assert ar_coefs[0] == pytest.approx(1.0 - _PACF_MARGIN, abs=1e-12)
-        assert 0.0 < sigma2 < 1e-6
-
     @pytest.mark.parametrize(
         ("series", "d"),
-        [(np.zeros(20), 0), (np.full(20, 4.0), 1), (3.0 + 0.5 * np.arange(20.0), 2)],
+        [
+            (np.zeros(20), 0),
+            (np.full(20, 0.01), 0),
+            (np.full(20, 3.7), 0),
+            (np.full(20, 4.0), 1),
+            (3.0 + 0.5 * np.arange(40.0), 1),
+            (3.0 + 0.5 * np.arange(20.0), 2),
+        ],
     )
-    def test_identically_zero_differenced_series_returns_zeros(
-        self, series: np.ndarray, d: int
-    ) -> None:
-        ar_coefs, ma_coefs, sigma2 = arima_fit(series, p=1, d=d, q=1)
-        np.testing.assert_array_equal(ar_coefs, np.zeros(1))
-        np.testing.assert_array_equal(ma_coefs, np.zeros(1))
-        assert sigma2 == 0.0
+    def test_zero_range_differenced_series_raises(self, series: np.ndarray, d: int) -> None:
+        # A constant differenced series has no maximum-likelihood ARMA fit.
+        for p, q in ((1, 0), (1, 1)):
+            with pytest.raises(UndefinedResultError, match="zero range") as excinfo:
+                arima_fit(series, p=p, d=d, q=q)
+            assert isinstance(excinfo.value, ValueError)
+
+    def test_one_value_off_a_constant_is_fit(self) -> None:
+        series = np.full(40, 3.7)
+        series[20] = 3.8
+        ar_coefs, _, sigma2 = arima_fit(series, p=1, d=0, q=0)
+        assert np.all(np.isfinite(ar_coefs)) and np.isfinite(sigma2) and sigma2 > 0.0
 
     @pytest.mark.parametrize("scale", [1e-6, 1e6])
     def test_fit_is_scale_equivariant(self, scale: float) -> None:
@@ -1161,11 +1164,31 @@ class TestSelectArimaOrderExactLikelihood:
         with pytest.raises(ValueError, match="non-empty"):
             select_arima_order(np.array([]), max_p=1, max_d=1, max_q=1)
 
-    def test_constant_series_has_no_comparable_candidate(self) -> None:
-        # In levels the series is constant and its first difference is
-        # identically zero: neither has a likelihood to compare.
-        with pytest.raises(ValueError, match="no variation"):
-            select_arima_order(np.full(40, 2.0), max_p=2, max_d=1, max_q=2)
+    @pytest.mark.parametrize("value", [0.0, 0.01, 2.0, 3.7])
+    def test_constant_series_has_no_comparable_candidate(self, value: float) -> None:
+        # In levels the series is constant and its differences are zero:
+        # no candidate has a maximum-likelihood fit.
+        with pytest.raises(UndefinedResultError, match="zero range") as excinfo:
+            select_arima_order(np.full(40, value), max_p=2, max_d=1, max_q=2)
+        assert isinstance(excinfo.value, ValueError)
+
+    def test_short_constant_series_with_no_long_enough_candidate_is_plain_value_error(
+        self,
+    ) -> None:
+        # Every candidate is too short for its order: the failure is not the
+        # zero range.
+        with pytest.raises(ValueError, match="no feasible") as excinfo:
+            select_arima_order(np.full(1, 2.0), max_p=2, max_d=1, max_q=2)
+        assert not isinstance(excinfo.value, UndefinedResultError)
+
+    def test_non_converging_candidates_raise_plain_value_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        series = _simulate_ar1(phi=0.6, n=100, seed=RNG_SEED)
+        monkeypatch.setattr(arima_module, "minimize", _never_converging_minimize)
+        with pytest.raises(ValueError, match="no feasible") as excinfo:
+            select_arima_order(series, max_p=1, max_d=1, max_q=1, criterion="aic")
+        assert not isinstance(excinfo.value, UndefinedResultError)
 
     def test_differences_without_variation_are_not_selected(self) -> None:
         # A linear trend: constant first difference, zero second difference.
@@ -1399,3 +1422,24 @@ def test_ljung_box_passes_every_statsmodels_option_explicitly(
         "return_df": True,
         "auto_lag": False,
     }
+
+
+class TestLjungBoxUndefined:
+    def test_constant_residuals_raise_before_statsmodels_runs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # np.full(200, 0.01) demeans to rounding residue of about 1.7e-18, which statsmodels
+        # would read as strong autocorrelation (Q near 995).
+        def fail(*args: object, **kwargs: object) -> None:
+            raise AssertionError("statsmodels must not be called")
+
+        monkeypatch.setattr("statsmodels.stats.diagnostic.acorr_ljungbox", fail)
+        for residuals in (np.full(200, 0.01), np.zeros(50)):
+            with pytest.raises(UndefinedResultError, match="zero range") as raised:
+                ljung_box_test(residuals, 10)
+            assert isinstance(raised.value, ValueError)
+
+    def test_one_value_off_a_constant_is_defined(self) -> None:
+        residuals = np.r_[np.full(199, 0.01), 0.02]
+        q, p = ljung_box_test(residuals, 10)
+        assert np.isfinite(q) and 0.0 <= p <= 1.0

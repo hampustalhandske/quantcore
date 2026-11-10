@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
+from quantcore import UndefinedResultError
 from quantcore.risk.var import conditional_value_at_risk, value_at_risk
 
 RNG_SEED = 12345
@@ -454,3 +455,78 @@ class TestHistoricalCvar:
             conditional_value_at_risk(  # type: ignore[call-arg]
                 self.RETURNS, 0.95, method="historical", backend="quantcore"
             )
+
+
+# ---------------------------------------------------------------------------
+# Undefined results and input validation
+# ---------------------------------------------------------------------------
+
+_RISK_MEASURES = (value_at_risk, conditional_value_at_risk)
+
+
+@pytest.mark.parametrize("measure", _RISK_MEASURES)
+@pytest.mark.parametrize(
+    "constant", [np.zeros(10), np.full(12, 0.002), np.array([-0.01, -0.01])], ids=str
+)
+def test_cornish_fisher_on_a_zero_range_series_raises_undefined(measure, constant) -> None:
+    with pytest.raises(UndefinedResultError, match="zero range") as raised:
+        measure(constant, 0.95, method="cornish_fisher")
+    assert isinstance(raised.value, ValueError)
+    # An override does not help: the skewness and kurtosis still come from `returns`.
+    with pytest.raises(UndefinedResultError):
+        measure(constant, 0.95, mean=0.0, volatility=0.01, method="cornish_fisher")
+
+
+@pytest.mark.parametrize("measure", _RISK_MEASURES)
+def test_gaussian_and_historical_on_a_constant_series_are_defined(measure) -> None:
+    constant = np.full(12, -0.01)
+    assert measure(constant, 0.95) == pytest.approx(0.01, abs=1e-15)
+    assert measure(constant, 0.95, method="historical") == pytest.approx(0.01, abs=1e-15)
+
+
+def test_cornish_fisher_one_value_off_a_constant_is_defined() -> None:
+    returns = np.r_[np.zeros(9), 0.01]
+    d = returns - returns.mean()
+    sigma0 = float(returns.std())
+    s = float(np.mean(d**3)) / sigma0**3
+    k = float(np.mean(d**4)) / sigma0**4 - 3.0
+    z = float(norm.ppf(0.05))
+    z_cf = z + (z**2 - 1) * s / 6 + (z**3 - 3 * z) * k / 24 - (2 * z**3 - 5 * z) * s**2 / 36
+    expected = -(returns.mean() + z_cf * returns.std(ddof=1))
+    assert value_at_risk(returns, 0.95, method="cornish_fisher") == pytest.approx(
+        expected, rel=1e-12
+    )
+
+
+@pytest.mark.parametrize("measure", _RISK_MEASURES)
+def test_non_finite_inputs_are_plain_value_errors(measure) -> None:
+    bad_calls = (
+        lambda: measure(np.array([0.01, np.nan, -0.02]), 0.95),
+        lambda: measure(np.array([0.01, -0.02]), 0.95, mean=np.inf),
+        lambda: measure(np.array([0.01, -0.02]), 0.95, volatility=np.nan),
+    )
+    for call in bad_calls:
+        with pytest.raises(ValueError, match="finite") as raised:
+            call()
+        assert not isinstance(raised.value, UndefinedResultError)
+
+
+@pytest.mark.filterwarnings("ignore:overflow:RuntimeWarning")
+@pytest.mark.parametrize("measure", _RISK_MEASURES)
+def test_overflowing_result_raises_undefined(measure) -> None:
+    with pytest.raises(UndefinedResultError, match="not finite"):
+        measure(np.array([0.01, -0.02]), 0.95, volatility=1e308, mean=-1e308)
+
+
+@pytest.mark.filterwarnings("ignore:overflow:RuntimeWarning")
+@pytest.mark.parametrize(
+    "returns",
+    [
+        np.r_[1e-110, -2e-110, np.zeros(8), 3e-110, -1e-110],
+        np.r_[np.full(6, 1e150), -0.5, 0.25, np.full(4, 1e150)],
+    ],
+    ids=["moments_underflow", "moments_overflow"],
+)
+def test_cornish_fisher_with_unrepresentable_moments_raises_undefined(returns) -> None:
+    with pytest.raises(UndefinedResultError, match="float64"):
+        value_at_risk(returns, 0.95, method="cornish_fisher")

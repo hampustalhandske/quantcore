@@ -15,6 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.risk.egarch import (
     EGARCHParams,
     GJRGARCHParams,
@@ -42,6 +43,27 @@ class TestEgarch11Variance:
     def test_invalid_beta_outside_unit_interval_raises(self, beta: float) -> None:
         with pytest.raises(ValueError):
             egarch_11_variance(RETURNS, omega=0.01, alpha=0.1, gamma=-0.05, beta=beta)
+
+    @pytest.mark.parametrize(
+        "returns", [np.zeros(20), np.full(20, 1e-170)], ids=["all_zero", "squares_underflow"]
+    )
+    def test_zero_backcast_raises_undefined(self, returns: np.ndarray) -> None:
+        with pytest.raises(UndefinedResultError, match="backcast variance") as raised:
+            egarch_11_variance(returns, omega=-0.1, alpha=0.1, gamma=-0.05, beta=0.95)
+        assert isinstance(raised.value, ValueError)
+
+    def test_all_zero_returns_with_a_given_presample_variance_is_defined(self) -> None:
+        result = egarch_11_variance(
+            np.zeros(20), omega=-0.1, alpha=0.1, gamma=-0.05, beta=0.95, presample_variance=1e-4
+        )
+        assert np.all(np.isfinite(result))
+
+    @pytest.mark.parametrize("value", [0.01, 3.7])
+    def test_non_zero_constant_returns_are_defined(self, value: float) -> None:
+        result = egarch_11_variance(
+            np.full(20, value), omega=-0.1, alpha=0.1, gamma=-0.05, beta=0.95
+        )
+        assert np.all(np.isfinite(result))
 
     def test_output_same_length_as_input(self) -> None:
         result = egarch_11_variance(RETURNS, omega=0.01, alpha=0.1, gamma=-0.05, beta=0.9)

@@ -1,6 +1,9 @@
 {
  "modules": {
   "quantcore": {
+   "exports": {
+    "UndefinedResultError": "quantcore.errors"
+   },
    "names": {
     "__version__": {
      "kind": "value",
@@ -85,6 +88,19 @@
     "simulate_ou_paths": {
      "kind": "function",
      "signature": "(theta: float, mu: float, sigma: float, x0: float, t: float, n_paths: int, n_steps: int, seed: int) -> npt.NDArray[np.float64]"
+    }
+   }
+  },
+  "quantcore.errors": {
+   "names": {
+    "UndefinedResultError": {
+     "bases": [
+      "ValueError"
+     ],
+     "decorators": [],
+     "fields": {},
+     "kind": "class",
+     "methods": {}
     }
    }
   },
@@ -805,6 +821,6 @@
  },
  "package": "quantcore",
  "schema": "quantcore-api-manifest/1",
- "sha256": "3b1c787d84e492611c574a77dbd7d9e9db3ad0356c74a1a1facde747eaaa3be8",
+ "sha256": "f896e52c6a85acb836bd4a1d6830b637eccd650dedadbfc6425a8b77032aecb2",
  "version": "0.3.2"
 }

@@ -43,6 +43,13 @@ series under a normality assumption the closed form becomes
 
 with z_alpha = Phi^-1(1 - alpha). This is the quantity implemented here.
 
+Both functions return one finite number. The Cornish-Fisher method raises
+`quantcore.UndefinedResultError` (a `ValueError`) when `returns` has zero
+range, since the sample skewness and kurtosis are then undefined; any method
+raises it when the result overflows float64. The Gaussian and historical
+methods are otherwise always defined: a constant series has a Gaussian VaR of
+`-mu`.
+
 References:
     J.P. Morgan/Reuters (1996). *RiskMetrics — Technical Document* (4th
     ed.). (VaR methodology.)
@@ -62,6 +69,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm
 
+from quantcore.errors import UndefinedResultError, _finite_result
+
 VarMethod = Literal["gaussian", "historical", "cornish_fisher"]
 
 
@@ -74,15 +83,19 @@ def _validate_returns_and_confidence(
         raise ValueError("returns must be non-empty")
     if returns.size < 2:
         raise ValueError("returns must contain at least two observations")
+    if not np.all(np.isfinite(returns)):
+        raise ValueError("returns must contain only finite values")
     if not (0.0 < confidence_level < 1.0):
         raise ValueError("confidence_level must be strictly between 0 and 1")
-    if volatility is not None and volatility < 0.0:
-        raise ValueError("volatility must be non-negative")
+    if volatility is not None and not (np.isfinite(volatility) and volatility >= 0.0):
+        raise ValueError("volatility must be finite and non-negative")
 
 
 def _validate_method(method: VarMethod, mean: float | None, volatility: float | None) -> None:
     if method not in ("gaussian", "historical", "cornish_fisher"):
         raise ValueError('method must be "gaussian", "historical", or "cornish_fisher"')
+    if mean is not None and not np.isfinite(mean):
+        raise ValueError("mean must be finite")
     if method == "historical" and (mean is not None or volatility is not None):
         raise ValueError(
             'method="historical" ignores mean/volatility overrides (it uses the '
@@ -131,6 +144,16 @@ def value_at_risk(
     Returns:
         VaR as a positive loss figure, in the same units as `returns`.
 
+    Raises:
+        ValueError: `returns` has fewer than two observations or contains NaN
+            or infinity, `confidence_level` is not strictly between 0 and 1,
+            `mean` is not finite, `volatility` is negative or not finite,
+            `method` is not one of the documented values, or
+            `mean`/`volatility` is passed with `method="historical"`.
+        UndefinedResultError: `method="cornish_fisher"` and `returns` has
+            zero range (`np.ptp(returns) == 0`), so its skewness and
+            kurtosis are undefined; or the result overflows float64.
+
     References:
         J.P. Morgan/Reuters (1996), RiskMetrics Technical Document
         ("gaussian"). Cornish, E.A. and Fisher, R.A. (1938), "Moments and
@@ -141,7 +164,9 @@ def value_at_risk(
     """
     _validate_returns_and_confidence(returns, confidence_level, volatility)
     _validate_method(method, mean, volatility)
-    return _value_at_risk(returns, confidence_level, mean, volatility, method)
+    return _finite_result(
+        _value_at_risk(returns, confidence_level, mean, volatility, method), "value at risk"
+    )
 
 
 def _cornish_fisher_z(returns: npt.NDArray[np.float64], z: float) -> float:
@@ -153,11 +178,26 @@ def _cornish_fisher_z(returns: npt.NDArray[np.float64], z: float) -> float:
     convention) sample skewness and K is the excess kurtosis
     (`scipy.stats.kurtosis(bias=True)`'s convention, kurtosis - 3). Reduces
     to z exactly when S=K=0.
+
+    Raises:
+        UndefinedResultError: `returns` has zero range, so S and K are undefined; or the
+            third or fourth power of the standard deviation overflows or underflows float64.
     """
+    if np.ptp(returns) == 0.0:
+        raise UndefinedResultError(
+            "returns have zero range, so their skewness and kurtosis are undefined; "
+            "the Cornish-Fisher quantile is undefined"
+        )
     demeaned = returns - returns.mean()
     sigma = float(returns.std(ddof=0))
-    skewness = float(np.mean(demeaned**3)) / sigma**3
-    excess_kurtosis = float(np.mean(demeaned**4)) / sigma**4 - 3.0
+    try:
+        skewness = float(np.mean(demeaned**3)) / sigma**3
+        excess_kurtosis = float(np.mean(demeaned**4)) / sigma**4 - 3.0
+    except (OverflowError, ZeroDivisionError) as exc:
+        raise UndefinedResultError(
+            "the third or fourth power of the returns' standard deviation overflows or "
+            "underflows float64; the Cornish-Fisher quantile is undefined"
+        ) from exc
     return float(
         z
         + (z**2 - 1.0) * skewness / 6.0
@@ -221,10 +261,14 @@ def conditional_value_at_risk(
         CVaR as a positive loss figure, in the same units as `returns`.
 
     Raises:
-        ValueError: If `returns` has fewer than two observations,
-            `confidence_level` is not strictly between 0 and 1, `method`
-            is not one of the documented values, or
+        ValueError: `returns` has fewer than two observations or contains NaN
+            or infinity, `confidence_level` is not strictly between 0 and 1,
+            `mean` is not finite, `volatility` is negative or not finite,
+            `method` is not one of the documented values, or
             `mean`/`volatility` is passed with `method="historical"`.
+        UndefinedResultError: `method="cornish_fisher"` and `returns` has
+            zero range (`np.ptp(returns) == 0`), so its skewness and
+            kurtosis are undefined; or the result overflows float64.
 
     References:
         Rockafellar & Uryasev (2000), "Optimization of Conditional
@@ -233,7 +277,10 @@ def conditional_value_at_risk(
     """
     _validate_returns_and_confidence(returns, confidence_level, volatility)
     _validate_method(method, mean, volatility)
-    return _conditional_value_at_risk(returns, confidence_level, mean, volatility, method)
+    return _finite_result(
+        _conditional_value_at_risk(returns, confidence_level, mean, volatility, method),
+        "conditional value at risk",
+    )
 
 
 def _historical_cvar(returns: npt.NDArray[np.float64], confidence_level: float) -> float:

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
+from quantcore import UndefinedResultError
 from quantcore.performance.metrics import (
     _cagr,
     _drawdown_series,
@@ -35,16 +36,49 @@ class TestSharpeRatio:
         actual = sharpe_ratio(returns, risk_free_rate=rf, periods_per_year=periods)
         assert actual == pytest.approx(expected, rel=1e-9)
 
+    @pytest.mark.parametrize(
+        "returns",
+        [np.zeros(5), np.full(12, 0.002), np.full(7, -0.01), np.array([0.01])],
+        ids=["zeros", "constant_0.002", "constant_negative", "single"],
+    )
+    def test_zero_range_raises_undefined(self, returns: np.ndarray) -> None:
+        with pytest.raises(UndefinedResultError, match="zero range") as raised:
+            sharpe_ratio(returns)
+        assert isinstance(raised.value, ValueError)
+
+    def test_rounding_level_std_of_a_constant_is_not_zero(self) -> None:
+        # The case the range test exists for: a constant whose computed std is not 0.
+        assert float(np.std(np.full(12, 0.002), ddof=1)) != 0.0
+
+    def test_defined_neighbour_is_unchanged(self) -> None:
+        returns = np.r_[np.full(11, 0.002), 0.003]
+        expected = (returns.mean() / returns.std(ddof=1)) * np.sqrt(252)
+        assert sharpe_ratio(returns) == pytest.approx(expected, rel=1e-12)
+
+    def test_non_finite_input_is_a_plain_value_error(self) -> None:
+        with pytest.raises(ValueError, match="finite") as raised:
+            sharpe_ratio(np.array([0.01, np.nan, 0.02]))
+        assert not isinstance(raised.value, UndefinedResultError)
+
 
 class TestSortinoRatio:
     def test_invalid_inputs(self) -> None:
         with pytest.raises(ValueError):
             sortino_ratio(np.array([]))
 
-    def test_no_negative_excess_returns_is_inf(self) -> None:
+    def test_no_negative_excess_return_raises_undefined(self) -> None:
         returns = np.array([0.01, 0.02, 0.0, 0.03])
-        actual = sortino_ratio(returns, risk_free_rate=0.0)
-        assert np.isinf(actual)
+        with pytest.raises(UndefinedResultError, match="downside deviation") as raised:
+            sortino_ratio(returns, risk_free_rate=0.0)
+        assert isinstance(raised.value, ValueError)
+        with pytest.raises(UndefinedResultError):
+            sortino_ratio(np.full(5, 0.002), risk_free_rate=0.002)
+
+    def test_one_negative_excess_return_is_defined(self) -> None:
+        returns = np.array([0.01, 0.02, -0.001, 0.03])
+        downside = np.sqrt(np.mean(np.minimum(returns, 0.0) ** 2))
+        expected = returns.mean() / downside * np.sqrt(252)
+        assert sortino_ratio(returns) == pytest.approx(expected, rel=1e-12)
 
     def test_matches_hand_computed_formula(self) -> None:
         returns = np.array([0.02, -0.01, 0.01, -0.03])
@@ -90,10 +124,18 @@ class TestCalmarRatio:
         with pytest.raises(ValueError):
             calmar_ratio(np.array([]))
 
-    def test_zero_drawdown_is_inf(self) -> None:
-        returns = np.full(10, 0.01)
-        actual = calmar_ratio(returns)
-        assert np.isinf(actual)
+    @pytest.mark.parametrize("return_method", ["cagr", "arithmetic"])
+    def test_zero_drawdown_raises_undefined(self, return_method: str) -> None:
+        for returns in (np.full(10, 0.01), np.zeros(4)):
+            with pytest.raises(UndefinedResultError, match="drawdown") as raised:
+                calmar_ratio(returns, return_method=return_method)  # type: ignore[arg-type]
+            assert isinstance(raised.value, ValueError)
+
+    def test_small_drawdown_is_defined(self) -> None:
+        returns = np.array([0.01, -0.001, 0.01])
+        mdd = 0.001
+        expected = float(np.prod(1.0 + returns)) ** (12 / 3) - 1.0
+        assert calmar_ratio(returns, periods_per_year=12) == pytest.approx(expected / mdd, rel=1e-9)
 
     def test_default_uses_cagr(self) -> None:
         returns = np.array([0.05, -0.10, 0.02, 0.03])
@@ -135,6 +177,16 @@ class TestInformationRatio:
         expected = diff.mean() / diff.std(ddof=1) * np.sqrt(periods)
         actual = information_ratio(returns, benchmark, periods_per_year=periods)
         assert actual == pytest.approx(expected, rel=1e-9)
+
+    def test_constant_active_return_raises_undefined(self) -> None:
+        benchmark = np.array([0.01, -0.02, 0.03, 0.0])
+        cases = [(benchmark, benchmark), (np.full(12, 0.002), np.zeros(12))]
+        for returns, bench in cases:
+            with pytest.raises(UndefinedResultError, match="tracking error") as raised:
+                information_ratio(returns, bench)
+            assert isinstance(raised.value, ValueError)
+        with pytest.raises(UndefinedResultError):
+            information_ratio(np.array([0.01]), np.array([0.0]))
 
 
 class TestMaximumDrawdown:
@@ -189,9 +241,17 @@ class TestHitRate:
         actual = hit_rate(returns, zero_policy="exclude")
         assert actual == pytest.approx(2.0 / 4.0, abs=1e-12)
 
-    def test_exclude_policy_all_zero_is_nan(self) -> None:
-        returns = np.zeros(5)
-        assert np.isnan(hit_rate(returns, zero_policy="exclude"))
+    def test_exclude_policy_all_zero_raises_undefined(self) -> None:
+        with pytest.raises(UndefinedResultError, match="every return is 0") as raised:
+            hit_rate(np.zeros(5), zero_policy="exclude")
+        assert isinstance(raised.value, ValueError)
+
+    def test_all_zero_is_defined_under_the_other_policies(self) -> None:
+        assert hit_rate(np.zeros(5), zero_policy="loss") == 0.0
+        assert hit_rate(np.zeros(5), zero_policy="win") == 1.0
+
+    def test_exclude_policy_single_nonzero_is_defined(self) -> None:
+        assert hit_rate(np.array([0.0, 0.0, -0.01]), zero_policy="exclude") == 0.0
 
     def test_win_policy_counts_zero_as_a_win(self) -> None:
         returns = np.array([0.01, -0.02, 0.03, -0.01, 0.0])
@@ -204,10 +264,17 @@ class TestProfitFactor:
         with pytest.raises(ValueError):
             profit_factor(np.array([]))
 
-    def test_no_losses_is_inf(self) -> None:
-        returns = np.array([0.0, 0.01, 0.02])
-        actual = profit_factor(returns)
-        assert np.isinf(actual)
+    @pytest.mark.parametrize(
+        "returns", [np.array([0.0, 0.01, 0.02]), np.zeros(3)], ids=["gains_only", "zeros"]
+    )
+    def test_no_losses_raises_undefined(self, returns: np.ndarray) -> None:
+        with pytest.raises(UndefinedResultError, match="no negative return") as raised:
+            profit_factor(returns)
+        assert isinstance(raised.value, ValueError)
+
+    def test_single_loss_is_defined(self) -> None:
+        assert profit_factor(np.array([0.0, 0.01, 0.02, -0.01])) == pytest.approx(3.0, rel=1e-12)
+        assert profit_factor(np.array([-0.01])) == 0.0
 
     def test_known_ratio(self) -> None:
         returns = np.array([0.02, -0.01, 0.03, -0.02])

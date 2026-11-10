@@ -10,6 +10,7 @@ import math
 import numpy as np
 import pytest
 
+from quantcore import UndefinedResultError
 from quantcore.statistics import CscvPbo, cscv_pbo, effective_n_eigen
 
 
@@ -94,8 +95,9 @@ def test_cscv_pbo_persistent_winner_is_not_overfit() -> None:
 def test_cscv_pbo_identical_trials_raise() -> None:
     # Identical trials tie in-sample on every combination, so no trial is ever selected.
     column = np.array([0.01, -0.02, 0.03, 0.00, 0.02, -0.01])
-    with pytest.raises(ValueError, match="PBO is undefined"):
+    with pytest.raises(UndefinedResultError, match="PBO is undefined") as raised:
         cscv_pbo(np.column_stack([column, column]), n_splits=2)
+    assert isinstance(raised.value, ValueError)
 
 
 def test_cscv_pbo_out_of_sample_tie_counts_half_a_rank() -> None:
@@ -210,13 +212,13 @@ def test_cscv_pbo_scores_any_constant_column_zero(value: float) -> None:
 @pytest.mark.parametrize("value", [0.0, 2.0**-9, 0.002])
 def test_cscv_pbo_all_constant_columns_raise(value: float) -> None:
     # Every in-sample Sharpe ratio is 0 on every combination, so no trial is ever selected.
-    with pytest.raises(ValueError, match="PBO is undefined"):
+    with pytest.raises(UndefinedResultError, match="PBO is undefined"):
         cscv_pbo(np.full((80, 4), value), n_splits=8)
 
 
 def test_cscv_pbo_all_constant_columns_with_distinct_levels_raise_under_sharpe() -> None:
     x = np.tile(np.array([0.001, 0.002, -0.001, 0.0]), (80, 1))
-    with pytest.raises(ValueError, match="PBO is undefined"):
+    with pytest.raises(UndefinedResultError, match="PBO is undefined"):
         cscv_pbo(x, n_splits=8)
 
 
@@ -229,7 +231,7 @@ def test_cscv_pbo_all_constant_columns_with_a_separating_evaluate_return_a_pbo()
 
 def test_cscv_pbo_all_tied_subsample_raises() -> None:
     rng = np.random.default_rng(5)
-    with pytest.raises(ValueError, match="PBO is undefined"):
+    with pytest.raises(UndefinedResultError, match="PBO is undefined"):
         cscv_pbo(np.zeros((160, 3)), n_splits=16, max_combinations=50, rng=rng)
 
 

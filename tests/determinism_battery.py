@@ -1,12 +1,16 @@
 """Calls every public quantcore function on fixed inputs and prints a digest of each result.
 
-`tests/unit/test_cross_process_determinism.py` runs this script in separate processes, with
-different BLAS thread counts and with a cold and a warm Numba cache, and requires every digest to
-agree. A call that raises is recorded by its exception type and message, which must agree too.
+`tests/unit/test_cross_process_determinism.py` runs this script in separate processes, with a cold
+and a warm Numba cache and with different BLAS thread counts. For a fixed BLAS thread
+configuration every digest must agree. Across thread counts every digest must agree except those
+of `BLAS_THREAD_SENSITIVE`, whose values must agree within the test's tolerance. A call that
+raises is recorded by its exception type and message, which must agree too.
 
-Usage: `python tests/determinism_battery.py` prints a JSON object, name -> sha256. The variable
-`QC23_ONLY` (comma-separated names) runs only those calls. The name `planted_unseeded` is not run
-unless it is named there: it draws from an unseeded generator, for the test's negative control.
+Usage: `python tests/determinism_battery.py` prints a JSON object with `digests` (name -> sha256)
+and `values` (name -> the result's floats as `float.hex()` strings, for the names in
+`BLAS_THREAD_SENSITIVE`). The variable `QC23_ONLY` (comma-separated names) runs only those calls.
+The name `planted_unseeded` is not run unless it is named there: it draws from an unseeded
+generator, for the test's negative control.
 """
 
 from __future__ import annotations
@@ -35,6 +39,11 @@ import quantcore.statistics as statistics
 import quantcore.time_series as time_series
 
 PLANTED = "planted_unseeded"
+
+# The fits `arch` computes run scipy's SLSQP, whose arithmetic goes through BLAS. On OpenBLAS a
+# single thread rounds differently from several, and the optimizer carries that last-bit
+# difference into the fitted parameters, so these results depend on the BLAS thread count.
+BLAS_THREAD_SENSITIVE = frozenset({"risk.egarch_fit", "risk.fit_garch_11", "risk.gjr_garch_fit"})
 
 
 def _encode(value: Any, out: list[bytes]) -> None:
@@ -305,17 +314,43 @@ def _calls(d: dict[str, Any]) -> dict[str, Callable[[], Any]]:
     }
 
 
-def run(only: set[str] | None = None) -> dict[str, str]:
-    """Digest of each call's result, or of its exception type and message if it raises."""
+def _floats(value: Any, out: list[float]) -> None:
+    """Append every float in `value` (a float, an array, a sequence or a dataclass) to `out`."""
+    if isinstance(value, np.ndarray):
+        out.extend(float(v) for v in value.ravel())
+    elif isinstance(value, (float, np.floating)):
+        out.append(float(value))
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            _floats(item, out)
+    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+        for field in dataclasses.fields(value):
+            _floats(getattr(value, field.name), out)
+
+
+def run(only: set[str] | None = None) -> dict[str, dict[str, Any]]:
+    """Digest of each call's result, or of its exception type and message if it raises.
+
+    Returns:
+        `{"digests": {name: sha256}, "values": {name: [float.hex(), ...]}}`, with `values` for the
+        names in `BLAS_THREAD_SENSITIVE` that did not raise.
+    """
     calls = _calls(_inputs())
     names = sorted(only) if only is not None else sorted(set(calls) - {PLANTED})
-    results: dict[str, str] = {}
+    digests: dict[str, str] = {}
+    values: dict[str, list[str]] = {}
     for name in names:
         try:
-            results[name] = digest(calls[name]())
+            result = calls[name]()
         except Exception as error:
-            results[name] = "raised " + digest((type(error).__name__, str(error)))
-    return results
+            digests[name] = "raised " + digest((type(error).__name__, str(error)))
+            continue
+        digests[name] = digest(result)
+        if name in BLAS_THREAD_SENSITIVE:
+            floats: list[float] = []
+            _floats(result, floats)
+            values[name] = [v.hex() for v in floats]
+    return {"digests": digests, "values": values}
 
 
 def main() -> None:

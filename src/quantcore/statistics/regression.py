@@ -162,19 +162,23 @@ def _newey_west_cov(
     n_lags: int,
     small_sample_correction: bool = False,
 ) -> npt.NDArray[np.float64]:
+    # The products are `np.einsum` contractions rather than `@`: einsum does not call BLAS, so
+    # the result does not depend on the BLAS library or its thread count.
     n_obs = x.shape[0]
     xe = x * residuals[:, None]  # x_t * e_t, shape (T, k)
 
-    gamma_0 = (xe.T @ xe) / n_obs
+    gamma_0 = np.einsum("ti,tj->ij", xe, xe) / n_obs
     weighted_sum = gamma_0.copy()
     for h in range(1, n_lags + 1):
-        gamma_h = (xe[h:].T @ xe[:-h]) / n_obs
+        gamma_h = np.einsum("ti,tj->ij", xe[h:], xe[:-h]) / n_obs
         weight = 1.0 - h / (n_lags + 1)
         weighted_sum += weight * (gamma_h + gamma_h.T)
     weighted_sum *= n_obs
 
-    xtx_inv = np.linalg.inv(x.T @ x)
-    result: npt.NDArray[np.float64] = xtx_inv @ weighted_sum @ xtx_inv
+    xtx_inv = np.linalg.inv(np.einsum("ti,tj->ij", x, x))
+    result: npt.NDArray[np.float64] = np.einsum(
+        "ij,jk,kl->il", xtx_inv, weighted_sum, xtx_inv, optimize=False
+    )
     if small_sample_correction:
         k = x.shape[1]
         result = result * (n_obs / (n_obs - k))

@@ -98,6 +98,18 @@ rather than silently falling back to a slower implementation.
 
 Numba against a plain NumPy reference on an Apple M3 (arm64), 2026-10-29: GARCH(1,1) variance recursion 107x to 128x faster (2,520 to 1,000,000 points); GBM log-Euler paths 2.6x to 5.6x faster (10,000 x 252 to 100,000 x 252 paths). The reference implementations live in `tests/reference_kernels.py`.
 
+### Reproducibility
+
+For a fixed BLAS thread configuration, every public function returns
+bit-identical results in separate processes, whether its Numba kernels were
+compiled or loaded from the cache. Across BLAS thread counts the same holds
+for every function except the three fits `arch` computes (`fit_garch_11`,
+`egarch_fit`, `gjr_garch_fit`): on OpenBLAS one thread rounds differently
+from several, and the fitted parameters can move by about 1e-6 relative
+(the test allows 1e-3, the optimizer's stopping tolerance). Set
+`OPENBLAS_NUM_THREADS` to make those fits bit-reproducible on Linux.
+`tests/unit/test_cross_process_determinism.py` checks both statements.
+
 ## Requirements
 
 Python 3.12+. Dependencies: NumPy, SciPy, Numba, `statsmodels` (the ADF,

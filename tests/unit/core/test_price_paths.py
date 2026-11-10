@@ -322,7 +322,8 @@ _PIN_N_PATHS = 3
 _PIN_N_STEPS = 250
 _PIN_CELLS = ((0, 0), (0, 1), (1, 1), (0, 125), (1, 250), (2, 250))
 
-# The pinned values were recorded with NumPy 2.5.3 on macOS arm64. NumPy does not promise
+# The pinned cells were recorded with NumPy 2.5.3 on macOS arm64; the digests are recorded for
+# macOS arm64 and Linux aarch64. NumPy does not promise
 # bit-identical floating-point results across platforms, and at least one sampler used here
 # depends on the build: on arm64 `Generator.normal(loc, scale)` evaluates `loc + scale * z` with a
 # fused multiply-add (one rounding), which a build without that instruction cannot reproduce. The
@@ -372,7 +373,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.7b4547b657be9p+5",
             "0x1.02202e356b26cp+6",
         ),
-        {"Darwin-arm64": "374de5eb5e9ebed09d24df3ccc474950d0bf5e11ea46f4af2dd83be16a3b3782"},
+        {
+            "Darwin-arm64": "374de5eb5e9ebed09d24df3ccc474950d0bf5e11ea46f4af2dd83be16a3b3782",
+            "Linux-aarch64": "374de5eb5e9ebed09d24df3ccc474950d0bf5e11ea46f4af2dd83be16a3b3782",
+        },
         "0x1.e9dfc5f1669b7p-1",
     ),
     "gbm-weekly": _Pin(
@@ -387,7 +391,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.3b4d421a49cd9p+3",
             "0x1.c710e5d8ef0d4p+3",
         ),
-        {"Darwin-arm64": "d0b3345c5a6396096a4855d9a7d67a1cca0d445a054e312841b763d56dc5c55e"},
+        {
+            "Darwin-arm64": "d0b3345c5a6396096a4855d9a7d67a1cca0d445a054e312841b763d56dc5c55e",
+            "Linux-aarch64": "1bba6cc839d090ccf22501e0b23a3324543f66a7434184523cfb08e9169201b5",
+        },
         "0x1.e9dfc5f1669b7p-1",
     ),
     "heston-feller-violated-daily": _Pin(
@@ -402,7 +409,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.a253f1e5d69e8p+6",
             "0x1.588aa9af1759dp+6",
         ),
-        {"Darwin-arm64": "b1c8bdd0cf21dc7d00111861f7fe03ce67ee2fb8018ab3fcb1e8cae3a290b3d2"},
+        {
+            "Darwin-arm64": "b1c8bdd0cf21dc7d00111861f7fe03ce67ee2fb8018ab3fcb1e8cae3a290b3d2",
+            "Linux-aarch64": "d13920a253cf1b9ad3f2f613e8d91e06671a935caf288e902739245d8879eb97",
+        },
         "0x1.f4c99a86c4f28p-2",
     ),
     "heston-zero-initial-variance-weekly": _Pin(
@@ -417,7 +427,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.0393d2793b02ap+7",
             "0x1.d869e9279901bp+6",
         ),
-        {"Darwin-arm64": "657d09d04d4609bfe5b77bc03ffcc6d594a6a4500081c5f743261537b3a18651"},
+        {
+            "Darwin-arm64": "657d09d04d4609bfe5b77bc03ffcc6d594a6a4500081c5f743261537b3a18651",
+            "Linux-aarch64": "458a58accc1c65b4bbf354c48f356fabebb9d4402e2722e4618e1b0991a800d3",
+        },
         "0x1.f4c99a86c4f28p-2",
     ),
     "garch_t-daily": _Pin(
@@ -432,7 +445,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.c67ae8374f994p+4",
             "0x1.0df3fe81dc8ffp+4",
         ),
-        {"Darwin-arm64": "8ce4f4b9b3976b046f634eafa8e5adf1d9be20331a70b058a5b47a56902724fd"},
+        {
+            "Darwin-arm64": "8ce4f4b9b3976b046f634eafa8e5adf1d9be20331a70b058a5b47a56902724fd",
+            "Linux-aarch64": "f531a93bffcb707c37c3455fbdfa0a122f08d9f3bd50a83046b76f1e07e26077",
+        },
         "0x1.6baf10418e6d0p-2",
     ),
     "garch_t-weekly": _Pin(
@@ -447,7 +463,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.0cb630522ff9ep+6",
             "0x1.e032208719f5fp+5",
         ),
-        {"Darwin-arm64": "053ed984e75d9dcd8edfce8261c3b178eac2401e351cceb6d1645fac33071dbc"},
+        {
+            "Darwin-arm64": "053ed984e75d9dcd8edfce8261c3b178eac2401e351cceb6d1645fac33071dbc",
+            "Linux-aarch64": "02f90783d1f6f97ce666479e80a3024ea59fae9ac50ea6429cdd461a0c74c968",
+        },
         "0x1.0589e3137f5bep-1",
     ),
     "jump_diffusion-daily": _Pin(
@@ -469,7 +488,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.d7d7124782b3ap+2",
             "0x1.049195b681e4ap+4",
         ),
-        {"Darwin-arm64": "991b5239aad03c3f1892c74e1338addea998066558126d3a75aeb0e9f341ab09"},
+        {
+            "Darwin-arm64": "991b5239aad03c3f1892c74e1338addea998066558126d3a75aeb0e9f341ab09",
+            "Linux-aarch64": "a319d857b3ca9229355a283beadc2c21d5af271ded00da3f49cdb66c7ba6b42d",
+        },
         "0x1.9e34141a4d637p-1",
     ),
     "jump_diffusion-many-jumps-weekly": _Pin(
@@ -484,7 +506,10 @@ _PINS: dict[str, _Pin] = {
             "0x1.18c674d4eb826p+6",
             "0x1.c4a3bbdc4297cp+7",
         ),
-        {"Darwin-arm64": "e785f8dc097f56e272beaab7fdea0f14af3f56b0ccda308e2ee81710d5e634ce"},
+        {
+            "Darwin-arm64": "e785f8dc097f56e272beaab7fdea0f14af3f56b0ccda308e2ee81710d5e634ce",
+            "Linux-aarch64": "2a75e462812dc69e54c01ea7dcfac91112c6a0856ba3a91d31e16bda296cd80b",
+        },
         "0x1.697c63c5a1fbcp-2",
     ),
 }

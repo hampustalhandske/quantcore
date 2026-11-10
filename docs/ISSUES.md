@@ -339,3 +339,86 @@ Sharpe ratio 0, correlations 0 with the diagonal included. Results for columns w
 unchanged. This is a pin move against edgelab's copies on inputs with such a column; on the
 seeded 41 x 4 panel with one column at 0.001 and `n_splits=4`, the PBO moves from 0.0 to 1/3,
 the value an exactly representable constant gives. The conformance oracles use the same rule.
+
+## Cleanup (audit 2026-11-10)
+
+An audit against ten engineering rules: determinism tested, state outside checkpoints, contracts
+vendored and tested on both sides, fail closed, and every check shown to fail on a planted
+defect. Batch 1 (QC-23, 24, 27, 28, 30, 33, 35) moves no number. Batch 2 changes the API or
+behaviour and needs the owner's word.
+
+### QC-23: No test that two processes give bit-identical results — open (batch 1)
+Every reproducibility test repeats a call inside one process (`test_sde_solver.py`,
+`test_stochastic.py`, `test_price_paths.py`, `test_bootstrap.py`). Nothing shows that a result is
+the same under another BLAS thread count, or with a cold against a warm Numba cache.
+Acceptance: a battery that calls each public function on fixed inputs runs in two subprocesses,
+one with the default threads and an empty Numba cache, one with every BLAS thread count at 1 and
+the cache warm, and the digests of all outputs agree. Negative control: a planted function that
+draws from an unseeded generator makes the test fail.
+
+### QC-24: The bit-exact price-path pins run only on macOS arm64 — open (batch 1)
+`tests/unit/core/test_price_paths.py` skips the whole-array digests on every other platform, so
+CI (ubuntu-latest) never checks the bit-stability contract that edgelab's simulations rely on.
+Acceptance: digests recorded per platform and checked wherever one is recorded; a platform with
+none is reported, not passed silently.
+
+### QC-25: A quantcore number's provenance is only the commit — open (batch 2, consumers)
+A number also depends on the resolved NumPy, SciPy, Numba, arch and statsmodels and on the
+platform (QC-18). edgelab and agentic record only the quantcore commit. Their fix; quantcore
+can supply the version list.
+
+### QC-26: The path simulators draw fresh entropy when no seed is given — open (batch 2, owner)
+`simulate_gbm_paths`, `simulate_ou_paths` and `simulate_cir_paths` default to `seed=None`, so a
+forgotten seed gives a non-reproducible result without a word. Both consumers pass seeds today.
+Changing it is an API change.
+
+### QC-27: Nothing enforces that quantcore keeps no module-level mutable state — open (batch 1)
+No module holds a cache, registry or global today. The only mutable module-level object is
+`_KPSS_DETERMINISTIC_TERMS`, a dict that is only read. Acceptance: a census test fails on any
+module-level mutable object not on an allowlist with a reason; negative control: a planted
+module-level dict fails it.
+
+### QC-28: Only `ConvergenceError` is tested to round-trip through pickle — open (batch 1)
+Consumers checkpoint quantcore objects. Acceptance: every public result class and exception
+round-trips with all fields equal; negative control: an exception with required keyword
+arguments and no `__reduce__` fails.
+
+### QC-29: The public API has no machine-readable manifest — open (batch 2, consumers)
+No quantcore test fails when a name or signature a consumer imports changes, and the consumer
+notice is prose. Proposed: a generated manifest (names, signatures, result fields, exceptions,
+version) checked by a test, vendored by each consumer.
+
+### QC-30: `kpss_test` silences every warning — open (batch 1)
+`_kpss_test` wraps statsmodels' `kpss` in `warnings.simplefilter("ignore")`, which hides any
+warning, not only the out-of-table `InterpolationWarning` it reports as `p_value_at_bound`.
+Acceptance: only `InterpolationWarning` is filtered; a warning of another class reaches the
+caller.
+
+### QC-31: `__version__` falls back to "0.0.0+unknown" — open (later)
+An import from an uninstalled tree reports a made-up version. No consumer reads it.
+
+### QC-32: Undefined quantities give NaN in some functions and raise in others — open (batch 2, owner)
+Several ratios return NaN, and a zero risk denominator gives inf, while `cscv_pbo` and
+`ou_half_life` raise `ValueError`. A NaN passes into a downstream result without a word. One
+policy is the owner's decision.
+
+### QC-33: The oracle tests skip when a reference library is missing — open (batch 1)
+Twenty oracle modules and the conformance builder tests start with `pytest.importorskip`, so
+without the `oracle` extra the oracle coverage turns into skips and the suite still passes.
+Acceptance: a missing reference library fails the run; negative control: hiding one library
+makes the suite fail.
+
+### QC-34: CI resolves the latest uv and dependencies, not the consumers' locked versions — open (batch 2)
+A green run certifies whatever resolved that day. Proposed: pin uv, and a job that runs the
+suite on the dependency versions in each consumer's lock.
+
+### QC-35: Stale descriptions — open (batch 1)
+`tests/oracle/README.md` still describes a `backend` argument. The package docstring and the
+`pyproject.toml` description name only pricing, SDE simulation and risk.
+
+### QC-36: v0.3.2 waits for GitHub Actions — open
+The release PR cannot run CI while the owner's GitHub billing blocks Actions. The local gates
+are green on the same tree.
+
+### QC-37: `select_arima_order` does not say how many candidates it skipped — open (later)
+Candidates that do not converge are skipped, as documented, but the caller cannot tell how many.

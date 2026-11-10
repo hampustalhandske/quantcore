@@ -8,7 +8,36 @@ to see exactly what changed and why before upgrading.
 
 ## [Unreleased]
 
+### Fixed — behaviour changed
+
+- Several functions returned a finite, wrong answer on a constant input, because the demeaned
+  constant is rounding residue (about 1e-18 for 0.01) rather than exact zeros, and the residue
+  read as signal. Each now checks for zero range (`np.ptp == 0`) first and raises
+  `UndefinedResultError`, or returns its documented NaN. Examples for `np.full(200, 0.01)`:
+  `ljung_box_test(c, 5)` returned p = 7.8e-213; `hac_t_test(c)` returned t = 3.7e16, p = 0;
+  `engle_granger_test(c, x)` returned p = 0.80; `ols` and `factor_loadings` returned
+  R² = -146.7 and t-statistics around 3e15 (now NaN). `spa_test` returned p-values of 0, a
+  false "significant", when a model's losses equal the benchmark's or differ from them by a
+  constant, even for a model that is always worse. `fama_macbeth_regression` gives a NaN
+  t-statistic for a factor whose slopes have zero range across periods
+  (`docs/UNDEFINED_RESULTS.md`, `docs/ISSUES.md` QC-32).
+- A GARCH-family fit that fails to converge raises `ConvergenceError` without printing arch's
+  `ConvergenceWarning`. arch's fit installed a global "always" filter that overrode the ignore
+  filter around the call, so the warning reached the caller's stderr.
+
 ### Changed — numbers moved
+
+- `newey_west_cov` computes its matrix products with `np.einsum` instead of `@`, so the result
+  does not depend on the BLAS library or its thread count. Every covariance moves in its last
+  bits, and so do the standard errors of `hac_t_test`, `factor_loadings` and
+  `fama_macbeth_regression` that use it: on 200 random designs (T 30 to 3,000, 1 to 5
+  regressors, 0 to 11 lags) the largest relative change in an entry was 8.1e-13 and the median
+  9 ULPs (`docs/ISSUES.md` QC-23).
+- `black_scholes_call` and `black_scholes_put` at `volatility = 0` and `T > 0` return the limit
+  `max(S e^{-qT} - K e^{-rT}, 0)` (put: `max(K e^{-rT} - S e^{-qT}, 0)`) computed directly. With
+  the forward exactly at the strike they returned NaN and now return 0; elsewhere the call is
+  unchanged and an out-of-the-money put returns exactly 0 rather than the residue of put-call
+  parity (`docs/ISSUES.md` QC-32).
 
 - `ou_half_life` computes the AR(1) slope as the OLS slope in centred form,
   `sum(d * delta) / sum(d**2)` with `d = level - mean(level)`, and the half-life as
@@ -23,6 +52,23 @@ to see exactly what changed and why before upgrading.
   on 345 of 720 fits) used to raise and now returns its half-life (`docs/ISSUES.md` QC-21).
 
 ### Changed — API
+
+- A result that is undefined or infinite for valid input raises
+  `quantcore.UndefinedResultError`, a subclass of `ValueError` exported from the root package.
+  A function that returns one number never returns NaN or infinity: the ratios that returned
+  `inf` for a zero risk denominator (`sortino_ratio`, `calmar_ratio`, `profit_factor`,
+  `gain_to_pain_ratio`, `ulcer_performance_index`) or NaN for an undefined component
+  (`serenity_index`, `common_sense_ratio`, `cpc_index`, the outlier ratios,
+  `hit_rate(zero_policy="exclude")` on all-zero returns) raise it now, and so do
+  `sharpe_ratio` and `information_ratio` on a zero-range series. Constant input that raised a
+  plain `ValueError` or a library error (`adf_test`, `kpss_test`, `jarque_bera_test`,
+  `arch_lm_test`, `granger_causality_test`, `var_fit`, `select_var_lag_order`, the GARCH-family
+  fits, `arima_fit`, `egarch_11_variance`) raises `UndefinedResultError`; code that catches
+  `ValueError` still catches it. Bad input (a wrong shape, a non-finite value, an unknown
+  option) raises a plain `ValueError`, and non-finite input now does so everywhere. NaN appears
+  only at documented positions of multi-value results. `optimal_block_length` needs at least 8
+  observations. `docs/UNDEFINED_RESULTS.md` lists every function's cases (`docs/ISSUES.md`
+  QC-32).
 
 - `simulate_gbm_paths`, `simulate_ou_paths` and `simulate_cir_paths` require `seed`, a
   non-negative integer. It defaulted to None, which drew fresh entropy, so a call without a

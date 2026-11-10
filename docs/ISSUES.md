@@ -361,6 +361,14 @@ the cache warm, and the digests of all outputs agree. Negative control: a plante
 draws from an unseeded generator makes the test fail.
 Done: `tests/determinism_battery.py` calls all 87 public functions; the test requires every
 digest to agree and the planted call to differ (about 20 s, 0.34 GB per process).
+On Linux aarch64 (OpenBLAS) the first run failed: one BLAS thread rounds differently from
+several (2 and 8 agree), which moved `newey_west_cov` by up to 3.6e-13 and the three `arch` fits
+by up to 1.4e-6 relative. Ruling (b), 2026-11-10: `newey_west_cov` computes its products with
+`np.einsum`, which does not call BLAS; the guarantee is bit identity for a fixed BLAS thread
+configuration, with `fit_garch_11`, `egarch_fit` and `gjr_garch_fit` named as thread-sensitive.
+The test runs three processes (cold and warm cache at the default threads must agree bit for
+bit; one thread may move only the three fits, within 1e-3 relative, SLSQP's stopping
+tolerance), and the README states the guarantee.
 
 ### QC-24: The bit-exact price-path pins run only on macOS arm64 — done for macOS (batch 1)
 `tests/unit/core/test_price_paths.py` skips the whole-array digests on every other platform, so
@@ -414,10 +422,21 @@ caller. Done; the blanket filter fails the new test.
 ### QC-31: `__version__` falls back to "0.0.0+unknown" — open (later)
 An import from an uninstalled tree reports a made-up version. No consumer reads it.
 
-### QC-32: Undefined quantities give NaN in some functions and raise in others — open (batch 2, owner)
+### QC-32: Undefined quantities give NaN in some functions and raise in others — done (batch 2)
 Several ratios return NaN, and a zero risk denominator gives inf, while `cscv_pbo` and
 `ou_half_life` raise `ValueError`. A NaN passes into a downstream result without a word. One
 policy is the owner's decision.
+Done (owner ruling (a), 2026-11-10; agentic-trading and edgelab agreed): an undefined or
+infinite result raises `UndefinedResultError(ValueError)`; NaN only at documented positions of
+multi-value results; bad input stays a plain `ValueError`. Zero spread is tested as zero range.
+A sweep of every multi-value function on constant input found finite wrong answers in
+`ljung_box_test`, `hac_t_test`, `engle_granger_test`, `spa_test` (p = 0 for a model that is
+always worse), `ols`, `factor_loadings` and `fama_macbeth_regression`; all fixed. Black-Scholes
+prices at zero volatility return their limit. `docs/UNDEFINED_RESULTS.md` lists every case;
+`tests/unit/test_undefined_results.py` discovers the public functions and runs a degenerate
+battery on the single-number functions and a constant battery on the multi-value ones, with
+planted negative controls. `cir_fit`'s `CIRNoMeanReversionError` is a `RuntimeError` and stays
+as it is.
 
 ### QC-33: The oracle tests skip when a reference library is missing — done (batch 1)
 Twenty oracle modules and the conformance builder tests start with `pytest.importorskip`, so

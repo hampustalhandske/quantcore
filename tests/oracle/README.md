@@ -9,11 +9,12 @@ self-consistent.
 These tests import reference libraries (`statsmodels`, `arch`,
 `scikit-learn`, `linearmodels`, `empyrical`, `quantstats`,
 `vollib`/`py_vollib`, `hmmlearn`, `filterpy`, `cvxpy`, `hypothesis`) from the
-`oracle` extra. `arch` and `empyrical` are also the default
-backend of one quantcore function each (see `CLAUDE.md`); the tests here
-check quantcore's own implementation of those functions, so they pass
-`backend="quantcore"`. No other reference library is imported from
-`src/quantcore`.
+`oracle` extra. `arch` and `statsmodels` are also runtime dependencies:
+quantcore delegates the GARCH-family fits, the stationary bootstrap, SPA and
+the statsmodels tests to them, and those functions are checked by convention
+tests, not here. No other reference library is imported from `src/quantcore`.
+A test skipped because a reference library could not be imported fails the
+run (`tests/conftest.py`).
 
 ## Running
 
@@ -24,8 +25,12 @@ uv run pytest -m oracle
 
 Oracle tests are marked `@pytest.mark.oracle` and run in the same `pytest`
 invocation as the unit suite by default (`testpaths = ["tests"]`), but can be
-selected or excluded with `-m oracle` / `-m "not oracle"`. CI runs both the
-full suite (unit + oracle) on every push — see `.github/workflows/ci.yml`.
+selected or excluded with `-m oracle` / `-m "not oracle"`. Deselecting by
+marker still imports every module, so without the `oracle` extra run
+`uv run pytest tests/unit --ignore=tests/unit/conformance`, where only the
+few tests that call a reference library in their body fail.
+CI runs the full suite (unit + oracle) on every push — see
+`.github/workflows/ci.yml`.
 
 ## Directory layout
 

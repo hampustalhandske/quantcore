@@ -9,7 +9,6 @@ matrix Kalman filter in NumPy, and `scipy.signal.lfilter`.
 from __future__ import annotations
 
 import itertools
-import time
 
 import numpy as np
 import pytest
@@ -379,21 +378,37 @@ class TestArimaFitRegression:
         assert p >= 0 and d >= 0 and q >= 0
 
 
-class TestSelectArimaOrderBenchmark:
-    def test_select_arima_order_completes_within_a_generous_ceiling(self) -> None:
-        # Informational timing guard, not a tight assertion: warms up the
-        # Numba JIT kernel first (a fresh process pays that compile cost
-        # once) so the measured call only reflects steady-state performance,
-        # matching how a long-lived daily refit process would behave after
-        # its first asset.
+class TestSelectArimaOrderWork:
+    """The amount of optimization `select_arima_order` does, counted rather than timed.
+
+    The grid max_p=2, max_d=1, max_q=2 has 18 orders. Each order is fitted once per `d` (the
+    fits of nested orders are reused) from at most four starting points, so at most 72 L-BFGS-B
+    runs. This series takes 52 runs and 1112 objective evaluations; the evaluation ceiling of
+    5000 is about 4.5 times that and is far below what a refit of every nested order or an
+    optimizer that stopped converging would need.
+    """
+
+    def test_grid_search_runs_each_order_once_and_stays_within_an_evaluation_ceiling(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        counts = {"runs": 0, "evaluations": 0}
+        run_optimizer = arima_module._run_exact_mle_optimizer
+        objective = arima_module._exact_mle_objective
+
+        def counting_run(*args: object, **kwargs: object) -> object:
+            counts["runs"] += 1
+            return run_optimizer(*args, **kwargs)  # type: ignore[arg-type]
+
+        def counting_objective(*args: object, **kwargs: object) -> object:
+            counts["evaluations"] += 1
+            return objective(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(arima_module, "_run_exact_mle_optimizer", counting_run)
+        monkeypatch.setattr(arima_module, "_exact_mle_objective", counting_objective)
         series = _simulate_ar1(phi=0.6, n=500, seed=RNG_SEED)
-        select_arima_order(series[:20], max_p=1, max_d=0, max_q=1, criterion="aic")
-
-        start = time.perf_counter()
         select_arima_order(series, max_p=2, max_d=1, max_q=2, criterion="aic")
-        elapsed = time.perf_counter() - start
-
-        assert elapsed < 5.0
+        assert 0 < counts["runs"] <= 72
+        assert 0 < counts["evaluations"] <= 5000
 
 
 class TestArimaForecast:

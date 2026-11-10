@@ -17,8 +17,10 @@ to see exactly what changed and why before upgrading.
   its last bits, towards the exact OLS half-life. On 359 AR(1) fits (n 50 to 2,000, phi 0.5,
   0.9, 0.99), measured in units in the last place against the half-life of the exact OLS slope
   (median / max): 3 / 26 → 0.5 / 4 for a spread around 0, 9 / 293 → 1 / 152 around 100 (unit
-  noise), 405 / 14,918 → 37 / 5,488 around 10,000. Which series raise is unchanged
-  (`docs/ISSUES.md` QC-21).
+  noise), 405 / 14,918 → 37 / 5,488 around 10,000. A series raises when the centred slope is not
+  negative beyond its rounding error, or `1 + a <= 0`. A series far enough from 0 that the
+  uncentred slope came out positive (around 1e8 times its noise, where 0.3.2 got the sign wrong
+  on 345 of 720 fits) used to raise and now returns its half-life (`docs/ISSUES.md` QC-21).
 
 ### Changed — API
 

@@ -58,6 +58,10 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The public API manifest consumers vendor (docs/API_MANIFEST.md).
+quantcore = ["api_manifest.json"]
+
 # ---------------------------------------------------------------------------
 # Ruff: linting + formatting (replaces black/isort/flake8)
 # ---------------------------------------------------------------------------

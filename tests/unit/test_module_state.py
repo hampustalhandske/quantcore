@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+import pathlib
 import pkgutil
 import types
 from typing import Any
@@ -28,7 +29,18 @@ ALLOWED: dict[tuple[str, str], str] = {}
 # `__all__` only lists the names a package exports.
 _NOT_STATE = frozenset({"__all__"})
 
-_IMMUTABLE_SCALARS = (int, float, complex, str, bytes, bool, type(None), np.generic, range)
+_IMMUTABLE_SCALARS = (
+    int,
+    float,
+    complex,
+    str,
+    bytes,
+    bool,
+    type(None),
+    np.generic,
+    range,
+    pathlib.PurePath,
+)
 
 
 def _is_immutable(value: Any) -> bool:

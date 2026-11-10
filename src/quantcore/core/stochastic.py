@@ -25,6 +25,8 @@ import numba
 import numpy as np
 import numpy.typing as npt
 
+from quantcore.core.sde_solver import _validate_seed
+
 
 def _validate_simulate_ou_paths(
     theta: float,
@@ -53,7 +55,7 @@ def simulate_ou_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int | None = None,
+    seed: int,
 ) -> npt.NDArray[np.float64]:
     """Simulate Ornstein-Uhlenbeck paths using the exact conditional-Gaussian transition.
 
@@ -65,9 +67,8 @@ def simulate_ou_paths(
         t: Total time horizon (must be non-negative).
         n_paths: Number of independent sample paths.
         n_steps: Number of discretization steps.
-        seed: Seed for reproducibility. None (default) draws fresh
-            entropy each call (non-reproducible unless you pass a seed),
-            matching `simulate_gbm_paths`'s convention.
+        seed: Seed of the generator the paths are drawn from, a non-negative integer. It is
+            required, so the same call always gives the same paths.
 
     Returns:
         Array of shape (n_paths, n_steps + 1) of simulated OU paths, including
@@ -77,6 +78,7 @@ def simulate_ou_paths(
         Uhlenbeck & Ornstein (1930); Vasicek (1977). See docs/REFERENCES.md.
     """
     _validate_simulate_ou_paths(theta, sigma, t, n_paths, n_steps)
+    _validate_seed(seed)
     return _simulate_ou_paths(theta, mu, sigma, x0, t, n_paths, n_steps, seed)
 
 
@@ -110,7 +112,7 @@ def _simulate_ou_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int | None,
+    seed: int,
 ) -> npt.NDArray[np.float64]:
     dt = t / n_steps
     rng = np.random.default_rng(seed)
@@ -151,7 +153,7 @@ def simulate_cir_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int | None = None,
+    seed: int,
 ) -> npt.NDArray[np.float64]:
     """Simulate CIR square-root diffusion paths via Milstein discretization.
 
@@ -163,9 +165,8 @@ def simulate_cir_paths(
         t: Total time horizon (must be non-negative).
         n_paths: Number of independent sample paths.
         n_steps: Number of discretization steps.
-        seed: Seed for reproducibility. None (default) draws fresh
-            entropy each call (non-reproducible unless you pass a seed),
-            matching `simulate_gbm_paths`'s convention.
+        seed: Seed of the generator the paths are drawn from, a non-negative integer. It is
+            required, so the same call always gives the same paths.
 
     Returns:
         Array of shape (n_paths, n_steps + 1) of simulated CIR paths,
@@ -175,6 +176,7 @@ def simulate_cir_paths(
         Cox, Ingersoll & Ross (1985). See docs/REFERENCES.md.
     """
     _validate_simulate_cir_paths(r0, kappa, theta, sigma, t, n_paths, n_steps)
+    _validate_seed(seed)
     return _simulate_cir_paths(r0, kappa, theta, sigma, t, n_paths, n_steps, seed)
 
 
@@ -215,7 +217,7 @@ def _simulate_cir_paths(
     t: float,
     n_paths: int,
     n_steps: int,
-    seed: int | None,
+    seed: int,
 ) -> npt.NDArray[np.float64]:
     dt = t / n_steps
     rng = np.random.default_rng(seed)

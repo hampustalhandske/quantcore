@@ -151,3 +151,19 @@ def test_gbm_non_positive_num_steps_raises(num_steps: int) -> None:
             num_paths=10,
             seed=1,
         )
+
+
+_GBM_ARGS = dict(
+    spot=100.0, rate=0.05, volatility=0.2, time_to_maturity=1.0, num_steps=20, num_paths=10
+)
+
+
+@pytest.mark.parametrize("seed", [None, -1, 1.5, True, "1"])
+def test_gbm_seed_must_be_a_non_negative_integer(seed: object) -> None:
+    with pytest.raises(ValueError, match="seed must be a non-negative integer"):
+        simulate_gbm_paths(**_GBM_ARGS, seed=seed)  # type: ignore[arg-type]
+
+
+def test_gbm_seed_is_required() -> None:
+    with pytest.raises(TypeError, match="seed"):
+        simulate_gbm_paths(**_GBM_ARGS)  # type: ignore[call-arg]

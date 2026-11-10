@@ -46,7 +46,7 @@
    "names": {
     "simulate_gbm_paths": {
      "kind": "function",
-     "signature": "(spot: float, rate: float, volatility: float, time_to_maturity: float, num_steps: int, num_paths: int, seed: int | None=None) -> npt.NDArray[np.float64]"
+     "signature": "(spot: float, rate: float, volatility: float, time_to_maturity: float, num_steps: int, num_paths: int, seed: int) -> npt.NDArray[np.float64]"
     }
    }
   },
@@ -80,11 +80,11 @@
     },
     "simulate_cir_paths": {
      "kind": "function",
-     "signature": "(r0: float, kappa: float, theta: float, sigma: float, t: float, n_paths: int, n_steps: int, seed: int | None=None) -> npt.NDArray[np.float64]"
+     "signature": "(r0: float, kappa: float, theta: float, sigma: float, t: float, n_paths: int, n_steps: int, seed: int) -> npt.NDArray[np.float64]"
     },
     "simulate_ou_paths": {
      "kind": "function",
-     "signature": "(theta: float, mu: float, sigma: float, x0: float, t: float, n_paths: int, n_steps: int, seed: int | None=None) -> npt.NDArray[np.float64]"
+     "signature": "(theta: float, mu: float, sigma: float, x0: float, t: float, n_paths: int, n_steps: int, seed: int) -> npt.NDArray[np.float64]"
     }
    }
   },
@@ -805,6 +805,6 @@
  },
  "package": "quantcore",
  "schema": "quantcore-api-manifest/1",
- "sha256": "25f3b7b1803c0d91061b2ac6d74160b8bfde5409487ecf4a7c19ba50f979762b",
+ "sha256": "3b1c787d84e492611c574a77dbd7d9e9db3ad0356c74a1a1facde747eaaa3be8",
  "version": "0.3.2"
 }

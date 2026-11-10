@@ -23,33 +23,41 @@ from quantcore.core.stochastic import (
 class TestSimulateOuPaths:
     def test_invalid_theta_raises(self) -> None:
         with pytest.raises(ValueError):
-            simulate_ou_paths(theta=0.0, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=10, n_steps=10)
+            simulate_ou_paths(
+                theta=0.0, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=10, n_steps=10, seed=0
+            )
 
     @pytest.mark.parametrize("theta", [0.0, -1.0])
     def test_non_positive_theta_raises(self, theta: float) -> None:
         with pytest.raises(ValueError):
-            simulate_ou_paths(theta=theta, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=10, n_steps=10)
+            simulate_ou_paths(
+                theta=theta, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=10, n_steps=10, seed=0
+            )
 
     def test_negative_sigma_raises(self) -> None:
         with pytest.raises(ValueError):
-            simulate_ou_paths(theta=1.0, mu=0.0, sigma=-0.1, x0=0.0, t=1.0, n_paths=10, n_steps=10)
+            simulate_ou_paths(
+                theta=1.0, mu=0.0, sigma=-0.1, x0=0.0, t=1.0, n_paths=10, n_steps=10, seed=0
+            )
 
     def test_negative_t_raises(self) -> None:
         with pytest.raises(ValueError):
-            simulate_ou_paths(theta=1.0, mu=0.0, sigma=0.1, x0=0.0, t=-1.0, n_paths=10, n_steps=10)
+            simulate_ou_paths(
+                theta=1.0, mu=0.0, sigma=0.1, x0=0.0, t=-1.0, n_paths=10, n_steps=10, seed=0
+            )
 
     @pytest.mark.parametrize("n_paths", [0, -1])
     def test_non_positive_n_paths_raises(self, n_paths: int) -> None:
         with pytest.raises(ValueError):
             simulate_ou_paths(
-                theta=1.0, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=n_paths, n_steps=10
+                theta=1.0, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=n_paths, n_steps=10, seed=0
             )
 
     @pytest.mark.parametrize("n_steps", [0, -1])
     def test_non_positive_n_steps_raises(self, n_steps: int) -> None:
         with pytest.raises(ValueError):
             simulate_ou_paths(
-                theta=1.0, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=10, n_steps=n_steps
+                theta=1.0, mu=0.0, sigma=0.1, x0=0.0, t=1.0, n_paths=10, n_steps=n_steps, seed=0
             )
 
     def test_output_shape(self) -> None:
@@ -68,14 +76,15 @@ class TestSimulateOuPaths:
         kwargs = dict(theta=1.0, mu=0.0, sigma=0.2, x0=1.0, t=1.0, n_paths=5, n_steps=10, seed=42)
         assert np.array_equal(simulate_ou_paths(**kwargs), simulate_ou_paths(**kwargs))
 
-    def test_default_seed_is_none_and_draws_fresh_entropy(self) -> None:
-        # Uniformity with simulate_gbm_paths (owner follow-up
-        # 2f): default seed=None, not a fixed value, so two no-seed calls
-        # are NOT reproducible against each other.
+    @pytest.mark.parametrize("seed", [None, -1, 1.5, True, "1"])
+    def test_seed_must_be_a_non_negative_integer(self, seed: object) -> None:
         kwargs = dict(theta=1.0, mu=0.0, sigma=0.2, x0=1.0, t=1.0, n_paths=5, n_steps=10)
-        first = simulate_ou_paths(**kwargs)
-        second = simulate_ou_paths(**kwargs)
-        assert not np.array_equal(first, second)
+        with pytest.raises(ValueError, match="seed must be a non-negative integer"):
+            simulate_ou_paths(**kwargs, seed=seed)  # type: ignore[arg-type]
+
+    def test_seed_is_required(self) -> None:
+        with pytest.raises(TypeError, match="seed"):
+            simulate_ou_paths(theta=1.0, mu=0.0, sigma=0.2, x0=1.0, t=1.0, n_paths=5, n_steps=10)  # type: ignore[call-arg]
 
     def test_terminal_distribution_matches_stationary_moments(self) -> None:
         theta, mu, sigma = 3.0, 0.5, 0.4
@@ -97,38 +106,45 @@ class TestSimulateCirPaths:
     def test_non_positive_kappa_raises(self) -> None:
         with pytest.raises(ValueError):
             simulate_cir_paths(
-                r0=0.03, kappa=0.0, theta=0.03, sigma=0.1, t=1.0, n_paths=10, n_steps=10
+                r0=0.03, kappa=0.0, theta=0.03, sigma=0.1, t=1.0, n_paths=10, n_steps=10, seed=0
             )
 
     def test_non_positive_theta_raises(self) -> None:
         with pytest.raises(ValueError):
             simulate_cir_paths(
-                r0=0.03, kappa=1.0, theta=0.0, sigma=0.1, t=1.0, n_paths=10, n_steps=10
+                r0=0.03, kappa=1.0, theta=0.0, sigma=0.1, t=1.0, n_paths=10, n_steps=10, seed=0
             )
 
     def test_negative_sigma_raises(self) -> None:
         with pytest.raises(ValueError):
             simulate_cir_paths(
-                r0=0.03, kappa=1.0, theta=0.03, sigma=-0.1, t=1.0, n_paths=10, n_steps=10
+                r0=0.03, kappa=1.0, theta=0.03, sigma=-0.1, t=1.0, n_paths=10, n_steps=10, seed=0
             )
 
     def test_negative_r0_raises(self) -> None:
         with pytest.raises(ValueError):
             simulate_cir_paths(
-                r0=-0.01, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=10, n_steps=10
+                r0=-0.01, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=10, n_steps=10, seed=0
             )
 
     def test_negative_t_raises(self) -> None:
         with pytest.raises(ValueError):
             simulate_cir_paths(
-                r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=-1.0, n_paths=10, n_steps=10
+                r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=-1.0, n_paths=10, n_steps=10, seed=0
             )
 
     @pytest.mark.parametrize("n_paths,n_steps", [(0, 10), (10, 0)])
     def test_non_positive_path_or_step_count_raises(self, n_paths: int, n_steps: int) -> None:
         with pytest.raises(ValueError):
             simulate_cir_paths(
-                r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=n_paths, n_steps=n_steps
+                r0=0.03,
+                kappa=1.0,
+                theta=0.03,
+                sigma=0.1,
+                t=1.0,
+                n_paths=n_paths,
+                n_steps=n_steps,
+                seed=0,
             )
 
     def test_output_shape(self) -> None:
@@ -155,11 +171,23 @@ class TestSimulateCirPaths:
         )
         assert np.array_equal(simulate_cir_paths(**kwargs), simulate_cir_paths(**kwargs))
 
-    def test_default_seed_is_none_and_draws_fresh_entropy(self) -> None:
+    @pytest.mark.parametrize("seed", [None, -1, 1.5, True, "1"])
+    def test_seed_must_be_a_non_negative_integer(self, seed: object) -> None:
         kwargs = dict(r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=5, n_steps=10)
-        first = simulate_cir_paths(**kwargs)
-        second = simulate_cir_paths(**kwargs)
-        assert not np.array_equal(first, second)
+        with pytest.raises(ValueError, match="seed must be a non-negative integer"):
+            simulate_cir_paths(**kwargs, seed=seed)  # type: ignore[arg-type]
+
+    def test_seed_is_required(self) -> None:
+        with pytest.raises(TypeError, match="seed"):
+            simulate_cir_paths(
+                r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=5, n_steps=10
+            )  # type: ignore[call-arg]
+
+    def test_numpy_integer_seed_is_accepted(self) -> None:
+        kwargs = dict(r0=0.03, kappa=1.0, theta=0.03, sigma=0.1, t=1.0, n_paths=5, n_steps=10)
+        assert np.array_equal(
+            simulate_cir_paths(**kwargs, seed=np.int64(7)), simulate_cir_paths(**kwargs, seed=7)
+        )
 
     def test_terminal_mean_converges_to_theta(self) -> None:
         theta = 0.05

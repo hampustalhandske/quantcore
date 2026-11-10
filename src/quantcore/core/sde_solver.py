@@ -32,6 +32,15 @@ import numpy as np
 import numpy.typing as npt
 
 
+def _validate_seed(seed: object) -> None:
+    """Raise ValueError unless `seed` is a non-negative integer (not a bool)."""
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
+        raise ValueError(
+            f"seed must be a non-negative integer, got {seed!r}; it is required so that the "
+            "same call always gives the same paths"
+        )
+
+
 def _validate_gbm_inputs(
     spot: float,
     rate: float,
@@ -59,7 +68,7 @@ def simulate_gbm_paths(
     time_to_maturity: float,
     num_steps: int,
     num_paths: int,
-    seed: int | None = None,
+    seed: int,
 ) -> npt.NDArray[np.float64]:
     """Simulate Geometric Brownian Motion paths with a positivity-preserving log Euler step.
 
@@ -73,7 +82,8 @@ def simulate_gbm_paths(
         time_to_maturity: Total simulated horizon T, in years.
         num_steps: Number of discretization steps.
         num_paths: Number of independent sample paths.
-        seed: Optional seed for reproducibility.
+        seed: Seed of the generator the paths are drawn from, a non-negative integer. It is
+            required, so the same call always gives the same paths.
 
     Returns:
         Array of shape (num_paths, num_steps + 1) of simulated asset prices,
@@ -85,6 +95,7 @@ def simulate_gbm_paths(
         See REFERENCES.md.
     """
     _validate_gbm_inputs(spot, rate, volatility, time_to_maturity, num_steps, num_paths)
+    _validate_seed(seed)
     return _simulate_gbm_paths(spot, rate, volatility, time_to_maturity, num_steps, num_paths, seed)
 
 
@@ -92,7 +103,7 @@ def _generate_gbm_increments(
     dt: float,
     num_steps: int,
     num_paths: int,
-    seed: int | None,
+    seed: int,
 ) -> npt.NDArray[np.float64]:
     """Draw the Brownian increments dW_k ~ N(0, dt) shared by both variants.
 
@@ -141,7 +152,7 @@ def _simulate_gbm_paths(
     time_to_maturity: float,
     num_steps: int,
     num_paths: int,
-    seed: int | None,
+    seed: int,
 ) -> npt.NDArray[np.float64]:
     dt = time_to_maturity / num_steps
     dw = _generate_gbm_increments(dt, num_steps, num_paths, seed)

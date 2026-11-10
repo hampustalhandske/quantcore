@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+from fractions import Fraction
+
 import numpy as np
 import pytest
 
@@ -29,6 +32,17 @@ def _stationary_ar1(n: int, phi: float, seed: int = RNG_SEED) -> np.ndarray:
         series[t] = phi * series[t - 1] + noise[t]
     return series
 
+
+
+def _exact_ols_slope(level: np.ndarray, delta: np.ndarray) -> float:
+    """The OLS slope of `delta` on `level` with an intercept, exact, rounded once to float."""
+    xs = [Fraction(v) for v in level.tolist()]
+    ys = [Fraction(v) for v in delta.tolist()]
+    n = len(xs)
+    sx, sy = sum(xs), sum(ys)
+    sxy = sum(x * y for x, y in zip(xs, ys, strict=True))
+    sxx = sum(x * x for x in xs)
+    return float((n * sxy - sx * sy) / (n * sxx - sx * sx))
 
 class TestAdfTest:
     def test_invalid_inputs(self) -> None:
@@ -250,15 +264,30 @@ class TestOuHalfLife:
         with pytest.raises(ValueError, match="mean reversion"):
             ou_half_life(np.array([1.0, 1.0, 1.0, 1.0, 2.0]))
 
-    @pytest.mark.parametrize("offset", [0.0, 1e2, 1e6])
-    def test_mean_reverting_result_is_the_lstsq_formula(self, offset: float) -> None:
-        # The rounding check decides only whether to raise; the half-life is the formula on
-        # lstsq's slope, unchanged.
-        spread = _stationary_ar1(500, phi=0.9, seed=RNG_SEED) + offset
-        delta = spread[1:] - spread[:-1]
-        design = np.column_stack([np.ones(spread.size - 1), spread[:-1]])
-        a = np.linalg.lstsq(design, delta, rcond=None)[0][1]
-        assert ou_half_life(spread) == float(-np.log(2.0) / np.log(1.0 + a))
+    @pytest.mark.parametrize("offset", [0.0, 1e2, 1e4])
+    @pytest.mark.parametrize("phi", [0.5, 0.9, 0.99])
+    def test_half_life_is_within_a_few_ulps_of_the_exact_ols_half_life(
+        self, offset: float, phi: float
+    ) -> None:
+        # The exact OLS slope of the float inputs, in rational arithmetic, rounded once; the
+        # half-life of that slope through log1p is the reference. The centred slope keeps the
+        # error small as the level moves away from 0; the uncentred [1, level] fit's error grows
+        # with offset / std, to 402-3121 ULPs at an offset of 1e4 on these nine cases.
+        spread = _stationary_ar1(500, phi=phi, seed=RNG_SEED) + offset
+        level, delta = spread[:-1], spread[1:] - spread[:-1]
+        exact = _exact_ols_slope(level, delta)
+        reference = -math.log(2.0) / math.log1p(exact)
+        ulps = abs(ou_half_life(spread) - reference) / math.ulp(reference)
+        assert ulps <= {0.0: 4, 1e2: 8, 1e4: 64}[offset]
+
+    def test_half_life_at_a_large_offset_beats_the_uncentred_fit(self) -> None:
+        spread = _stationary_ar1(500, phi=0.9, seed=RNG_SEED) + 1e4
+        level, delta = spread[:-1], spread[1:] - spread[:-1]
+        reference = -math.log(2.0) / math.log1p(_exact_ols_slope(level, delta))
+        design = np.column_stack([np.ones(level.size), level])
+        uncentred = float(np.linalg.lstsq(design, delta, rcond=None)[0][1])
+        uncentred_half_life = -math.log(2.0) / math.log1p(uncentred)
+        assert abs(ou_half_life(spread) - reference) < abs(uncentred_half_life - reference)
 
     # Note: an explicit "random walk / weakly-explosive series raises" test
     # was deliberately omitted here beyond the deterministic diverging and

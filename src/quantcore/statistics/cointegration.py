@@ -16,10 +16,12 @@ ADF test statistic (Dickey & Fuller 1979):
     computed by `statsmodels` (`adfuller`, `coint`).
 
 OU half-life (Avellaneda & Lee 2010):
-    Delta(spread_t) = a * spread_{t-1} + noise  (fit via OLS)
+    Delta(spread_t) = c + a * spread_{t-1} + noise  (fit via OLS)
+    a = sum(d_t * Delta(spread_t)) / sum(d_t^2),  d_t = spread_{t-1} - mean(spread_{t-1})
     level-form AR(1) coefficient: phi = 1 + a
-    half_life = -ln(2) / ln(phi)
-    A slope that is not negative by more than its rounding error raises ValueError.
+    half_life = -ln(2) / ln(phi), with ln(phi) computed as log1p(a)
+    The slope is the OLS slope in centred form, which keeps its accuracy when the level is far
+    from 0. A slope that is not negative by more than its rounding error raises ValueError.
 
 Z-score (rolling):
     z_t = (spread_t - rolling_mean_t) / rolling_std_t
@@ -38,6 +40,8 @@ References:
 """
 
 from __future__ import annotations
+
+import math
 
 import numpy as np
 import numpy.typing as npt
@@ -243,21 +247,21 @@ def ou_half_life(spread: npt.NDArray[np.float64]) -> float:
     return _ou_half_life(spread)
 
 
-def _slope_is_resolvably_negative(
+def _centred_slope(
     level: npt.NDArray[np.float64], delta: npt.NDArray[np.float64]
-) -> bool:
-    """Whether the AR(1) slope of `delta` on `level` is negative beyond rounding error.
+) -> tuple[float, float] | None:
+    """The OLS slope of `delta` on `level` with an intercept, and a bound on its rounding error.
 
     The slope is computed in centred form, `sum(c * delta) / sum(c**2)` with `c = level -
     mean(level)`. Its worst-case floating-point error is at most
     `eps * (n * sum(|c * delta|) + 2 * max(|level|) * sum(|delta|)) / sum(c**2)`. The first
-    term bounds the rounding of the dot product, the second the rounding of `c`. Returns False
-    when `level` is constant, where the slope is undefined.
+    term bounds the rounding of the dot product, the second the rounding of `c`. None when
+    `level` is constant, where the slope is undefined.
     """
     centred = level - level.mean()
     sum_sq = float(centred @ centred)
     if sum_sq == 0.0:
-        return False
+        return None
     slope = float(centred @ delta) / sum_sq
     abs_delta = np.abs(delta)
     rounding = float(
@@ -268,19 +272,16 @@ def _slope_is_resolvably_negative(
         )
         / sum_sq
     )
-    return slope < -rounding
+    return slope, rounding
 
 
 def _ou_half_life(spread: npt.NDArray[np.float64]) -> float:
     delta = spread[1:] - spread[:-1]
     level = spread[:-1]
-    x_reg = np.column_stack([np.ones_like(level), level])
-    beta, _, _, _ = np.linalg.lstsq(x_reg, delta, rcond=None)
-    a = float(beta[1])
-    level_coef = 1.0 + a
-    if a >= 0.0 or level_coef <= 0.0 or not _slope_is_resolvably_negative(level, delta):
+    fitted = _centred_slope(level, delta)
+    if fitted is None or not fitted[0] < -fitted[1] or not 1.0 + fitted[0] > 0.0:
         raise ValueError("estimated series does not exhibit mean reversion (phi >= 0, diverging)")
-    return float(-np.log(2.0) / np.log(level_coef))
+    return -math.log(2.0) / math.log1p(fitted[0])
 
 
 # ---------------------------------------------------------------------------

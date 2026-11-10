@@ -47,6 +47,8 @@ from __future__ import annotations
 
 import math
 import warnings
+from collections.abc import Mapping
+from types import MappingProxyType
 
 import numpy as np
 import numpy.typing as npt
@@ -249,7 +251,7 @@ def _arch_lm_test(residuals: npt.NDArray[np.float64], n_lags: int) -> tuple[floa
 _KPSS_TRENDS = ("c", "ct")
 # Deterministic terms removed under each null; the series needs two more
 # observations than that for the statistic to vary with the data at all.
-_KPSS_DETERMINISTIC_TERMS: dict[str, int] = {"c": 1, "ct": 2}
+_KPSS_DETERMINISTIC_TERMS: Mapping[str, int] = MappingProxyType({"c": 1, "ct": 2})
 # Relative size below which the sum of the leading autocovariances counts as
 # zero when the automatic lag count is chosen.
 _KPSS_BANDWIDTH_TOLERANCE = 1e-12
@@ -386,6 +388,7 @@ def _check_kpss_is_defined(scaled: npt.NDArray[np.float64], n_lags: int | None, 
 def _kpss_test(
     series: npt.NDArray[np.float64], n_lags: int | None, trend: str
 ) -> tuple[float, float, bool]:
+    from statsmodels.tools.sm_exceptions import InterpolationWarning
     from statsmodels.tsa.stattools import kpss
 
     # The statistic and the automatic lag count are ratios from which the
@@ -395,8 +398,9 @@ def _kpss_test(
     _check_kpss_is_defined(scaled, n_lags, trend)
     with warnings.catch_warnings():
         # statsmodels warns when the statistic lies outside the table; the
-        # caller gets that information as `p_value_at_bound`.
-        warnings.simplefilter("ignore")
+        # caller gets that information as `p_value_at_bound`. Every other
+        # warning reaches the caller.
+        warnings.simplefilter("ignore", InterpolationWarning)
         statistic, p_value, _, critical_values = kpss(
             scaled,
             regression=trend,

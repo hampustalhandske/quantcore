@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from fractions import Fraction
 
 import numpy as np
@@ -379,6 +380,28 @@ class TestKpssTest:
         for t in range(1, 300):
             persistent[t] = 0.9 * persistent[t - 1] + noise[t]
         assert selected_lags(persistent) > selected_lags(noise)
+
+    def test_out_of_table_statistic_warns_nothing(self) -> None:
+        # The out-of-table case is reported as `p_value_at_bound`, not as a warning.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert kpss_test(_random_walk(500))[2] is True
+            assert kpss_test(_white_noise(500), n_lags=0)[2] is True
+
+    def test_a_warning_other_than_interpolation_reaches_the_caller(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import statsmodels.tsa.stattools as stattools
+
+        real_kpss = stattools.kpss
+
+        def kpss_that_warns(*args: object, **kwargs: object) -> object:
+            warnings.warn("planted", RuntimeWarning, stacklevel=2)
+            return real_kpss(*args, **kwargs)
+
+        monkeypatch.setattr(stattools, "kpss", kpss_that_warns)
+        with pytest.warns(RuntimeWarning, match="planted"):
+            kpss_test(_white_noise(200), n_lags=2)
 
     def test_statistic_does_not_depend_on_level_or_scale(self) -> None:
         series = _random_walk(80) * 0.25 + _white_noise(80, RNG_SEED + 2)

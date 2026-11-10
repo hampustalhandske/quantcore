@@ -1,7 +1,8 @@
 # quantcore
 
 Pip-installable numerical backend for derivative pricing, stochastic
-differential equation (SDE) simulation, and risk/portfolio metrics.
+differential equation (SDE) simulation, risk, statistics, portfolio
+construction and backtest-overfitting statistics.
 
 Other projects (fraud detection, backtesting, agentic trading) depend on
 this package for all numerically heavy calculations — correctness and

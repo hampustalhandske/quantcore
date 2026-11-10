@@ -1,7 +1,7 @@
 [project]
 name = "quantcore"
 version = "0.3.2"
-description = "Optimized numerical backend for derivative pricing, SDE simulation, and risk metrics"
+description = "Numerical backend for derivative pricing, SDE simulation, risk, statistics, portfolio construction and backtest-overfitting statistics"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

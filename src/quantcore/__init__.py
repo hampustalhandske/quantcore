@@ -1,4 +1,4 @@
-"""quantcore: numerical backend for derivative pricing, SDE simulation, and risk metrics."""
+"""quantcore: numerical backend for pricing, SDE simulation, risk, statistics and portfolios."""
 
 from importlib.metadata import PackageNotFoundError, version
 

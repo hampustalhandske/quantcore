@@ -6,6 +6,23 @@ results that changed carry a before/after example, as the project's
 ground rules require — other projects install this package and must be able
 to see exactly what changed and why before upgrading.
 
+## [Unreleased]
+
+No returned number changes.
+
+### Added
+
+- The public API as a versioned, hashed manifest, `api_manifest.json`, shipped in the package
+  and checked against the source by a test. Consumers vendor it and test their imports
+  against it (`docs/API_MANIFEST.md`). The manifests of 0.3.1 and 0.3.2 are in
+  `docs/api_manifests/` (`docs/ISSUES.md` QC-29).
+
+### Changed
+
+- `kpss_test` silences only statsmodels' `InterpolationWarning`, the out-of-table case it
+  reports as `p_value_at_bound`. A warning of any other class now reaches the caller; 0.3.2
+  silenced every warning raised inside statsmodels' `kpss` (`docs/ISSUES.md` QC-30).
+
 ## [0.3.2] — 2026-11-06
 
 ### Fixed — behaviour changed

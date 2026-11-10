@@ -344,10 +344,10 @@ the value an exactly representable constant gives. The conformance oracles use t
 
 An audit against ten engineering rules: determinism tested, state outside checkpoints, contracts
 vendored and tested on both sides, fail closed, and every check shown to fail on a planted
-defect. Batch 1 (QC-23, 24, 27, 28, 30, 33, 35) moves no number. Batch 2 changes the API or
+defect. Batch 1 (QC-23, 24, 27, 28, 29, 30, 33, 35) moves no number. Batch 2 changes the API or
 behaviour and needs the owner's word.
 
-### QC-23: No test that two processes give bit-identical results — open (batch 1)
+### QC-23: No test that two processes give bit-identical results — done (batch 1)
 Every reproducibility test repeats a call inside one process (`test_sde_solver.py`,
 `test_stochastic.py`, `test_price_paths.py`, `test_bootstrap.py`). Nothing shows that a result is
 the same under another BLAS thread count, or with a cold against a warm Numba cache.
@@ -355,12 +355,17 @@ Acceptance: a battery that calls each public function on fixed inputs runs in tw
 one with the default threads and an empty Numba cache, one with every BLAS thread count at 1 and
 the cache warm, and the digests of all outputs agree. Negative control: a planted function that
 draws from an unseeded generator makes the test fail.
+Done: `tests/determinism_battery.py` calls all 87 public functions; the test requires every
+digest to agree and the planted call to differ (about 20 s, 0.34 GB per process).
 
-### QC-24: The bit-exact price-path pins run only on macOS arm64 — open (batch 1)
+### QC-24: The bit-exact price-path pins run only on macOS arm64 — done for macOS (batch 1)
 `tests/unit/core/test_price_paths.py` skips the whole-array digests on every other platform, so
 CI (ubuntu-latest) never checks the bit-stability contract that edgelab's simulations rely on.
 Acceptance: digests recorded per platform and checked wherever one is recorded; a platform with
 none is reported, not passed silently.
+Done: digests are keyed by platform and an unrecorded platform fails the digest test, naming
+the digest to record. Only macOS arm64 is recorded; the Linux arm64 and x86_64 digests are
+recorded from the first Linux runs, before the next push.
 
 ### QC-25: A quantcore number's provenance is only the commit — open (batch 2, consumers)
 A number also depends on the resolved NumPy, SciPy, Numba, arch and statsmodels and on the
@@ -372,27 +377,34 @@ can supply the version list.
 forgotten seed gives a non-reproducible result without a word. Both consumers pass seeds today.
 Changing it is an API change.
 
-### QC-27: Nothing enforces that quantcore keeps no module-level mutable state — open (batch 1)
+### QC-27: Nothing enforces that quantcore keeps no module-level mutable state — done (batch 1)
 No module holds a cache, registry or global today. The only mutable module-level object is
 `_KPSS_DETERMINISTIC_TERMS`, a dict that is only read. Acceptance: a census test fails on any
 module-level mutable object not on an allowlist with a reason; negative control: a planted
 module-level dict fails it.
+Done: `tests/unit/test_module_state.py` also fails on a `global` or `nonlocal` statement; the
+KPSS map is a read-only mapping.
 
-### QC-28: Only `ConvergenceError` is tested to round-trip through pickle — open (batch 1)
+### QC-28: Only `ConvergenceError` is tested to round-trip through pickle — done (batch 1)
 Consumers checkpoint quantcore objects. Acceptance: every public result class and exception
 round-trips with all fields equal; negative control: an exception with required keyword
 arguments and no `__reduce__` fails.
+Done: `tests/unit/test_public_types_pickle.py` walks the exported classes, so a new one is
+covered without being listed.
 
-### QC-29: The public API has no machine-readable manifest — open (batch 2, consumers)
+### QC-29: The public API has no machine-readable manifest — done in quantcore (batch 1)
 No quantcore test fails when a name or signature a consumer imports changes, and the consumer
 notice is prose. Proposed: a generated manifest (names, signatures, result fields, exceptions,
 version) checked by a test, vendored by each consumer.
+Done: `src/quantcore/api_manifest.json`, built from the source with `ast` and shipped in the
+package, with its SHA-256; `docs/API_MANIFEST.md` gives the consumer check. Both consumers'
+current imports resolve against the 0.3.1 manifest. Left: edgelab and agentic vendor it.
 
-### QC-30: `kpss_test` silences every warning — open (batch 1)
+### QC-30: `kpss_test` silences every warning — done (batch 1)
 `_kpss_test` wraps statsmodels' `kpss` in `warnings.simplefilter("ignore")`, which hides any
 warning, not only the out-of-table `InterpolationWarning` it reports as `p_value_at_bound`.
 Acceptance: only `InterpolationWarning` is filtered; a warning of another class reaches the
-caller.
+caller. Done; the blanket filter fails the new test.
 
 ### QC-31: `__version__` falls back to "0.0.0+unknown" — open (later)
 An import from an uninstalled tree reports a made-up version. No consumer reads it.
@@ -402,17 +414,19 @@ Several ratios return NaN, and a zero risk denominator gives inf, while `cscv_pb
 `ou_half_life` raise `ValueError`. A NaN passes into a downstream result without a word. One
 policy is the owner's decision.
 
-### QC-33: The oracle tests skip when a reference library is missing — open (batch 1)
+### QC-33: The oracle tests skip when a reference library is missing — done (batch 1)
 Twenty oracle modules and the conformance builder tests start with `pytest.importorskip`, so
 without the `oracle` extra the oracle coverage turns into skips and the suite still passes.
 Acceptance: a missing reference library fails the run; negative control: hiding one library
 makes the suite fail.
+Done: `tests/conftest.py` fails the run on any skip for a library that cannot be imported, and
+lists those skips; with filterpy hidden the Kalman oracle run exits 1.
 
 ### QC-34: CI resolves the latest uv and dependencies, not the consumers' locked versions — open (batch 2)
 A green run certifies whatever resolved that day. Proposed: pin uv, and a job that runs the
 suite on the dependency versions in each consumer's lock.
 
-### QC-35: Stale descriptions — open (batch 1)
+### QC-35: Stale descriptions — done (batch 1)
 `tests/oracle/README.md` still describes a `backend` argument. The package docstring and the
 `pyproject.toml` description name only pricing, SDE simulation and risk.
 

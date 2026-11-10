@@ -266,7 +266,7 @@ generator draws continuous panels, which never tie, so the conformance map does 
 Agreed with edgelab (its one caller, `_pbo_outcome`, reports the case as not evaluated) and
 accepted by the master under the owner's rule for producer-consumer fixes, 2026-11-06.
 
-### QC-21: `ou_half_life` loses its slope when the level is far from 0 — open
+### QC-21: `ou_half_life` loses its slope when the level is far from 0 — done (batch 2)
 lstsq fits the slope on the uncentred `[1, level]`, whose condition number grows with
 `|mean(level)| / std(level)`. Measured against the centred slope on AR(1) spreads with unit
 noise: relative error up to 9e-11 at an offset of 1e4 and 8e-9 at 1e6, and at 1e8 the slope is
@@ -274,6 +274,10 @@ lost (relative error 1, sign wrong on 345 of 720 fits). Since v0.3.2 a wrong-sig
 raises `ValueError`, but a wrong negative slope still returns a wrong half-life. Proposed fix:
 compute the slope in centred form, which moves the last bits of every half-life, so it needs
 a conformance run, a changelog example and the owner's word.
+Done (owner yes, 2026-11-10): the centred slope, and `log1p` for `ln(1 + a)`. Against the exact
+rational OLS half-life on 359 fits, the median error moves 3 → 0.5 ULPs at offset 0, 9 → 1 at
+1e2 and 405 → 37 at 1e4; the shift from 0.3.2 is median 3, 9 and 453 ULPs. The tests bound the
+error at 4, 8 and 64 ULPs on nine fixed cases, where the old formula fails seven.
 
 ## Evaluation
 
@@ -372,10 +376,11 @@ A number also depends on the resolved NumPy, SciPy, Numba, arch and statsmodels 
 platform (QC-18). edgelab and agentic record only the quantcore commit. Their fix; quantcore
 can supply the version list.
 
-### QC-26: The path simulators draw fresh entropy when no seed is given — open (batch 2, owner)
+### QC-26: The path simulators draw fresh entropy when no seed is given — done (batch 2)
 `simulate_gbm_paths`, `simulate_ou_paths` and `simulate_cir_paths` default to `seed=None`, so a
 forgotten seed gives a non-reproducible result without a word. Both consumers pass seeds today.
 Changing it is an API change.
+Done (owner yes, 2026-11-10): `seed` is a required non-negative integer.
 
 ### QC-27: Nothing enforces that quantcore keeps no module-level mutable state — done (batch 1)
 No module holds a cache, registry or global today. The only mutable module-level object is

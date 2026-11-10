@@ -8,7 +8,25 @@ to see exactly what changed and why before upgrading.
 
 ## [Unreleased]
 
-No returned number changes.
+### Changed — numbers moved
+
+- `ou_half_life` computes the AR(1) slope as the OLS slope in centred form,
+  `sum(d * delta) / sum(d**2)` with `d = level - mean(level)`, and the half-life as
+  `-ln(2) / log1p(a)`. The uncentred `[1, level]` least-squares slope lost accuracy as the level
+  moved away from 0, and `log(1 + a)` rounded `1 + a` first. Every returned half-life moves in
+  its last bits, towards the exact OLS half-life. On 359 AR(1) fits (n 50 to 2,000, phi 0.5,
+  0.9, 0.99), measured in units in the last place against the half-life of the exact OLS slope
+  (median / max): 3 / 26 → 0.5 / 4 for a spread around 0, 9 / 293 → 1 / 152 around 100 (unit
+  noise), 405 / 14,918 → 37 / 5,488 around 10,000. Which series raise is unchanged
+  (`docs/ISSUES.md` QC-21).
+
+### Changed — API
+
+- `simulate_gbm_paths`, `simulate_ou_paths` and `simulate_cir_paths` require `seed`, a
+  non-negative integer. It defaulted to None, which drew fresh entropy, so a call without a
+  seed gave paths nobody could reproduce. A call without one raises `TypeError`; None, a
+  negative number, a float, a bool or a string raises `ValueError`. Paths for a given seed are
+  unchanged (`docs/ISSUES.md` QC-26).
 
 ### Added
 

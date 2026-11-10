@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import math
 import platform
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -325,11 +326,13 @@ _PIN_CELLS = ((0, 0), (0, 1), (1, 1), (0, 125), (1, 250), (2, 250))
 # bit-identical floating-point results across platforms, and at least one sampler used here
 # depends on the build: on arm64 `Generator.normal(loc, scale)` evaluates `loc + scale * z` with a
 # fused multiply-add (one rounding), which a build without that instruction cannot reproduce. The
-# arrays are therefore required to match bit for bit only on the platform they were recorded on.
-# Elsewhere the cells are held to 1e-12 relative, which last-bit differences stay far inside and
-# which any change in the draw order, the assignment of variates or the scheme exceeds by many
-# orders of magnitude; the whole-array digest cannot be compared there and is skipped.
-_PINS_ARE_BIT_EXACT_HERE = platform.system() == "Darwin" and platform.machine() == "arm64"
+# whole-array digest is therefore recorded per platform, keyed by `_PLATFORM`, and a platform with
+# no recorded digest fails the digest test, which names the digest to record. The cells are
+# exact on macOS arm64; elsewhere they are held to 1e-12 relative, which last-bit differences
+# stay far inside and which any change in the draw order, the assignment of variates or the
+# scheme exceeds by many orders of magnitude.
+_PLATFORM = f"{platform.system()}-{platform.machine()}"
+_PINS_ARE_BIT_EXACT_HERE = _PLATFORM == "Darwin-arm64"
 _PIN_RTOL_ELSEWHERE = 1e-12
 
 
@@ -342,7 +345,8 @@ class _Pin:
         dt: Step length passed to it.
         kwargs: Keyword arguments passed to it.
         cells: The output at `_PIN_CELLS`, as `float.hex()` strings.
-        sha256: SHA-256 of the whole output array (row-major, little-endian float64 bytes).
+        sha256: SHA-256 of the whole output array (row-major, little-endian float64 bytes), per
+            platform (`_PLATFORM`).
         next_uniform: The generator's next `rng.random()` after the call, as a `float.hex()`
             string.
     """
@@ -351,7 +355,7 @@ class _Pin:
     dt: float
     kwargs: dict[str, float]
     cells: tuple[str, ...]
-    sha256: str
+    sha256: dict[str, str]
     next_uniform: str
 
 
@@ -368,7 +372,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.7b4547b657be9p+5",
             "0x1.02202e356b26cp+6",
         ),
-        "374de5eb5e9ebed09d24df3ccc474950d0bf5e11ea46f4af2dd83be16a3b3782",
+        {"Darwin-arm64": "374de5eb5e9ebed09d24df3ccc474950d0bf5e11ea46f4af2dd83be16a3b3782"},
         "0x1.e9dfc5f1669b7p-1",
     ),
     "gbm-weekly": _Pin(
@@ -383,7 +387,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.3b4d421a49cd9p+3",
             "0x1.c710e5d8ef0d4p+3",
         ),
-        "d0b3345c5a6396096a4855d9a7d67a1cca0d445a054e312841b763d56dc5c55e",
+        {"Darwin-arm64": "d0b3345c5a6396096a4855d9a7d67a1cca0d445a054e312841b763d56dc5c55e"},
         "0x1.e9dfc5f1669b7p-1",
     ),
     "heston-feller-violated-daily": _Pin(
@@ -398,7 +402,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.a253f1e5d69e8p+6",
             "0x1.588aa9af1759dp+6",
         ),
-        "b1c8bdd0cf21dc7d00111861f7fe03ce67ee2fb8018ab3fcb1e8cae3a290b3d2",
+        {"Darwin-arm64": "b1c8bdd0cf21dc7d00111861f7fe03ce67ee2fb8018ab3fcb1e8cae3a290b3d2"},
         "0x1.f4c99a86c4f28p-2",
     ),
     "heston-zero-initial-variance-weekly": _Pin(
@@ -413,7 +417,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.0393d2793b02ap+7",
             "0x1.d869e9279901bp+6",
         ),
-        "657d09d04d4609bfe5b77bc03ffcc6d594a6a4500081c5f743261537b3a18651",
+        {"Darwin-arm64": "657d09d04d4609bfe5b77bc03ffcc6d594a6a4500081c5f743261537b3a18651"},
         "0x1.f4c99a86c4f28p-2",
     ),
     "garch_t-daily": _Pin(
@@ -428,7 +432,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.c67ae8374f994p+4",
             "0x1.0df3fe81dc8ffp+4",
         ),
-        "8ce4f4b9b3976b046f634eafa8e5adf1d9be20331a70b058a5b47a56902724fd",
+        {"Darwin-arm64": "8ce4f4b9b3976b046f634eafa8e5adf1d9be20331a70b058a5b47a56902724fd"},
         "0x1.6baf10418e6d0p-2",
     ),
     "garch_t-weekly": _Pin(
@@ -443,7 +447,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.0cb630522ff9ep+6",
             "0x1.e032208719f5fp+5",
         ),
-        "053ed984e75d9dcd8edfce8261c3b178eac2401e351cceb6d1645fac33071dbc",
+        {"Darwin-arm64": "053ed984e75d9dcd8edfce8261c3b178eac2401e351cceb6d1645fac33071dbc"},
         "0x1.0589e3137f5bep-1",
     ),
     "jump_diffusion-daily": _Pin(
@@ -465,7 +469,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.d7d7124782b3ap+2",
             "0x1.049195b681e4ap+4",
         ),
-        "991b5239aad03c3f1892c74e1338addea998066558126d3a75aeb0e9f341ab09",
+        {"Darwin-arm64": "991b5239aad03c3f1892c74e1338addea998066558126d3a75aeb0e9f341ab09"},
         "0x1.9e34141a4d637p-1",
     ),
     "jump_diffusion-many-jumps-weekly": _Pin(
@@ -480,7 +484,7 @@ _PINS: dict[str, _Pin] = {
             "0x1.18c674d4eb826p+6",
             "0x1.c4a3bbdc4297cp+7",
         ),
-        "e785f8dc097f56e272beaab7fdea0f14af3f56b0ccda308e2ee81710d5e634ce",
+        {"Darwin-arm64": "e785f8dc097f56e272beaab7fdea0f14af3f56b0ccda308e2ee81710d5e634ce"},
         "0x1.697c63c5a1fbcp-2",
     ),
 }
@@ -503,15 +507,16 @@ class TestPinnedOutput:
     the stream the call consumed.
     """
 
-    @pytest.mark.skipif(
-        not _PINS_ARE_BIT_EXACT_HERE,
-        reason="bits were recorded on macOS arm64; NumPy does not round identically elsewhere",
-    )
     @pytest.mark.parametrize("case", sorted(_PINS))
     def test_whole_array_matches_the_pinned_digest(self, case: str) -> None:
         pin = _PINS[case]
         paths, _ = _simulate_pinned(pin)
-        assert hashlib.sha256(paths.astype("<f8").tobytes()).hexdigest() == pin.sha256
+        digest = hashlib.sha256(paths.astype("<f8").tobytes()).hexdigest()
+        assert _PLATFORM in pin.sha256, (
+            f"no digest recorded for {_PLATFORM}; record {digest!r} for {case!r} after checking "
+            "that the cells pass"
+        )
+        assert digest == pin.sha256[_PLATFORM]
 
     @pytest.mark.parametrize("case", sorted(_PINS))
     def test_cells_match_the_pinned_values(self, case: str) -> None:
@@ -523,6 +528,21 @@ class TestPinnedOutput:
         else:
             expected = [float.fromhex(cell) for cell in pin.cells]
             np.testing.assert_allclose(actual, expected, rtol=_PIN_RTOL_ELSEWHERE, atol=0.0)
+
+    def test_a_platform_with_no_recorded_digest_fails_and_names_the_digest(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys.modules[__name__], "_PLATFORM", "Plan9-mips")
+        expected = r"no digest recorded for Plan9-mips; record '[0-9a-f]{64}'"
+        with pytest.raises(AssertionError, match=expected):
+            self.test_whole_array_matches_the_pinned_digest("gbm-daily")
+
+    def test_the_digest_moves_when_one_element_moves_by_one_unit_in_the_last_place(self) -> None:
+        paths, _ = _simulate_pinned(_PINS["gbm-daily"])
+        moved = paths.copy()
+        moved[1, 125] = np.nextafter(moved[1, 125], np.inf)
+        digest = hashlib.sha256(paths.astype("<f8").tobytes()).hexdigest()
+        assert hashlib.sha256(moved.astype("<f8").tobytes()).hexdigest() != digest
 
     @pytest.mark.parametrize("case", sorted(_PINS))
     def test_generator_next_draw_matches_the_pinned_value(self, case: str) -> None:

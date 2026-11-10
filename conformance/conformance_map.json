@@ -8,7 +8,7 @@
     "hmmlearn": "0.3.3",
     "hypothesis": "6.168.0",
     "linearmodels": "7.0",
-    "numpy": "2.5.3",
+    "numpy": "2.5.4",
     "pandas": "3.0.6",
     "py_vollib": "1.0.12",
     "quantstats": "0.0.81",
@@ -16,7 +16,7 @@
     "scipy": "1.18.1",
     "statsmodels": "0.15.0"
   },
-  "quantcore_version": "0.3.0",
+  "quantcore_version": "0.3.2",
   "schema_version": 1,
   "targets": {
     "arima_fit": {
@@ -501,13 +501,13 @@
         "value": {
           "cases": 200,
           "max_abs_error": 2.44e-15,
-          "max_rel_error": 1.59e-12
+          "max_rel_error": 2.84e-12
         }
       },
       "cases": 200,
       "finding": null,
       "max_abs_error": 2.44e-15,
-      "max_rel_error": 1.59e-12,
+      "max_rel_error": 2.84e-12,
       "oracle": "statsmodels (OLS, cov_type='HAC', use_correction=False; two-sided normal p-values)",
       "reason": "",
       "status": "verified",
@@ -711,7 +711,7 @@
         "p_value": {
           "cases": 200,
           "max_abs_error": 4.33e-15,
-          "max_rel_error": 1.38e-13
+          "max_rel_error": 1.31e-13
         },
         "se": {
           "cases": 200,
@@ -1040,14 +1040,14 @@
       "by_quantity": {
         "value": {
           "cases": 200,
-          "max_abs_error": 9.44e-16,
-          "max_rel_error": 1.85e-13
+          "max_abs_error": 9.16e-16,
+          "max_rel_error": 2.47e-13
         }
       },
       "cases": 200,
       "finding": null,
-      "max_abs_error": 9.44e-16,
-      "max_rel_error": 1.85e-13,
+      "max_abs_error": 9.16e-16,
+      "max_rel_error": 2.47e-13,
       "oracle": "statsmodels",
       "reason": "",
       "status": "verified",
@@ -1145,14 +1145,14 @@
       "by_quantity": {
         "value": {
           "cases": 200,
-          "max_abs_error": 8.19e-12,
-          "max_rel_error": 3.63e-14
+          "max_abs_error": 2.21e-12,
+          "max_rel_error": 7.07e-14
         }
       },
       "cases": 200,
       "finding": null,
-      "max_abs_error": 8.19e-12,
-      "max_rel_error": 3.63e-14,
+      "max_abs_error": 2.21e-12,
+      "max_rel_error": 7.07e-14,
       "oracle": "statsmodels.OLS slope on the lagged series",
       "reason": "",
       "status": "verified",

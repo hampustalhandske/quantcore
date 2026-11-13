@@ -19,6 +19,7 @@ OU half-life (Avellaneda & Lee 2010):
     Delta(spread_t) = a * spread_{t-1} + noise  (fit via OLS)
     level-form AR(1) coefficient: phi = 1 + a
     half_life = -ln(2) / ln(phi)
+    A slope that is not negative by more than its rounding error raises ValueError.
 
 Z-score (rolling):
     z_t = (spread_t - rolling_mean_t) / rolling_std_t
@@ -230,9 +231,44 @@ def ou_half_life(spread: npt.NDArray[np.float64]) -> float:
 
     Returns:
         Half-life of mean reversion, in the same time units as `spread`.
+
+    Raises:
+        ValueError: If the fitted slope `a` does not show mean reversion: `a >= 0`, or
+            `1 + a <= 0`, or the slope is not negative by more than its rounding error. The
+            last case covers a series whose slope is exactly 0 in exact arithmetic, such as a
+            straight line, where the computed slope is rounding noise of either sign. It also
+            covers a series whose level does not vary before the last observation.
     """
     _validate_ou_half_life_inputs(spread)
     return _ou_half_life(spread)
+
+
+def _slope_is_resolvably_negative(
+    level: npt.NDArray[np.float64], delta: npt.NDArray[np.float64]
+) -> bool:
+    """Whether the AR(1) slope of `delta` on `level` is negative beyond rounding error.
+
+    The slope is computed in centred form, `sum(c * delta) / sum(c**2)` with `c = level -
+    mean(level)`. Its worst-case floating-point error is at most
+    `eps * (n * sum(|c * delta|) + 2 * max(|level|) * sum(|delta|)) / sum(c**2)`. The first
+    term bounds the rounding of the dot product, the second the rounding of `c`. Returns False
+    when `level` is constant, where the slope is undefined.
+    """
+    centred = level - level.mean()
+    sum_sq = float(centred @ centred)
+    if sum_sq == 0.0:
+        return False
+    slope = float(centred @ delta) / sum_sq
+    abs_delta = np.abs(delta)
+    rounding = float(
+        np.finfo(np.float64).eps
+        * (
+            level.size * float(np.abs(centred) @ abs_delta)
+            + 2.0 * float(np.max(np.abs(level))) * float(abs_delta.sum())
+        )
+        / sum_sq
+    )
+    return slope < -rounding
 
 
 def _ou_half_life(spread: npt.NDArray[np.float64]) -> float:
@@ -242,7 +278,7 @@ def _ou_half_life(spread: npt.NDArray[np.float64]) -> float:
     beta, _, _, _ = np.linalg.lstsq(x_reg, delta, rcond=None)
     a = float(beta[1])
     level_coef = 1.0 + a
-    if a >= 0.0 or level_coef <= 0.0:
+    if a >= 0.0 or level_coef <= 0.0 or not _slope_is_resolvably_negative(level, delta):
         raise ValueError("estimated series does not exhibit mean reversion (phi >= 0, diverging)")
     return float(-np.log(2.0) / np.log(level_coef))
 

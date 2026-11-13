@@ -15,10 +15,12 @@ how sigma_0 was seeded -- and treat output[0] as a given.
 
 from __future__ import annotations
 
+import pickle
+
 import numpy as np
 import pytest
 
-from quantcore.risk.volatility import garch_11_variance
+from quantcore.risk.volatility import ConvergenceError, garch_11_variance
 
 # ---------------------------------------------------------------------------
 # Shape / well-formedness
@@ -134,3 +136,37 @@ def test_non_stationary_alpha_plus_beta_raises(alpha: float, beta: float) -> Non
 def test_empty_returns_raises() -> None:
     with pytest.raises(ValueError):
         garch_11_variance(np.array([]), omega=0.0001, alpha=0.1, beta=0.85)
+
+
+# ---------------------------------------------------------------------------
+# ConvergenceError pickling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("params", "log_likelihood", "optimizer_message"),
+    [((1e-6, 0.05, 0.9), -123.5, "Iteration limit reached"), (None, None, None)],
+)
+def test_convergence_error_round_trips_through_pickle(
+    params: tuple[float, ...] | None, log_likelihood: float | None, optimizer_message: str | None
+) -> None:
+    message = "GARCH(1,1) did not converge"
+    error = ConvergenceError(message, params, log_likelihood, optimizer_message)
+    error.add_note("carried by a checkpoint")
+    restored = pickle.loads(pickle.dumps(error, protocol=pickle.HIGHEST_PROTOCOL))
+    assert type(restored) is ConvergenceError
+    assert restored.args == (message,)
+    assert restored.params == params
+    assert restored.log_likelihood == log_likelihood
+    assert restored.optimizer_message == optimizer_message
+    assert restored.__notes__ == ["carried by a checkpoint"]
+
+
+def test_convergence_error_subclass_round_trips_as_itself() -> None:
+    restored = pickle.loads(pickle.dumps(_SubclassedConvergenceError("m", (1.0,), -1.0, "x")))
+    assert type(restored) is _SubclassedConvergenceError
+    assert restored.params == (1.0,)
+
+
+class _SubclassedConvergenceError(ConvergenceError):
+    pass

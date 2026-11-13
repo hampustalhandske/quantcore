@@ -1,8 +1,10 @@
 [project]
 name = "quantcore"
-version = "0.3.1"
+version = "0.3.2"
 description = "Optimized numerical backend for derivative pricing, SDE simulation, and risk metrics"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 # Lower bounds are the versions the test suite runs on. Upper bounds sit at the next release
 # that may change an API or a default quantcore relies on: arch's next major and statsmodels'
@@ -47,7 +49,7 @@ oracle = [
 ]
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

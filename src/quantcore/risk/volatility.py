@@ -64,6 +64,9 @@ class ConvergenceError(RuntimeError):
         optimizer_message: The underlying `scipy.optimize.minimize`
             result's `message` for the best attempt, or `None` under the
             same condition as `params`.
+
+    It pickles and unpickles with every attribute, and with anything else
+    set on the instance (such as notes added with `add_note`).
     """
 
     def __init__(
@@ -77,6 +80,12 @@ class ConvergenceError(RuntimeError):
         self.params = params
         self.log_likelihood = log_likelihood
         self.optimizer_message = optimizer_message
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        # BaseException's default replays only `args` (the message) into __init__, which also
+        # needs params, log_likelihood and optimizer_message.
+        constructor_args = (self.args[0], self.params, self.log_likelihood, self.optimizer_message)
+        return (type(self), constructor_args, self.__dict__)
 
 
 def _validate_garch_inputs(

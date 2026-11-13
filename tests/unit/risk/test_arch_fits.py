@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pickle
+
 import numpy as np
 import pytest
 from arch import arch_model
@@ -265,6 +267,13 @@ class TestArchConventions:
             fitter(self.RETURNS)  # type: ignore[operator]
         assert raised.value.params is not None and len(raised.value.params) == 4
         assert raised.value.optimizer_message == "stopped by the test"
+
+        restored = pickle.loads(pickle.dumps(raised.value))
+        assert type(restored) is ConvergenceError
+        assert restored.args == raised.value.args
+        assert restored.params == raised.value.params
+        assert restored.log_likelihood == raised.value.log_likelihood
+        assert restored.optimizer_message == raised.value.optimizer_message
 
     @pytest.mark.parametrize("fitter", [egarch_fit, gjr_garch_fit])
     def test_returns_without_variation_raise(self, fitter: object) -> None:
